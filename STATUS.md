@@ -70,6 +70,20 @@ Opravy nalezené během testování (všechny v kódu):
   `reg.exe` (bez admina, uživatel to umí sám zrušit). Přepínač se řídí reálným
   stavem registru — když zápis selže, skočí zpět a řekne to.
 
+## 🔄 Aktualizace (25. 7. 2026)
+- appka se ptá GitHubu na nejnovější vydání **přes vlastní Tor okruh** (SOCKS
+  port běžícího `tor.exe`) — kontrola aktualizací tedy neprozradí IP ani to,
+  že běží Umbra. TLS přes rustls + vlastní CA roots (ne systémové úložiště).
+- nainstaluje se **jen archiv podepsaný Ed25519 klíčem autora**; veřejný klíč je
+  zakompilovaný v `app/rust/src/updater.rs`, soukromý je mimo repo.
+- kontrola 90 s po startu a pak každých 30 min; stažení → ověření podpisu →
+  rozbalení vedle appky (běžící `.exe` se přejmenuje na `.old`, uklidí se při
+  dalším startu). Výměna **nikdy neprobíhá pod běžícím rozhovorem** — UI nabídne
+  restart (pruh nahoře + panel v Nastavení).
+- vydání: `powershell -File tools\release.ps1 -Version X.Y.Z -KeyFile <klíč>`
+  (přepíše verzi, pustí testy, build, zip, podpis, `gh release create`).
+- repo: <https://github.com/LukasVitek67/umbra>
+
 ## 📦 Distribuce
 `dist/Umbra.zip` (62 MB) — hotový balíček k odeslání: `umbra.exe` + knihovny,
 **`tor.exe`**, `lyrebird.exe` (obfs4/snowflake), `bridges.txt` (oficiální mosty
