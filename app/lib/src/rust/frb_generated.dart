@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 1382301694;
+  int get rustContentHash => -882597681;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -260,6 +260,8 @@ abstract class RustLibApi extends BaseApi {
   void crateApiUmbraInstallUpdate();
 
   String crateApiUmbraOfferedUpdate();
+
+  void crateApiUmbraSetNativeDir({required String path});
 
   RustArcIncrementStrongCountFnType
   get rust_arc_increment_strong_count_UmbraApp;
@@ -1610,6 +1612,29 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiUmbraOfferedUpdateConstMeta =>
       const TaskConstMeta(debugName: "offered_update", argNames: []);
+
+  @override
+  void crateApiUmbraSetNativeDir({required String path}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(path, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 44)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiUmbraSetNativeDirConstMeta,
+        argValues: [path],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiUmbraSetNativeDirConstMeta =>
+      const TaskConstMeta(debugName: "set_native_dir", argNames: ["path"]);
 
   RustArcIncrementStrongCountFnType
   get rust_arc_increment_strong_count_UmbraApp => wire

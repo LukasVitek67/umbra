@@ -20,6 +20,14 @@ String offeredUpdate() => RustLib.instance.api.crateApiUmbraOfferedUpdate();
 /// This build's version, for the UI.
 String appVersion() => RustLib.instance.api.crateApiUmbraAppVersion();
 
+/// Tell the transport where the shipped binaries live.
+///
+/// Android refuses to execute anything outside the APK's native library folder,
+/// so `tor` travels as `libtor.so` there and only the Java side knows the path.
+/// Desktop builds find their binaries next to the executable and never call this.
+void setNativeDir({required String path}) =>
+    RustLib.instance.api.crateApiUmbraSetNativeDir(path: path);
+
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<UmbraApp>>
 abstract class UmbraApp implements RustOpaqueInterface {
   /// Add a contact from a pasted `umbra1:` invite. Returns the parsed contact.

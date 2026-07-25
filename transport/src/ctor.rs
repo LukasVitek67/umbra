@@ -68,6 +68,36 @@ fn beside_exe(name: &str) -> Option<PathBuf> {
     p.exists().then_some(p)
 }
 
+/// Where the platform keeps the binaries we ship.
+///
+/// On desktop they sit next to the app. On Android nothing outside the APK's
+/// native library folder may be executed (W^X since API 29), so `tor` and the
+/// pluggable transport travel as `libtor.so` / `liblyrebird.so` and the app
+/// tells us that folder — it is not discoverable from here.
+static NATIVE_DIR: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// Tell the transport where the executable binaries live (Android).
+pub fn set_native_dir(dir: PathBuf) {
+    *NATIVE_DIR.lock().unwrap() = Some(dir);
+}
+
+/// Find a bundled binary by its desktop name, falling back to the Android
+/// library naming.
+fn bundled(name: &str) -> Option<PathBuf> {
+    if let Some(p) = beside_exe(name) {
+        return Some(p);
+    }
+    let dir = NATIVE_DIR.lock().unwrap().clone()?;
+    let stem = name.trim_end_matches(".exe").trim_end_matches(".txt");
+    for candidate in [format!("lib{stem}.so"), name.to_string(), stem.to_string()] {
+        let p = dir.join(candidate);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
+
 /// A running `tor` daemon owned by this process; killed when dropped.
 pub struct TorProcess {
     child: Child,
@@ -97,11 +127,11 @@ impl TorProcess {
         local_port: u16,
         progress: impl Fn(&str) + Send + 'static,
     ) -> Result<TorProcess> {
-        let tor_exe = beside_exe("tor.exe")
-            .or_else(|| beside_exe("tor"))
-            .ok_or_else(|| anyhow!("tor.exe nenalezen vedle aplikace"))?;
-        let pt_exe = beside_exe("lyrebird.exe").or_else(|| beside_exe("lyrebird"));
-        let bridges = beside_exe("bridges.txt")
+        let tor_exe = bundled("tor.exe")
+            .or_else(|| bundled("tor"))
+            .ok_or_else(|| anyhow!("tor nenalezen — chybí binárka vedle aplikace"))?;
+        let pt_exe = bundled("lyrebird.exe").or_else(|| bundled("lyrebird"));
+        let bridges = bundled("bridges.txt")
             .and_then(|p| std::fs::read_to_string(p).ok())
             .map(|t| {
                 t.lines()

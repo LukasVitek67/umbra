@@ -6,6 +6,7 @@ import 'connecting.dart';
 import 'profile_button.dart';
 import 'l10n.dart';
 import 'mock.dart';
+import 'native_dir.dart';
 import 'notifications.dart';
 import 'screens_chats.dart';
 import 'screens_more.dart';
@@ -18,6 +19,7 @@ Future<void> main() async {
   await L.load();
   await UmbraTheme.load();
   await Notifications.init();
+  await locateBundledBinaries();
   runApp(const UmbraAppRoot());
 }
 

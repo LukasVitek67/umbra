@@ -312,6 +312,16 @@ pub fn app_version() -> String {
     updater::current_version().to_string()
 }
 
+/// Tell the transport where the shipped binaries live.
+///
+/// Android refuses to execute anything outside the APK's native library folder,
+/// so `tor` travels as `libtor.so` there and only the Java side knows the path.
+/// Desktop builds find their binaries next to the executable and never call this.
+#[frb(sync)]
+pub fn set_native_dir(path: String) {
+    umbra_transport::ctor::set_native_dir(PathBuf::from(path));
+}
+
 /// Push an event to the UI (no-op before the network is started).
 fn emit(kind: &str, data: &str, peer_hex: &str) {
     log_line(&format!("{kind} peer={} {data}", &peer_hex.chars().take(12).collect::<String>()));
