@@ -17,7 +17,12 @@
 //!   6 GROUP_INFO  gid(16) ‖ version(u32) ‖ name_len(u16) ‖ name
 //!                 ‖ member_count(u16) ‖ member*
 //!       member =  identity(32) ‖ name_len(u16) ‖ name ‖ onion_len(u16) ‖ onion
+//!   7 ADDRESS     onion_len(u16) ‖ onion ‖ name
 //! ```
+//!
+//! `ADDRESS` is sent right after a session comes up. Without it, a peer who
+//! contacted us first would be someone we can never dial back: the session
+//! proves *who* they are, but not *where* to reach them.
 //!
 //! The two group kinds are the whole group protocol: `GROUP_TEXT` is a message
 //! fanned out to every member over their own 1:1 session, `GROUP_INFO` is the
@@ -39,6 +44,7 @@ pub const FILE_CHUNK: u8 = 3;
 pub const FILE_END: u8 = 4;
 pub const GROUP_TEXT: u8 = 5;
 pub const GROUP_INFO: u8 = 6;
+pub const ADDRESS: u8 = 7;
 
 /// A decoded incoming payload.
 pub enum Payload {
@@ -51,6 +57,9 @@ pub enum Payload {
     /// A group roster. `created_at` is not on the wire — the receiver stamps
     /// its own arrival time, so a peer cannot rewrite our history.
     GroupInfo { group: Group },
+    /// Where to reach the sender, so a conversation they started can be
+    /// continued from our side later.
+    Address { onion: String, name: String },
 }
 
 pub fn encode_text(text: &str) -> Vec<u8> {
@@ -123,6 +132,14 @@ pub fn encode_group_info(group: &Group) -> Vec<u8> {
     v
 }
 
+pub fn encode_address(onion: &str, name: &str) -> Vec<u8> {
+    let mut v = Vec::with_capacity(3 + onion.len() + name.len());
+    v.push(ADDRESS);
+    push_str(&mut v, onion);
+    v.extend_from_slice(name.as_bytes());
+    v
+}
+
 fn push_str(out: &mut Vec<u8>, s: &str) {
     let b = s.as_bytes();
     let n = b.len().min(u16::MAX as usize);
@@ -188,6 +205,13 @@ pub fn decode(bytes: &[u8]) -> Option<Payload> {
         FILE_END => {
             let id: [u8; 16] = rest.get(..16)?.try_into().ok()?;
             Some(Payload::FileEnd { id })
+        }
+        ADDRESS => {
+            let (onion, rest) = take_str(rest)?;
+            Some(Payload::Address {
+                onion,
+                name: String::from_utf8_lossy(rest).to_string(),
+            })
         }
         GROUP_TEXT => {
             let group_id: [u8; 16] = rest.get(..16)?.try_into().ok()?;
@@ -280,6 +304,25 @@ mod tests {
         assert!(decode(&[250, 1, 2]).is_none());
         assert!(decode(&[GROUP_TEXT, 1, 2, 3]).is_none());
         assert!(decode(&[GROUP_INFO, 1, 2, 3]).is_none());
+    }
+
+    #[test]
+    fn address_roundtrip() {
+        let e = encode_address("abcdef.onion", "Lukáš");
+        match decode(&e).unwrap() {
+            Payload::Address { onion, name } => {
+                assert_eq!(onion, "abcdef.onion");
+                assert_eq!(name, "Lukáš");
+            }
+            _ => panic!("wrong kind"),
+        }
+        // A peer whose onion is not up yet still sends a well-formed frame.
+        match decode(&encode_address("", "")).unwrap() {
+            Payload::Address { onion, name } => {
+                assert!(onion.is_empty() && name.is_empty());
+            }
+            _ => panic!("wrong kind"),
+        }
     }
 
     #[test]

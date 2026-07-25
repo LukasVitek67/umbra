@@ -83,7 +83,10 @@ class Chat {
   }) : messages = messages ?? [];
   final String contactHex;
   String name;
-  final String onion;
+
+  /// Learned from the peer once they tell us where they live, so it changes
+  /// while the app runs.
+  String onion;
   final String userCode;
   /// Local path to the contact's picture, if they sent one.
   String? picturePath;
@@ -338,6 +341,13 @@ class AppState extends ChangeNotifier {
           break;
         case 'group_removed':
           groups.removeWhere((g) => g.idHex == ev.data);
+          break;
+        // Rust stored (or updated) the contact row behind this conversation.
+        case 'contact_updated':
+          final parts = ev.data.split('|');
+          final chat = _ensureChat(ev.peerHex);
+          if (parts.isNotEmpty && parts[0].isNotEmpty) chat.name = parts[0];
+          if (parts.length > 1 && parts[1].isNotEmpty) chat.onion = parts[1];
           break;
         case 'profile':
           final chat = _ensureChat(ev.peerHex);

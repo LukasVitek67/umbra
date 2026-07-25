@@ -70,6 +70,21 @@ Opravy nalezené během testování (všechny v kódu):
   `reg.exe` (bez admina, uživatel to umí sám zrušit). Přepínač se řídí reálným
   stavem registru — když zápis selže, skočí zpět a řekne to.
 
+## 🐞 Opraveno 1.0.1 — zmizelý chat s protějškem, který napsal první
+Když spojení navázal **protějšek** (my jsme si ho nepřidali přes pozvánku),
+uložily se zprávy, ale **nevznikl řádek v `contacts`**. Důsledek: po restartu
+appka celý rozhovor nezobrazila (seznam chatů se staví z kontaktů) a keep-alive
+neměl kam volat, takže jsme pro protějšek byli trvale nedostupní.
+
+- `store::backfill_missing_contacts` doplní kontakt ke každé historii bez
+  kontaktu; volá se při odemčení účtu, takže **stará historie se vrátí sama**
+- kdokoli nám napíše, dostane kontakt hned (`remember_peer`)
+- nový rámec `ADDRESS` (kind 7): po navázání spojení si strany řeknou onion +
+  jméno, takže i rozhovor, který začal protějšek, jde později vytočit z naší
+  strany. **Musí ho umět obě strany — protějšek potřebuje aspoň 1.0.1**
+- neznámý typ rámce se už jen zaloguje (dřív se uživateli hlásila chyba)
+- testy: 60 v jádře (2 nové: backfill, ADDRESS roundtrip)
+
 ## 🔄 Aktualizace (25. 7. 2026)
 - appka se ptá GitHubu na nejnovější vydání **přes vlastní Tor okruh** (SOCKS
   port běžícího `tor.exe`) — kontrola aktualizací tedy neprozradí IP ani to,

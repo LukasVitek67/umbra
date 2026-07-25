@@ -401,6 +401,12 @@ impl UmbraApp {
             .map(|v| String::from_utf8_lossy(&v).to_string())
             .unwrap_or_default();
 
+        // Repair threads from before peers who wrote to us first were stored as
+        // contacts: their messages were in the database, but with no contact
+        // row the app showed nothing and never dialled them back. Done here, so
+        // the UI already sees them on the first load after sign-in.
+        let _ = store.backfill_missing_contacts(now_secs());
+
         Ok(UmbraApp {
             inner: Arc::new(Mutex::new(Inner {
                 store,
@@ -1205,18 +1211,86 @@ async fn send_profile(peer_hex: &str) {
         let _ = svc
             .send_bytes(peer_hex, envelope::encode_profile(&name, &picture))
             .await;
+        // Tell them where we live, so a conversation we started can be picked
+        // up from their side later. Without this the party who was contacted
+        // can answer only while the session happens to be up.
+        let onion = ONION.lock().unwrap().clone().unwrap_or_default();
+        let _ = svc
+            .send_bytes(peer_hex, envelope::encode_address(&onion, &name))
+            .await;
+    }
+}
+
+/// Make sure a peer we are talking to has a contact row.
+///
+/// Everything the UI shows after a restart comes from `contacts`; a peer who
+/// wrote to us first used to have messages in the database and nothing else,
+/// so the whole thread disappeared on the next start and we never dialled them
+/// again. `onion` may be empty — an entry with no address is still a visible
+/// conversation, and the address arrives with their next [`Payload::Address`].
+fn remember_peer(peer_hex: &str, name: Option<&str>, onion: Option<&str>) {
+    let Some(app) = APP.lock().unwrap().clone() else { return };
+    let Some(pk) = unhex(peer_hex) else { return };
+    let mut changed = false;
+    {
+        let g = app.lock().unwrap();
+        let existing = g.store.get_contact(&pk).ok().flatten();
+        let mut contact = existing.clone().unwrap_or(Contact {
+            identity_pubkey: pk,
+            display_name: String::new(),
+            onion_addr: String::new(),
+            added_at: now_secs(),
+        });
+        if let Some(name) = name {
+            if !name.is_empty() && contact.display_name != name {
+                contact.display_name = name.to_string();
+                changed = true;
+            }
+        }
+        if let Some(onion) = onion {
+            if !onion.is_empty() && contact.onion_addr != onion {
+                contact.onion_addr = onion.to_string();
+                changed = true;
+            }
+        }
+        if existing.is_none() || changed {
+            let _ = g.store.upsert_contact(&contact);
+            changed = true;
+        }
+        if !contact.onion_addr.is_empty() {
+            CONTACTS
+                .lock()
+                .unwrap()
+                .get_or_insert_with(HashMap::new)
+                .insert(peer_hex.to_string(), contact.onion_addr.clone());
+        }
+        if changed {
+            let display = contact.display_name.clone();
+            let addr = contact.onion_addr.clone();
+            drop(g);
+            emit("contact_updated", &format!("{display}|{addr}"), peer_hex);
+        }
     }
 }
 
 /// Interpret a decrypted payload from a peer.
 async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
     let Some(payload) = envelope::decode(bytes) else {
-        log_line("payload: neznámý formát (starší nebo novější verze aplikace?)");
-        emit("error", "Zpráva v neznámém formátu — má protějšek stejnou verzi?", peer_hex);
+        // A newer peer speaking a frame we do not know yet is not an error the
+        // user can act on; ignoring it keeps the protocol extensible.
+        log_line("payload: neznámý typ rámce — ignoruji (novější verze aplikace?)");
         return;
     };
     match payload {
-        Payload::Text(text) => emit("message", &text, peer_hex),
+        Payload::Text(text) => {
+            // Whoever writes to us becomes a contact, or the thread would not
+            // survive a restart.
+            remember_peer(peer_hex, None, None);
+            emit("message", &text, peer_hex);
+        }
+        Payload::Address { onion, name } => {
+            remember_peer(peer_hex, Some(&name), Some(&onion));
+        }
         Payload::Profile { name, picture } => {
             // Cache the picture next to the app data; the UI reads it by path.
             if !picture.is_empty() {
@@ -1225,6 +1299,7 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
                     let _ = std::fs::write(&p, &picture);
                 }
             }
+            remember_peer(peer_hex, Some(&name), None);
             emit("profile", &name, peer_hex);
         }
         Payload::FileOffer { id, name, size } => {

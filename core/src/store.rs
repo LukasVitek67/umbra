@@ -364,6 +364,46 @@ impl Store {
         Ok(out)
     }
 
+    /// Every identity we have exchanged messages with, contact or not.
+    pub fn message_peers(&self) -> Result<Vec<[u8; 32]>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT contact_pubkey FROM messages")?;
+        let rows = stmt.query_map([], |r| r.get::<_, Vec<u8>>(0))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(to_key32(&row?)?);
+        }
+        Ok(out)
+    }
+
+    /// Give every peer with a history a contact row.
+    ///
+    /// A conversation started by *them* used to live only in the running app:
+    /// the messages were stored, but with nothing in `contacts` the next start
+    /// had no way to show the thread, and the keep-alive loop had no address to
+    /// dial — so the other side saw us as permanently unreachable. Anything the
+    /// peer later tells us about themselves (name, onion) overwrites the
+    /// placeholder written here.
+    ///
+    /// Returns how many rows were added.
+    pub fn backfill_missing_contacts(&self, now: u64) -> Result<usize, StoreError> {
+        let mut added = 0;
+        for peer in self.message_peers()? {
+            if self.get_contact(&peer)?.is_some() {
+                continue;
+            }
+            self.upsert_contact(&Contact {
+                identity_pubkey: peer,
+                display_name: String::new(), // the UI falls back to a placeholder
+                onion_addr: String::new(),   // filled in when they tell us
+                added_at: now,
+            })?;
+            added += 1;
+        }
+        Ok(added)
+    }
+
     // --- groups ---
 
     /// Insert or update a group *and* its roster. The member list is replaced
@@ -621,6 +661,43 @@ mod tests {
         assert_eq!(s.list_contacts().unwrap().len(), 1);
         let msgs = s.messages_for(&[7u8; 32], 10).unwrap();
         assert_eq!(msgs[0].body, b"persisted");
+    }
+
+    /// The bug this guards against: a peer who wrote to us first had messages
+    /// but no contact row, so the whole thread vanished on restart.
+    #[test]
+    fn history_without_a_contact_row_gets_one() {
+        let s = Store::open_in_memory(&[13u8; 32]).unwrap();
+        let stranger = [42u8; 32];
+        s.insert_message(&NewMessage {
+            contact_pubkey: stranger,
+            direction: Direction::Incoming,
+            sent_at: 10,
+            body: b"ahoj",
+        })
+        .unwrap();
+        assert!(s.get_contact(&stranger).unwrap().is_none());
+        assert!(s.list_contacts().unwrap().is_empty());
+
+        assert_eq!(s.backfill_missing_contacts(1_700_000_000).unwrap(), 1);
+        assert_eq!(s.list_contacts().unwrap().len(), 1);
+        assert_eq!(s.messages_for(&stranger, 10).unwrap().len(), 1);
+
+        // Running it again adds nothing, and a real contact is left alone.
+        let known = sample_contact();
+        s.upsert_contact(&known).unwrap();
+        s.insert_message(&NewMessage {
+            contact_pubkey: known.identity_pubkey,
+            direction: Direction::Outgoing,
+            sent_at: 11,
+            body: b"hi",
+        })
+        .unwrap();
+        assert_eq!(s.backfill_missing_contacts(1_700_000_000).unwrap(), 0);
+        assert_eq!(
+            s.get_contact(&known.identity_pubkey).unwrap().unwrap().display_name,
+            known.display_name
+        );
     }
 
     fn sample_group() -> Group {
