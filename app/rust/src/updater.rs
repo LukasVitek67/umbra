@@ -187,15 +187,8 @@ async fn latest_via_redirect(socks_port: u16) -> Result<Release, String> {
     let Some(location) = location else {
         return Err(format!("/releases/latest neodpovědělo přesměrováním ({status})"));
     };
-    let tag = location
-        .rsplit("/tag/")
-        .next()
-        .filter(|t| !t.is_empty() && *t != location)
+    let (tag, version) = tag_from_location(&location)
         .ok_or_else(|| format!("z odkazu {location} nejde vyčíst verze"))?;
-    let version = tag.trim().trim_start_matches('v').to_string();
-    if version.is_empty() {
-        return Err("prázdná verze".to_string());
-    }
     // Release archives are named by tools/release.ps1, so the download URLs
     // follow from the version alone.
     Ok(Release {
@@ -207,6 +200,19 @@ async fn latest_via_redirect(socks_port: u16) -> Result<Release, String> {
         )),
         version,
     })
+}
+
+/// Pull `("v1.2.3", "1.2.3")` out of a `…/releases/tag/v1.2.3` redirect.
+fn tag_from_location(location: &str) -> Option<(String, String)> {
+    let tag = location.rsplit("/tag/").next()?.trim();
+    if tag.is_empty() || tag == location.trim() {
+        return None; // not a tag link at all
+    }
+    let version = tag.trim_start_matches('v').to_string();
+    if version.is_empty() || !version.chars().next()?.is_ascii_digit() {
+        return None;
+    }
+    Some((tag.to_string(), version))
 }
 
 async fn latest_via_api(socks_port: u16) -> Result<Release, String> {
@@ -595,6 +601,19 @@ mod tests {
         let (status, body, _) = parse_response(raw).unwrap();
         assert_eq!(status, 200);
         assert_eq!(body, b"hello!");
+    }
+
+    #[test]
+    fn the_release_version_comes_from_the_tag_link() {
+        let (tag, version) =
+            tag_from_location("https://github.com/LukasVitek67/umbra/releases/tag/v1.1.1").unwrap();
+        assert_eq!(tag, "v1.1.1");
+        assert_eq!(version, "1.1.1");
+
+        // Anything that is not a tag link must not be mistaken for a version.
+        assert!(tag_from_location("https://github.com/LukasVitek67/umbra/releases").is_none());
+        assert!(tag_from_location("https://github.com/x/y/releases/tag/").is_none());
+        assert!(tag_from_location("https://github.com/x/y/releases/tag/nightly").is_none());
     }
 
     #[test]
