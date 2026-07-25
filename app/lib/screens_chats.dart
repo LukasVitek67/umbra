@@ -190,8 +190,11 @@ class ChatsScreen extends StatelessWidget {
     return ListenableBuilder(
       listenable: appState,
       builder: (context, _) {
-        final chats = appState.chats;
+        // Blocked contacts are gone from here; people who wrote to us first
+        // wait in their own section until the user decides.
+        final chats = appState.openChats;
         final groups = appState.groups;
+        final waiting = appState.waitingChats;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -201,6 +204,12 @@ class ChatsScreen extends StatelessWidget {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  IconButton(
+                    tooltip: L.t('contacts.title'),
+                    onPressed: () => showContacts(context),
+                    icon: const Icon(Icons.contacts_outlined),
+                    color: UmbraColors.textMuted,
+                  ),
                   IconButton(
                     tooltip: L.t('groups.create'),
                     onPressed: () => showCreateGroup(context),
@@ -216,6 +225,11 @@ class ChatsScreen extends StatelessWidget {
                 ],
               ),
             ),
+            if (waiting.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                child: _WaitingSection(waiting: waiting),
+              ),
             Expanded(
               // Groups sit on top of the 1:1 conversations in one list.
               child: ListView.separated(
@@ -244,6 +258,255 @@ class ChatsScreen extends StatelessWidget {
       },
     );
   }
+}
+
+/// Messages from people we do not know yet. You can read what they wrote
+/// before deciding — that is the only way to tell a friend from a stranger —
+/// but nothing else happens until you accept or block them.
+class _WaitingSection extends StatelessWidget {
+  const _WaitingSection({required this.waiting});
+  final List<Chat> waiting;
+
+  @override
+  Widget build(BuildContext context) {
+    return Panel(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.mark_email_unread_outlined, size: 17, color: UmbraColors.accent),
+              const SizedBox(width: 10),
+              Text('${L.t('waiting.title')} (${waiting.length})',
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(L.t('waiting.help'),
+              style: TextStyle(color: UmbraColors.textMuted, fontSize: 12)),
+          for (final chat in waiting) _WaitingTile(chat: chat),
+        ],
+      ),
+    );
+  }
+}
+
+class _WaitingTile extends StatelessWidget {
+  const _WaitingTile({required this.chat});
+  final Chat chat;
+
+  @override
+  Widget build(BuildContext context) {
+    final last = chat.messages.isEmpty ? null : chat.messages.last;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: UmbraColors.surfaceHigh,
+                child: Icon(Icons.person_outline, size: 15, color: UmbraColors.textMuted),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(chat.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                    Text(chat.userCode,
+                        style: TextStyle(
+                            color: UmbraColors.textMuted, fontSize: 10, fontFamily: 'monospace')),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (last != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 38, top: 4),
+              child: Text(
+                last.body,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: UmbraColors.textPrimary, fontSize: 13, height: 1.3),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.only(left: 30),
+            child: Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () => appState.setChatStatus(chat, 1),
+                  icon: const Icon(Icons.check, size: 16),
+                  label: Text(L.t('waiting.accept')),
+                ),
+                TextButton.icon(
+                  onPressed: () => appState.setChatStatus(chat, 2),
+                  icon: Icon(Icons.block, size: 16, color: UmbraColors.danger),
+                  label: Text(L.t('waiting.block'),
+                      style: TextStyle(color: UmbraColors.danger)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The address book: contacts kept on purpose, with everything you can do to
+/// one of them in a single menu.
+void showContacts(BuildContext context) {
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => ListenableBuilder(
+      listenable: appState,
+      builder: (ctx, _) {
+        final saved = appState.savedContacts;
+        final blocked = appState.blockedContacts;
+        return AlertDialog(
+          title: Text(L.t('contacts.title')),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (saved.isEmpty)
+                    Text(L.t('contacts.empty'),
+                        style: TextStyle(color: UmbraColors.textMuted, fontSize: 13)),
+                  for (final c in saved) _ContactRow(chat: c),
+                  if (blocked.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Text(L.t('contacts.blocked'),
+                        style: TextStyle(
+                            color: UmbraColors.textMuted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600)),
+                    for (final c in blocked) _ContactRow(chat: c, blocked: true),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(L.t('common.close'))),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+class _ContactRow extends StatelessWidget {
+  const _ContactRow({required this.chat, this.blocked = false});
+  final Chat chat;
+  final bool blocked;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      leading: ContactAvatar(chat: chat, radius: 16),
+      title: Text(chat.name, style: const TextStyle(fontSize: 14)),
+      subtitle: Text(chat.userCode,
+          style: TextStyle(fontSize: 10, fontFamily: 'monospace', color: UmbraColors.textMuted)),
+      trailing: PopupMenuButton<String>(
+        icon: Icon(Icons.more_vert, size: 18, color: UmbraColors.textMuted),
+        onSelected: (value) {
+          switch (value) {
+            case 'rename':
+              showRenameChat(context, chat);
+              break;
+            case 'unsave':
+              appState.setChatSaved(chat, false);
+              break;
+            case 'block':
+              appState.setChatStatus(chat, 2);
+              break;
+            case 'unblock':
+              appState.setChatStatus(chat, 1);
+              break;
+          }
+        },
+        itemBuilder: (context) => [
+          if (!blocked) ...[
+            PopupMenuItem(value: 'rename', child: Text(L.t('contacts.rename'))),
+            PopupMenuItem(value: 'unsave', child: Text(L.t('contacts.forget'))),
+            PopupMenuItem(
+              value: 'block',
+              child: Text(L.t('waiting.block'), style: TextStyle(color: UmbraColors.danger)),
+            ),
+          ] else
+            PopupMenuItem(value: 'unblock', child: Text(L.t('contacts.unblock'))),
+        ],
+      ),
+    );
+  }
+}
+
+/// Rename a contact (your label for them, never sent anywhere).
+void showRenameChat(BuildContext context, Chat chat) {
+  final controller = TextEditingController(text: chat.name);
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(L.t('contacts.rename')),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        decoration: InputDecoration(hintText: L.t('contacts.newName')),
+        onSubmitted: (v) {
+          appState.renameChat(chat, v);
+          Navigator.pop(ctx);
+        },
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: Text(L.t('common.cancel'))),
+        FilledButton(
+          onPressed: () {
+            appState.renameChat(chat, controller.text);
+            Navigator.pop(ctx);
+          },
+          child: Text(L.t('common.save')),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Rename a group; the new name reaches every member with the roster.
+void showRenameGroup(BuildContext context, GroupChat group) {
+  final controller = TextEditingController(text: group.name);
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(L.t('groups.rename')),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        decoration: InputDecoration(hintText: L.t('groups.name')),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: Text(L.t('common.cancel'))),
+        FilledButton(
+          onPressed: () {
+            appState.renameGroup(group, controller.text);
+            Navigator.pop(ctx);
+          },
+          child: Text(L.t('common.save')),
+        ),
+      ],
+    ),
+  );
 }
 
 class _GroupTile extends StatelessWidget {
@@ -474,6 +737,36 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               );
             },
           ),
+          // Everything you can do with this contact, in one place.
+          PopupMenuButton<String>(
+            icon: Icon(Icons.more_vert, color: UmbraColors.textMuted),
+            onSelected: (value) {
+              switch (value) {
+                case 'rename':
+                  showRenameChat(context, chat);
+                  break;
+                case 'save':
+                  appState.setChatSaved(chat, !chat.saved);
+                  break;
+                case 'block':
+                  appState.setChatStatus(chat, 2);
+                  if (widget.onBack != null) widget.onBack!();
+                  break;
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(value: 'rename', child: Text(L.t('contacts.rename'))),
+              PopupMenuItem(
+                value: 'save',
+                child: Text(chat.saved ? L.t('contacts.forget') : L.t('contacts.save')),
+              ),
+              PopupMenuItem(
+                value: 'block',
+                child: Text(L.t('waiting.block'), style: TextStyle(color: UmbraColors.danger)),
+              ),
+            ],
+          ),
+          const SizedBox(width: 4),
         ],
       ),
       body: Column(
@@ -654,6 +947,11 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
           },
         ),
         actions: [
+          IconButton(
+            tooltip: L.t('groups.rename'),
+            icon: const Icon(Icons.drive_file_rename_outline, size: 20),
+            onPressed: () => showRenameGroup(context, group),
+          ),
           IconButton(
             tooltip: L.t('groups.addMember'),
             icon: const Icon(Icons.person_add_alt_1, size: 20),

@@ -96,6 +96,115 @@ ThemeData umbraTheme() {
       indicatorColor: p.accent.withValues(alpha: 0.13),
     ),
     dividerTheme: DividerThemeData(color: p.border, thickness: 1),
+    // Everything below used to fall back to Material's own colours, which is
+    // why parts of the app stayed dark-mint no matter which theme was picked.
+    appBarTheme: AppBarTheme(
+      backgroundColor: p.surface,
+      foregroundColor: p.textPrimary,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      iconTheme: IconThemeData(color: p.textMuted),
+    ),
+    iconTheme: IconThemeData(color: p.textMuted),
+    dialogTheme: DialogThemeData(
+      backgroundColor: p.surfaceHigh,
+      surfaceTintColor: Colors.transparent,
+      titleTextStyle: TextStyle(
+        color: p.textPrimary,
+        fontSize: 18,
+        fontWeight: FontWeight.w700,
+      ),
+      contentTextStyle: TextStyle(color: p.textPrimary, height: 1.4),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: p.surfaceHigh,
+      contentTextStyle: TextStyle(color: p.textPrimary),
+      actionTextColor: p.accent,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+    listTileTheme: ListTileThemeData(
+      iconColor: p.textMuted,
+      textColor: p.textPrimary,
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: p.surfaceHigh,
+      selectedColor: p.accent.withValues(alpha: 0.2),
+      side: BorderSide(color: p.border),
+      labelStyle: TextStyle(color: p.textMuted, fontWeight: FontWeight.w600),
+      secondaryLabelStyle: TextStyle(color: p.accent, fontWeight: FontWeight.w600),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(foregroundColor: p.accent),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: p.accent,
+        side: BorderSide(color: p.border),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    ),
+    segmentedButtonTheme: SegmentedButtonThemeData(
+      style: ButtonStyle(
+        foregroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? p.accentInk : p.textMuted,
+        ),
+        backgroundColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.selected) ? p.accent : p.surfaceHigh,
+        ),
+        side: WidgetStateProperty.all(BorderSide(color: p.border)),
+      ),
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected) ? p.accentInk : p.textMuted,
+      ),
+      trackColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected) ? p.accent : p.surfaceHigh,
+      ),
+      trackOutlineColor: WidgetStateProperty.all(p.border),
+    ),
+    checkboxTheme: CheckboxThemeData(
+      fillColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected) ? p.accent : Colors.transparent,
+      ),
+      checkColor: WidgetStateProperty.all(p.accentInk),
+      side: BorderSide(color: p.border, width: 1.5),
+    ),
+    sliderTheme: SliderThemeData(
+      activeTrackColor: p.accent,
+      inactiveTrackColor: p.surfaceHigh,
+      thumbColor: p.accent,
+      overlayColor: p.accent.withValues(alpha: 0.12),
+    ),
+    progressIndicatorTheme: ProgressIndicatorThemeData(
+      color: p.accent,
+      linearTrackColor: p.surfaceHigh,
+      circularTrackColor: p.surfaceHigh,
+    ),
+    tooltipTheme: TooltipThemeData(
+      decoration: BoxDecoration(
+        color: p.surfaceHigh,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: p.border),
+      ),
+      textStyle: TextStyle(color: p.textPrimary, fontSize: 12),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: p.surfaceHigh,
+      surfaceTintColor: Colors.transparent,
+      textStyle: TextStyle(color: p.textPrimary, fontSize: 14),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    ),
+    textSelectionTheme: TextSelectionThemeData(
+      cursorColor: p.accent,
+      selectionColor: p.accent.withValues(alpha: 0.3),
+      selectionHandleColor: p.accent,
+    ),
+    scrollbarTheme: ScrollbarThemeData(
+      thumbColor: WidgetStateProperty.all(p.border),
+    ),
   );
 }
 

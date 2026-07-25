@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'l10n.dart';
+import 'notifications.dart';
 import 'src/rust/api/umbra.dart';
 
 const List<int> kPaddingBuckets = [256, 1024, 4096, 16384, 65536];
@@ -91,6 +92,15 @@ class Chat {
   /// while the app runs.
   String onion;
   final String userCode;
+
+  /// 0 = waiting for a decision (they wrote first), 1 = accepted, 2 = blocked.
+  int status = 1;
+
+  /// Kept in the address book, so they can be picked from the contacts list.
+  bool saved = false;
+
+  bool get isWaiting => status == 0;
+  bool get isBlocked => status == 2;
   /// Local path to the contact's picture, if they sent one.
   String? picturePath;
   bool verified;
@@ -384,6 +394,7 @@ class AppState extends ChangeNotifier {
           final chat = _ensureChat(ev.peerHex);
           if (parts.isNotEmpty && parts[0].isNotEmpty) chat.name = parts[0];
           if (parts.length > 1 && parts[1].isNotEmpty) chat.onion = parts[1];
+          if (parts.length > 2) chat.status = int.tryParse(parts[2]) ?? chat.status;
           break;
         case 'profile':
           final chat = _ensureChat(ev.peerHex);
@@ -454,9 +465,79 @@ class AppState extends ChangeNotifier {
       name: L.t('chats.unknown'),
       onion: '',
       userCode: peerHex.length >= 16 ? peerHex.substring(0, 16).toUpperCase() : peerHex,
-    );
+    )..status = 0; // someone we do not know yet
     chats.insert(0, chat);
     return chat;
+  }
+
+  /// Conversations the user has accepted.
+  List<Chat> get openChats => chats.where((c) => c.status == 1).toList();
+
+  /// People who wrote to us and are waiting for a yes or no.
+  List<Chat> get waitingChats => chats.where((c) => c.isWaiting).toList();
+
+  /// The address book: contacts kept on purpose, blocked ones excluded.
+  List<Chat> get savedContacts =>
+      chats.where((c) => c.saved && !c.isBlocked).toList()
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+  List<Chat> get blockedContacts => chats.where((c) => c.isBlocked).toList();
+
+  /// Give a contact your own name for them.
+  void renameChat(Chat chat, String name) {
+    final n = name.trim();
+    if (n.isEmpty) return;
+    try {
+      _app?.renameContact(contactHex: chat.contactHex, name: n);
+      chat.name = n;
+      notifyListeners();
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
+  }
+
+  void renameGroup(GroupChat group, String name) {
+    final n = name.trim();
+    if (n.isEmpty) return;
+    try {
+      _app?.renameGroup(groupIdHex: group.idHex, name: n);
+      group.name = n;
+      notifyListeners();
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
+  }
+
+  /// Accept a waiting conversation, or block the contact for good.
+  void setChatStatus(Chat chat, int status) {
+    try {
+      _app?.setContactStatus(contactHex: chat.contactHex, status: status);
+      chat.status = status;
+      if (status == 2) {
+        // A blocked contact leaves the list entirely; their history stays on
+        // disk until they are unblocked.
+        chat.saved = false;
+        _app?.setContactSaved(contactHex: chat.contactHex, saved: false);
+      }
+      notifyListeners();
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
+  }
+
+  /// Keep (or drop) a contact in the address book.
+  void setChatSaved(Chat chat, bool saved) {
+    try {
+      _app?.setContactSaved(contactHex: chat.contactHex, saved: saved);
+      chat.saved = saved;
+      notifyListeners();
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
   }
 
   /// An incoming, already-decrypted message from a peer.
@@ -464,6 +545,14 @@ class AppState extends ChangeNotifier {
     final chat = _ensureChat(peerHex);
     final now = DateTime.now();
     chat.messages.add(Message(body, outgoing: false, at: now));
+    Notifications.message(
+      conversationId: peerHex,
+      from: chat.isWaiting ? L.t('waiting.title') : chat.name,
+      body: body,
+      // Someone still waiting for approval does not get to put their text on
+      // the user's screen.
+      preview: !chat.isWaiting,
+    );
     try {
       _app?.addMessage(
         contactHex: peerHex,
@@ -593,10 +682,12 @@ class AppState extends ChangeNotifier {
     for (final c in app.listContacts()) {
       final chat = Chat(
         contactHex: c.identityHex,
-        name: c.displayName.isEmpty ? 'Kontakt' : c.displayName,
+        name: c.displayName.isEmpty ? L.t('chats.unknown') : c.displayName,
         onion: c.onion,
         userCode: c.userCode,
-      );
+      )
+        ..status = c.status
+        ..saved = c.saved;
       for (final m in app.listMessages(contactHex: c.identityHex, limit: 500)) {
         chat.messages.add(Message(
           m.body,
@@ -736,12 +827,19 @@ class AppState extends ChangeNotifier {
       return;
     }
     final sender = group.members.where((m) => m.identityHex == peerHex);
+    final senderName = sender.isEmpty ? L.t('chats.unknown') : sender.first.displayName;
+    final body = data.substring(split + 1);
     group.messages.add(Message(
-      data.substring(split + 1),
+      body,
       outgoing: false,
       at: DateTime.now(),
-      senderName: sender.isEmpty ? L.t('chats.unknown') : sender.first.displayName,
+      senderName: senderName,
     ));
+    Notifications.message(
+      conversationId: group.idHex,
+      from: '${group.name} • $senderName',
+      body: body,
+    );
   }
 
   /// A queued group message reached at least one member.

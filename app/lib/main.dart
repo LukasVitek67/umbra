@@ -6,6 +6,7 @@ import 'connecting.dart';
 import 'profile_button.dart';
 import 'l10n.dart';
 import 'mock.dart';
+import 'notifications.dart';
 import 'screens_chats.dart';
 import 'screens_more.dart';
 import 'src/rust/frb_generated.dart';
@@ -16,6 +17,7 @@ Future<void> main() async {
   await RustLib.init();
   await L.load();
   await UmbraTheme.load();
+  await Notifications.init();
   runApp(const UmbraAppRoot());
 }
 
@@ -60,10 +62,15 @@ class UmbraMark extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        // Tinted with the active accent; a fixed gradient kept the mark
+        // mint-green in every theme.
+        gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF1E2A2A), Color(0xFF102523)],
+          colors: [
+            Color.alphaBlend(UmbraColors.accent.withValues(alpha: 0.22), UmbraColors.surfaceHigh),
+            Color.alphaBlend(UmbraColors.accent.withValues(alpha: 0.10), UmbraColors.surface),
+          ],
         ),
         borderRadius: BorderRadius.circular(size * 0.28),
         border: Border.all(color: UmbraColors.accent.withValues(alpha: 0.5)),
@@ -269,11 +276,14 @@ class _HomeShellState extends State<HomeShell> {
           onSelect: (chat) => setState(() {
             _selected = chat;
             _selectedGroup = null;
+            // No notification for the conversation you are reading.
+            Notifications.openConversation = chat.contactHex;
           }),
           selectedGroupHex: _selectedGroup?.idHex,
           onSelectGroup: (group) => setState(() {
             _selectedGroup = group;
             _selected = null;
+            Notifications.openConversation = group.idHex;
           }),
         );
     }
@@ -307,21 +317,6 @@ class _HomeShellState extends State<HomeShell> {
       child: Scaffold(
       body: Column(
         children: [
-          // Top bar: the account you are signed in as lives here.
-          Container(
-            height: 44,
-            decoration: BoxDecoration(
-              color: UmbraColors.surface,
-              border: Border(bottom: BorderSide(color: UmbraColors.border)),
-            ),
-            child: const Row(
-              children: [
-                Spacer(),
-                ProfileButton(),
-                SizedBox(width: 6),
-              ],
-            ),
-          ),
           // A finished update is worth one line at the top; it needs a restart
           // and the user should not have to find that in Settings.
           ListenableBuilder(
@@ -374,14 +369,22 @@ class _HomeShellState extends State<HomeShell> {
               padding: EdgeInsets.symmetric(vertical: 16),
               child: UmbraMark(size: 40),
             ),
-            // The update lives at the bottom of the bar: always visible, never
-            // in the way of a conversation.
+            // Your account and the update sit at the bottom of the bar: always
+            // reachable, never in the way of a conversation.
             trailing: const Expanded(
               child: Align(
                 alignment: Alignment.bottomCenter,
                 child: Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: UpdateRailButton(),
+                  padding: EdgeInsets.only(bottom: 10),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      UpdateRailButton(),
+                      SizedBox(height: 4),
+                      ProfileButton(),
+                      SizedBox(height: 4),
+                    ],
+                  ),
                 ),
               ),
             ),

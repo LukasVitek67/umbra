@@ -38,7 +38,9 @@ CREATE TABLE IF NOT EXISTS contacts (
     identity_pubkey BLOB PRIMARY KEY,   -- 32 bytes, plaintext (lookup key)
     display_name    BLOB NOT NULL,      -- sealed
     onion_addr      BLOB NOT NULL,      -- sealed
-    added_at        INTEGER NOT NULL
+    added_at        INTEGER NOT NULL,
+    status          INTEGER NOT NULL DEFAULT 1, -- 0 waiting, 1 accepted, 2 blocked
+    saved           INTEGER NOT NULL DEFAULT 0  -- kept in the address book
 );
 CREATE TABLE IF NOT EXISTS messages (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,6 +115,35 @@ impl Direction {
     }
 }
 
+/// Where a contact stands with us.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContactStatus {
+    /// They wrote to us and we have not decided yet: their messages are kept
+    /// aside instead of landing in the chat list.
+    Waiting,
+    /// A normal conversation.
+    Accepted,
+    /// Everything from them is dropped on arrival.
+    Blocked,
+}
+
+impl ContactStatus {
+    fn to_i64(self) -> i64 {
+        match self {
+            ContactStatus::Waiting => 0,
+            ContactStatus::Accepted => 1,
+            ContactStatus::Blocked => 2,
+        }
+    }
+    fn from_i64(v: i64) -> Self {
+        match v {
+            0 => ContactStatus::Waiting,
+            2 => ContactStatus::Blocked,
+            _ => ContactStatus::Accepted,
+        }
+    }
+}
+
 /// A contact record (decrypted).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Contact {
@@ -124,6 +155,11 @@ pub struct Contact {
     pub onion_addr: String,
     /// When added (unix seconds).
     pub added_at: u64,
+    /// Accepted, waiting for a decision, or blocked.
+    pub status: ContactStatus,
+    /// Kept in the address book, so they can be picked later (e.g. added to a
+    /// group) without digging through old conversations.
+    pub saved: bool,
 }
 
 /// How far an outgoing message got.
@@ -269,16 +305,32 @@ impl Store {
     /// Bring an older database up to the current shape. `CREATE TABLE IF NOT
     /// EXISTS` only covers new tables, so columns added later need this.
     fn migrate(conn: &Connection) -> Result<(), StoreError> {
-        let mut stmt = conn.prepare("PRAGMA table_info(messages)")?;
-        let columns: Vec<String> = stmt
-            .query_map([], |r| r.get::<_, String>(1))?
-            .collect::<Result<_, _>>()?;
-        if !columns.iter().any(|c| c == "state") {
+        if !Self::has_column(conn, "messages", "state")? {
             conn.execute_batch(
                 "ALTER TABLE messages ADD COLUMN state INTEGER NOT NULL DEFAULT 0",
             )?;
         }
+        // Contacts from before this existed were all added by us on purpose,
+        // so they count as accepted.
+        if !Self::has_column(conn, "contacts", "status")? {
+            conn.execute_batch(
+                "ALTER TABLE contacts ADD COLUMN status INTEGER NOT NULL DEFAULT 1",
+            )?;
+        }
+        if !Self::has_column(conn, "contacts", "saved")? {
+            conn.execute_batch(
+                "ALTER TABLE contacts ADD COLUMN saved INTEGER NOT NULL DEFAULT 0",
+            )?;
+        }
         Ok(())
+    }
+
+    fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool, StoreError> {
+        let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+        let columns: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(1))?
+            .collect::<Result<_, _>>()?;
+        Ok(columns.iter().any(|c| c == column))
     }
 
     // --- value encryption (XChaCha20-Poly1305, nonce || ciphertext) ---
@@ -336,37 +388,51 @@ impl Store {
     // --- contacts ---
 
     /// Insert or update a contact.
+    ///
+    /// An update keeps the decisions the user already made: a rename or a new
+    /// onion address must never quietly un-block someone or turn a waiting
+    /// request into an accepted chat.
     pub fn upsert_contact(&self, c: &Contact) -> Result<(), StoreError> {
         let name = self.seal(c.display_name.as_bytes())?;
         let onion = self.seal(c.onion_addr.as_bytes())?;
         self.conn.execute(
-            "INSERT INTO contacts(identity_pubkey, display_name, onion_addr, added_at)
-             VALUES(?1, ?2, ?3, ?4)
+            "INSERT INTO contacts(identity_pubkey, display_name, onion_addr, added_at, status, saved)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(identity_pubkey) DO UPDATE SET
                  display_name = excluded.display_name,
                  onion_addr   = excluded.onion_addr",
-            params![c.identity_pubkey.as_slice(), name, onion, c.added_at as i64],
+            params![
+                c.identity_pubkey.as_slice(),
+                name,
+                onion,
+                c.added_at as i64,
+                c.status.to_i64(),
+                c.saved as i64
+            ],
         )?;
         Ok(())
     }
 
     /// Fetch a contact by identity key.
     pub fn get_contact(&self, identity_pubkey: &[u8; 32]) -> Result<Option<Contact>, StoreError> {
-        let row: Option<(Vec<u8>, Vec<u8>, i64)> = self
+        let row: Option<(Vec<u8>, Vec<u8>, i64, i64, i64)> = self
             .conn
             .query_row(
-                "SELECT display_name, onion_addr, added_at FROM contacts WHERE identity_pubkey = ?1",
+                "SELECT display_name, onion_addr, added_at, status, saved
+                 FROM contacts WHERE identity_pubkey = ?1",
                 params![identity_pubkey.as_slice()],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
             .optional()?;
         match row {
             None => Ok(None),
-            Some((name_ct, onion_ct, added)) => Ok(Some(Contact {
+            Some((name_ct, onion_ct, added, status, saved)) => Ok(Some(Contact {
                 identity_pubkey: *identity_pubkey,
                 display_name: self.decrypt_string(&name_ct)?,
                 onion_addr: self.decrypt_string(&onion_ct)?,
                 added_at: added as u64,
+                status: ContactStatus::from_i64(status),
+                saved: saved != 0,
             })),
         }
     }
@@ -374,7 +440,7 @@ impl Store {
     /// List all contacts, newest first.
     pub fn list_contacts(&self) -> Result<Vec<Contact>, StoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT identity_pubkey, display_name, onion_addr, added_at
+            "SELECT identity_pubkey, display_name, onion_addr, added_at, status, saved
              FROM contacts ORDER BY added_at DESC",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -383,19 +449,73 @@ impl Store {
                 r.get::<_, Vec<u8>>(1)?,
                 r.get::<_, Vec<u8>>(2)?,
                 r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, i64>(5)?,
             ))
         })?;
         let mut out = Vec::new();
         for row in rows {
-            let (pk, name_ct, onion_ct, added) = row?;
+            let (pk, name_ct, onion_ct, added, status, saved) = row?;
             out.push(Contact {
                 identity_pubkey: to_key32(&pk)?,
                 display_name: self.decrypt_string(&name_ct)?,
                 onion_addr: self.decrypt_string(&onion_ct)?,
                 added_at: added as u64,
+                status: ContactStatus::from_i64(status),
+                saved: saved != 0,
             });
         }
         Ok(out)
+    }
+
+    /// Change a contact's name (the user's own label for them).
+    pub fn rename_contact(&self, identity_pubkey: &[u8; 32], name: &str) -> Result<(), StoreError> {
+        let sealed = self.seal(name.trim().as_bytes())?;
+        self.conn.execute(
+            "UPDATE contacts SET display_name = ?2 WHERE identity_pubkey = ?1",
+            params![identity_pubkey.as_slice(), sealed],
+        )?;
+        Ok(())
+    }
+
+    /// Accept, park or block a contact.
+    pub fn set_contact_status(
+        &self,
+        identity_pubkey: &[u8; 32],
+        status: ContactStatus,
+    ) -> Result<(), StoreError> {
+        self.conn.execute(
+            "UPDATE contacts SET status = ?2 WHERE identity_pubkey = ?1",
+            params![identity_pubkey.as_slice(), status.to_i64()],
+        )?;
+        Ok(())
+    }
+
+    /// Keep (or drop) a contact in the address book.
+    pub fn set_contact_saved(
+        &self,
+        identity_pubkey: &[u8; 32],
+        saved: bool,
+    ) -> Result<(), StoreError> {
+        self.conn.execute(
+            "UPDATE contacts SET saved = ?2 WHERE identity_pubkey = ?1",
+            params![identity_pubkey.as_slice(), saved as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Is this identity blocked? Asked on every incoming frame, so it is a
+    /// single indexed lookup rather than a full contact read.
+    pub fn is_blocked(&self, identity_pubkey: &[u8; 32]) -> Result<bool, StoreError> {
+        let status: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT status FROM contacts WHERE identity_pubkey = ?1",
+                params![identity_pubkey.as_slice()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(status.map(ContactStatus::from_i64) == Some(ContactStatus::Blocked))
     }
 
     // --- messages ---
@@ -601,6 +721,10 @@ impl Store {
                 display_name: String::new(), // the UI falls back to a placeholder
                 onion_addr: String::new(),   // filled in when they tell us
                 added_at: now,
+                // A thread that already exists was a real conversation; asking
+                // the user to approve it again would be nonsense.
+                status: ContactStatus::Accepted,
+                saved: false,
             })?;
             added += 1;
         }
@@ -801,7 +925,52 @@ mod tests {
             display_name: "Alice".into(),
             onion_addr: "abcdef.onion".into(),
             added_at: 1_700_000_000,
+            status: ContactStatus::Accepted,
+            saved: false,
         }
+    }
+
+    #[test]
+    fn a_decision_about_a_contact_survives_an_update() {
+        let s = Store::open_in_memory(&[17u8; 32]).unwrap();
+        let mut c = sample_contact();
+        c.status = ContactStatus::Waiting;
+        s.upsert_contact(&c).unwrap();
+
+        s.set_contact_status(&c.identity_pubkey, ContactStatus::Blocked).unwrap();
+        s.set_contact_saved(&c.identity_pubkey, true).unwrap();
+        s.rename_contact(&c.identity_pubkey, "  Alice z prace  ").unwrap();
+        assert!(s.is_blocked(&c.identity_pubkey).unwrap());
+
+        // A profile arriving from the peer must not undo blocking, unsave them
+        // or bring back the old name.
+        let mut fresh = c.clone();
+        fresh.display_name = "Alice".into();
+        fresh.onion_addr = "new.onion".into();
+        fresh.status = ContactStatus::Accepted;
+        fresh.saved = false;
+        s.upsert_contact(&fresh).unwrap();
+
+        let stored = s.get_contact(&c.identity_pubkey).unwrap().unwrap();
+        assert_eq!(stored.status, ContactStatus::Blocked);
+        assert!(stored.saved);
+        assert_eq!(stored.onion_addr, "new.onion"); // this one *should* update
+        assert!(s.is_blocked(&c.identity_pubkey).unwrap());
+
+        s.set_contact_status(&c.identity_pubkey, ContactStatus::Accepted).unwrap();
+        assert!(!s.is_blocked(&c.identity_pubkey).unwrap());
+    }
+
+    #[test]
+    fn renaming_keeps_the_trimmed_name() {
+        let s = Store::open_in_memory(&[18u8; 32]).unwrap();
+        let c = sample_contact();
+        s.upsert_contact(&c).unwrap();
+        s.rename_contact(&c.identity_pubkey, "  Bob  ").unwrap();
+        assert_eq!(
+            s.get_contact(&c.identity_pubkey).unwrap().unwrap().display_name,
+            "Bob"
+        );
     }
 
     #[test]

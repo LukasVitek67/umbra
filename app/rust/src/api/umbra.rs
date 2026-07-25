@@ -19,7 +19,7 @@ use umbra_core::identity::{user_code, Keypair};
 use umbra_core::invite::Invite;
 use umbra_core::group::{Group, GroupMember};
 use umbra_core::store::{
-    Contact, Direction, MessageState, NewGroupMessage, NewMessage, Store,
+    Contact, ContactStatus, Direction, MessageState, NewGroupMessage, NewMessage, Store,
 };
 use umbra_transport::ctor::TorService;
 
@@ -339,6 +339,10 @@ pub struct ContactView {
     pub display_name: String,
     pub onion: String,
     pub added_at: u64,
+    /// 0 = waiting for a decision, 1 = accepted, 2 = blocked.
+    pub status: u8,
+    /// Kept in the address book.
+    pub saved: bool,
 }
 
 /// A stored message, flattened for the UI.
@@ -984,6 +988,10 @@ impl UmbraApp {
                 display_name: inv.username.clone(),
                 onion_addr: inv.onion.clone(),
                 added_at: now,
+                // We pasted their invite ourselves, so there is nothing to
+                // approve, and someone worth adding is worth keeping.
+                status: ContactStatus::Accepted,
+                saved: true,
             })
             .map_err(|e| e.to_string())?;
         CONTACTS
@@ -997,6 +1005,8 @@ impl UmbraApp {
             display_name: inv.username,
             onion: inv.onion,
             added_at: now,
+            status: 1,
+            saved: true,
         })
     }
 
@@ -1014,8 +1024,51 @@ impl UmbraApp {
                 display_name: c.display_name,
                 onion: c.onion_addr,
                 added_at: c.added_at,
+                status: match c.status {
+                    ContactStatus::Waiting => 0,
+                    ContactStatus::Accepted => 1,
+                    ContactStatus::Blocked => 2,
+                },
+                saved: c.saved,
             })
             .collect())
+    }
+
+    /// Give a contact the name you know them by.
+    #[frb(sync)]
+    pub fn rename_contact(&self, contact_hex: String, name: String) -> Result<(), String> {
+        let pk = unhex(&contact_hex).ok_or_else(|| "bad contact id".to_string())?;
+        let g = self.inner.lock().unwrap();
+        g.store.rename_contact(&pk, &name).map_err(|e| e.to_string())
+    }
+
+    /// Accept a waiting conversation (1), or block the contact (2). Blocking
+    /// also drops whatever they still have queued with us.
+    #[frb(sync)]
+    pub fn set_contact_status(&self, contact_hex: String, status: u8) -> Result<(), String> {
+        let pk = unhex(&contact_hex).ok_or_else(|| "bad contact id".to_string())?;
+        let status = match status {
+            0 => ContactStatus::Waiting,
+            2 => ContactStatus::Blocked,
+            _ => ContactStatus::Accepted,
+        };
+        let g = self.inner.lock().unwrap();
+        g.store.set_contact_status(&pk, status).map_err(|e| e.to_string())?;
+        if status == ContactStatus::Blocked {
+            for item in g.store.outbox_for(&pk).unwrap_or_default() {
+                let _ = g.store.dequeue(item.id);
+            }
+            CONTACTS.lock().unwrap().as_mut().map(|m| m.remove(&contact_hex));
+        }
+        Ok(())
+    }
+
+    /// Keep a contact in the address book (or drop them from it).
+    #[frb(sync)]
+    pub fn set_contact_saved(&self, contact_hex: String, saved: bool) -> Result<(), String> {
+        let pk = unhex(&contact_hex).ok_or_else(|| "bad contact id".to_string())?;
+        let g = self.inner.lock().unwrap();
+        g.store.set_contact_saved(&pk, saved).map_err(|e| e.to_string())
     }
 
     #[frb(sync)]
@@ -1145,6 +1198,26 @@ impl UmbraApp {
             group
         };
         remember_group_routes(&group);
+        broadcast_group_info(&group, &self.identity_pubkey());
+        Ok(view_of(&group))
+    }
+
+    /// Rename a group. The new name travels with the roster, so everyone sees
+    /// it (a group has no owner — see `docs/THREAT_MODEL.md`).
+    #[frb(sync)]
+    pub fn rename_group(&self, group_id_hex: String, name: String) -> Result<GroupView, String> {
+        let gid = unhex16(&group_id_hex).ok_or_else(|| "bad group id".to_string())?;
+        let group = {
+            let g = self.inner.lock().unwrap();
+            let mut group = g
+                .store
+                .get_group(&gid)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "skupina nenalezena".to_string())?;
+            group.rename(&name);
+            g.store.upsert_group(&group).map_err(|e| e.to_string())?;
+            group
+        };
         broadcast_group_info(&group, &self.identity_pubkey());
         Ok(view_of(&group))
     }
@@ -1343,12 +1416,18 @@ fn remember_peer(peer_hex: &str, name: Option<&str>, onion: Option<&str>) {
     {
         let g = app.lock().unwrap();
         let existing = g.store.get_contact(&pk).ok().flatten();
+        let is_new = existing.is_none();
         let mut contact = existing.clone().unwrap_or(Contact {
             identity_pubkey: pk,
             display_name: String::new(),
             onion_addr: String::new(),
             added_at: now_secs(),
+            // Someone we never added writes to us: their thread waits for the
+            // user's decision instead of appearing among real conversations.
+            status: ContactStatus::Waiting,
+            saved: false,
         });
+        let _ = is_new;
         if let Some(name) = name {
             if !name.is_empty() && contact.display_name != name {
                 contact.display_name = name.to_string();
@@ -1375,14 +1454,30 @@ fn remember_peer(peer_hex: &str, name: Option<&str>, onion: Option<&str>) {
         if changed {
             let display = contact.display_name.clone();
             let addr = contact.onion_addr.clone();
+            let status = match contact.status {
+                ContactStatus::Waiting => 0,
+                ContactStatus::Accepted => 1,
+                ContactStatus::Blocked => 2,
+            };
             drop(g);
-            emit("contact_updated", &format!("{display}|{addr}"), peer_hex);
+            emit("contact_updated", &format!("{display}|{addr}|{status}"), peer_hex);
         }
     }
 }
 
 /// Interpret a decrypted payload from a peer.
 async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
+    // A blocked identity gets nothing: not stored, not shown, not notified.
+    if let (Some(app), Some(pk)) = (APP.lock().unwrap().clone(), unhex(peer_hex)) {
+        let blocked = {
+            let g = app.lock().unwrap();
+            g.store.is_blocked(&pk).unwrap_or(false)
+        };
+        if blocked {
+            log_line("zpráva od blokovaného kontaktu — zahozena");
+            return;
+        }
+    }
     let Some(payload) = envelope::decode(bytes) else {
         // A newer peer speaking a frame we do not know yet is not an error the
         // user can act on; ignoring it keeps the protocol extensible.

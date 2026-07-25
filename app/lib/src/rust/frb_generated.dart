@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -1635708258;
+  int get rustContentHash => 1382301694;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -190,6 +190,18 @@ abstract class RustLibApi extends BaseApi {
 
   int crateApiUmbraUmbraAppPendingMessages({required UmbraApp that});
 
+  void crateApiUmbraUmbraAppRenameContact({
+    required UmbraApp that,
+    required String contactHex,
+    required String name,
+  });
+
+  GroupView crateApiUmbraUmbraAppRenameGroup({
+    required UmbraApp that,
+    required String groupIdHex,
+    required String name,
+  });
+
   void crateApiUmbraUmbraAppSendFile({
     required UmbraApp that,
     required String contactHex,
@@ -214,6 +226,18 @@ abstract class RustLibApi extends BaseApi {
     required UmbraApp that,
     required String passphrase,
     required bool enabled,
+  });
+
+  void crateApiUmbraUmbraAppSetContactSaved({
+    required UmbraApp that,
+    required String contactHex,
+    required bool saved,
+  });
+
+  void crateApiUmbraUmbraAppSetContactStatus({
+    required UmbraApp that,
+    required String contactHex,
+    required int status,
   });
 
   void crateApiUmbraUmbraAppSetMyPicture({
@@ -1064,6 +1088,76 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  void crateApiUmbraUmbraAppRenameContact({
+    required UmbraApp that,
+    required String contactHex,
+    required String name,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerUmbraApp(
+            that,
+            serializer,
+          );
+          sse_encode_String(contactHex, serializer);
+          sse_encode_String(name, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 27)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiUmbraUmbraAppRenameContactConstMeta,
+        argValues: [that, contactHex, name],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiUmbraUmbraAppRenameContactConstMeta =>
+      const TaskConstMeta(
+        debugName: "UmbraApp_rename_contact",
+        argNames: ["that", "contactHex", "name"],
+      );
+
+  @override
+  GroupView crateApiUmbraUmbraAppRenameGroup({
+    required UmbraApp that,
+    required String groupIdHex,
+    required String name,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerUmbraApp(
+            that,
+            serializer,
+          );
+          sse_encode_String(groupIdHex, serializer);
+          sse_encode_String(name, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 28)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_group_view,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiUmbraUmbraAppRenameGroupConstMeta,
+        argValues: [that, groupIdHex, name],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiUmbraUmbraAppRenameGroupConstMeta =>
+      const TaskConstMeta(
+        debugName: "UmbraApp_rename_group",
+        argNames: ["that", "groupIdHex", "name"],
+      );
+
+  @override
   void crateApiUmbraUmbraAppSendFile({
     required UmbraApp that,
     required String contactHex,
@@ -1079,7 +1173,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_String(contactHex, serializer);
           sse_encode_String(path, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 27)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 29)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1116,7 +1210,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(groupIdHex, serializer);
           sse_encode_String(text, serializer);
           sse_encode_u_64(now, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 28)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 30)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1153,7 +1247,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(contactHex, serializer);
           sse_encode_String(text, serializer);
           sse_encode_u_64(now, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 29)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 31)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1188,7 +1282,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_String(passphrase, serializer);
           sse_encode_bool(enabled, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 30)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 32)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1208,6 +1302,76 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  void crateApiUmbraUmbraAppSetContactSaved({
+    required UmbraApp that,
+    required String contactHex,
+    required bool saved,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerUmbraApp(
+            that,
+            serializer,
+          );
+          sse_encode_String(contactHex, serializer);
+          sse_encode_bool(saved, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 33)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiUmbraUmbraAppSetContactSavedConstMeta,
+        argValues: [that, contactHex, saved],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiUmbraUmbraAppSetContactSavedConstMeta =>
+      const TaskConstMeta(
+        debugName: "UmbraApp_set_contact_saved",
+        argNames: ["that", "contactHex", "saved"],
+      );
+
+  @override
+  void crateApiUmbraUmbraAppSetContactStatus({
+    required UmbraApp that,
+    required String contactHex,
+    required int status,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerUmbraApp(
+            that,
+            serializer,
+          );
+          sse_encode_String(contactHex, serializer);
+          sse_encode_u_8(status, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 34)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiUmbraUmbraAppSetContactStatusConstMeta,
+        argValues: [that, contactHex, status],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiUmbraUmbraAppSetContactStatusConstMeta =>
+      const TaskConstMeta(
+        debugName: "UmbraApp_set_contact_status",
+        argNames: ["that", "contactHex", "status"],
+      );
+
+  @override
   void crateApiUmbraUmbraAppSetMyPicture({
     required UmbraApp that,
     required List<int> bytes,
@@ -1221,7 +1385,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             serializer,
           );
           sse_encode_list_prim_u_8_loose(bytes, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 31)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 35)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1256,7 +1420,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 32,
+              funcId: 36,
               port: port_,
             );
           },
@@ -1289,7 +1453,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 33)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 37)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -1315,7 +1479,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 34)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 38)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -1337,7 +1501,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 35)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 39)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -1360,7 +1524,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(name, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 36)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 40)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -1385,7 +1549,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 41,
             port: port_,
           );
         },
@@ -1409,7 +1573,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 38)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 42)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1431,7 +1595,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 39)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 43)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -1523,14 +1687,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ContactView dco_decode_contact_view(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return ContactView(
       identityHex: dco_decode_String(arr[0]),
       userCode: dco_decode_String(arr[1]),
       displayName: dco_decode_String(arr[2]),
       onion: dco_decode_String(arr[3]),
       addedAt: dco_decode_u_64(arr[4]),
+      status: dco_decode_u_8(arr[5]),
+      saved: dco_decode_bool(arr[6]),
     );
   }
 
@@ -1769,12 +1935,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_displayName = sse_decode_String(deserializer);
     var var_onion = sse_decode_String(deserializer);
     var var_addedAt = sse_decode_u_64(deserializer);
+    var var_status = sse_decode_u_8(deserializer);
+    var var_saved = sse_decode_bool(deserializer);
     return ContactView(
       identityHex: var_identityHex,
       userCode: var_userCode,
       displayName: var_displayName,
       onion: var_onion,
       addedAt: var_addedAt,
+      status: var_status,
+      saved: var_saved,
     );
   }
 
@@ -2079,6 +2249,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.displayName, serializer);
     sse_encode_String(self.onion, serializer);
     sse_encode_u_64(self.addedAt, serializer);
+    sse_encode_u_8(self.status, serializer);
+    sse_encode_bool(self.saved, serializer);
   }
 
   @protected
@@ -2402,6 +2574,23 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
   int pendingMessages() =>
       RustLib.instance.api.crateApiUmbraUmbraAppPendingMessages(that: this);
 
+  /// Give a contact the name you know them by.
+  void renameContact({required String contactHex, required String name}) =>
+      RustLib.instance.api.crateApiUmbraUmbraAppRenameContact(
+        that: this,
+        contactHex: contactHex,
+        name: name,
+      );
+
+  /// Rename a group. The new name travels with the roster, so everyone sees
+  /// it (a group has no owner — see `docs/THREAT_MODEL.md`).
+  GroupView renameGroup({required String groupIdHex, required String name}) =>
+      RustLib.instance.api.crateApiUmbraUmbraAppRenameGroup(
+        that: this,
+        groupIdHex: groupIdHex,
+        name: name,
+      );
+
   /// Send a file to a connected contact: read it, split it into chunks and
   /// push each one through the encrypted session. Progress arrives as events.
   void sendFile({required String contactHex, required String path}) =>
@@ -2444,6 +2633,23 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
         that: this,
         passphrase: passphrase,
         enabled: enabled,
+      );
+
+  /// Keep a contact in the address book (or drop them from it).
+  void setContactSaved({required String contactHex, required bool saved}) =>
+      RustLib.instance.api.crateApiUmbraUmbraAppSetContactSaved(
+        that: this,
+        contactHex: contactHex,
+        saved: saved,
+      );
+
+  /// Accept a waiting conversation (1), or block the contact (2). Blocking
+  /// also drops whatever they still have queued with us.
+  void setContactStatus({required String contactHex, required int status}) =>
+      RustLib.instance.api.crateApiUmbraUmbraAppSetContactStatus(
+        that: this,
+        contactHex: contactHex,
+        status: status,
       );
 
   /// Set our profile picture (raw image bytes, stored encrypted) and push it

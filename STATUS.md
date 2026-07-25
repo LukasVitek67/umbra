@@ -70,6 +70,27 @@ Opravy nalezené během testování (všechny v kódu):
   `reg.exe` (bez admina, uživatel to umí sám zrušit). Přepínač se řídí reálným
   stavem registru — když zápis selže, skočí zpět a řekne to.
 
+## 👥 1.2.0 — kontakty, nevyřízené, blokování, notifikace
+- **Nevyřízené**: kdo napíše první a není v kontaktech, přistane v sekci nahoře
+  v seznamu chatů. Jde si přečíst, co poslal, a pak **Přijmout** / **Zablokovat**.
+  Do běžných chatů se dostane až po přijetí.
+- **Blokování**: od blokovaného se všechno zahazuje už v Rustu (neuloží se,
+  nezobrazí, neupozorní), zmizí ze seznamu a vyhodí se mu fronta. Odblokovat jde
+  z Kontaktů. Historie zůstává na disku.
+- **Kontakty (adresář)**: ikona v hlavičce chatů. Kontakt se ukládá ručně
+  (menu v chatu → *Uložit do kontaktů*), pak je v seznamu k dispozici pro přidání
+  do skupiny, přejmenování, blokování. Kontakt přidaný přes pozvánku se uloží sám.
+- **Přejmenování**: kontaktu (jen tvůj štítek, nikam se neposílá) i skupiny
+  (jméno putuje s rosterem všem členům).
+- **Notifikace** (`local_notifier`): při příchozí zprávě, když appka nemá fokus
+  nebo je otevřený jiný chat. U nevyřízeného kontaktu se ukáže jen „Nová zpráva"
+  bez textu — cizí člověk nemá co psát uživateli na obrazovku.
+- **Profil** je dole v levé liště (nahoře už není žádný pruh), nad ním tlačítko
+  aktualizace.
+- **Motivy**: dodělány komponenty, které braly barvy z Material defaultů —
+  dialogy, snackbary, chipy, přepínače, checkboxy, slidery, tooltipy, menu,
+  scrollbar, výběr textu, AppBar a značka Umbry (ta brala fixní zelenou).
+
 ## 🐞 Opraveno 1.1.1 — updater dostával od GitHubu 403
 Kontrola verze šla přes **GitHub API**, které má limit dotazů na IP. Přes Tor je
 tou IP výstupní uzel sdílený se všemi, takže limit bývá vyčerpaný a appka

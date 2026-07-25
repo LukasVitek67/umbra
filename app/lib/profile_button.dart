@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// The account button in the top-right corner: who you are signed in as, plus
-// switching accounts and signing out.
+// The account button at the bottom of the left bar: who you are signed in as,
+// plus switching accounts and signing out. It is deliberately just the avatar —
+// the bar is narrow, and the name is one hover (or one click) away.
 
 import 'package:flutter/material.dart';
 
@@ -19,8 +20,9 @@ class ProfileButton extends StatelessWidget {
       builder: (context, _) {
         final picture = appState.myPicture();
         return PopupMenuButton<String>(
-          tooltip: appState.username,
-          offset: const Offset(0, 46),
+          tooltip: '@${appState.username}',
+          // The bar sits on the left edge, so the menu opens up and to the side.
+          offset: const Offset(56, -20),
           color: UmbraColors.surfaceHigh,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           onSelected: (value) {
@@ -101,31 +103,21 @@ class ProfileButton extends StatelessWidget {
             ),
           ],
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircleAvatar(
-                  radius: 15,
-                  backgroundColor: UmbraColors.surfaceHigh,
-                  backgroundImage: picture.isNotEmpty ? MemoryImage(picture) : null,
-                  child: picture.isEmpty
-                      ? Text(
-                          appState.username.isEmpty
-                              ? '?'
-                              : appState.username.characters.first.toUpperCase(),
-                          style: TextStyle(
-                              color: UmbraColors.accent,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13))
-                      : null,
-                ),
-                const SizedBox(width: 8),
-                Text(appState.username,
-                    style: TextStyle(
-                        color: UmbraColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13)),
-                Icon(Icons.arrow_drop_down, color: UmbraColors.textMuted),
-              ],
+            padding: const EdgeInsets.all(8),
+            child: CircleAvatar(
+              radius: 16,
+              backgroundColor: UmbraColors.surfaceHigh,
+              backgroundImage: picture.isNotEmpty ? MemoryImage(picture) : null,
+              child: picture.isEmpty
+                  ? Text(
+                      appState.username.isEmpty
+                          ? '?'
+                          : appState.username.characters.first.toUpperCase(),
+                      style: TextStyle(
+                          color: UmbraColors.accent,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14))
+                  : null,
             ),
           ),
         );

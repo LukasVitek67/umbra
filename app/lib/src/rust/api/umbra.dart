@@ -158,6 +158,13 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// How many messages are still waiting for their peer.
   int pendingMessages();
 
+  /// Give a contact the name you know them by.
+  void renameContact({required String contactHex, required String name});
+
+  /// Rename a group. The new name travels with the roster, so everyone sees
+  /// it (a group has no owner — see `docs/THREAT_MODEL.md`).
+  GroupView renameGroup({required String groupIdHex, required String name});
+
   /// Send a file to a connected contact: read it, split it into chunks and
   /// push each one through the encrypted session. Progress arrives as events.
   void sendFile({required String contactHex, required String path});
@@ -181,6 +188,13 @@ abstract class UmbraApp implements RustOpaqueInterface {
 
   /// Turn auto sign-in on (needs the passphrase) or off for this account.
   void setAutologin({required String passphrase, required bool enabled});
+
+  /// Keep a contact in the address book (or drop them from it).
+  void setContactSaved({required String contactHex, required bool saved});
+
+  /// Accept a waiting conversation (1), or block the contact (2). Blocking
+  /// also drops whatever they still have queued with us.
+  void setContactStatus({required String contactHex, required int status});
 
   /// Set our profile picture (raw image bytes, stored encrypted) and push it
   /// to everyone we are connected to.
@@ -231,12 +245,20 @@ class ContactView {
   final String onion;
   final BigInt addedAt;
 
+  /// 0 = waiting for a decision, 1 = accepted, 2 = blocked.
+  final int status;
+
+  /// Kept in the address book.
+  final bool saved;
+
   const ContactView({
     required this.identityHex,
     required this.userCode,
     required this.displayName,
     required this.onion,
     required this.addedAt,
+    required this.status,
+    required this.saved,
   });
 
   @override
@@ -245,7 +267,9 @@ class ContactView {
       userCode.hashCode ^
       displayName.hashCode ^
       onion.hashCode ^
-      addedAt.hashCode;
+      addedAt.hashCode ^
+      status.hashCode ^
+      saved.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -256,7 +280,9 @@ class ContactView {
           userCode == other.userCode &&
           displayName == other.displayName &&
           onion == other.onion &&
-          addedAt == other.addedAt;
+          addedAt == other.addedAt &&
+          status == other.status &&
+          saved == other.saved;
 }
 
 /// One member of a group, flattened for the UI.
