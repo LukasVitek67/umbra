@@ -1,0 +1,31 @@
+[package]
+name = "rust_lib_umbra"
+# The app version the updater compares against GitHub releases. Bumped by
+# tools/release.ps1 together with app/pubspec.yaml.
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+flutter_rust_bridge = "=2.12.0"
+umbra-core = { path = "../../core" }
+umbra-transport = { path = "../../transport" } # Tor onion transport (bundled tor daemon)
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time"] }
+getrandom = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+
+# Self-update (updater.rs). The check runs THROUGH Tor's SOCKS port, so asking
+# GitHub "is there a newer version?" does not tell GitHub who or where we are.
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+webpki-roots = "0.26"          # CA roots, so we do not trust the system store
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+
+# Member of the umbra/ workspace so it shares the compiled Arti artifacts.

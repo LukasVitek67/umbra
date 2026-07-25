@@ -1,0 +1,811 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// App state backed by the REAL Umbra core over flutter_rust_bridge. Identity,
+// user code, invites, contacts and message history are genuine and persisted
+// encrypted at rest. Live peer-to-peer send/receive over the transport is the
+// remaining step; until then, `sendMessage` stores the message locally.
+
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+
+import 'l10n.dart';
+import 'src/rust/api/umbra.dart';
+
+const List<int> kPaddingBuckets = [256, 1024, 4096, 16384, 65536];
+
+/// Mirror of the real padding rule: bytes a body occupies on the wire.
+int wireBytesFor(int bodyLen) {
+  final needed = bodyLen + 4;
+  for (final b in kPaddingBuckets) {
+    if (needed <= b) return b;
+  }
+  return ((needed + 65535) ~/ 65536) * 65536;
+}
+
+class Device {
+  Device({
+    required this.name,
+    required this.platform,
+    required this.fingerprint,
+    required this.lastSeen,
+    this.current = false,
+    this.revoked = false,
+  });
+  final String name;
+  final String platform;
+  final String fingerprint;
+  final String lastSeen;
+  final bool current;
+  bool revoked;
+}
+
+class Message {
+  Message(
+    this.body, {
+    required this.outgoing,
+    required this.at,
+    this.pending = false,
+    this.filePath,
+    this.fileName,
+    this.fileSize,
+    this.senderName,
+  });
+  final String body;
+  final bool outgoing;
+  final DateTime at;
+
+  /// Who wrote it, in a group. Null in 1:1 chats, where the header says it.
+  final String? senderName;
+  /// Outgoing message that has not reached the peer yet (no session).
+  bool pending;
+
+  /// Set for file messages: local path once complete, plus name and size.
+  String? filePath;
+  final String? fileName;
+  final int? fileSize;
+  /// 0..1 while a file is moving; null for plain messages.
+  double? progress;
+
+  bool get isFile => fileName != null;
+  int get wireBytes => wireBytesFor(body.length);
+}
+
+class Chat {
+  Chat({
+    required this.contactHex,
+    required this.name,
+    required this.onion,
+    required this.userCode,
+    this.verified = false,
+    List<Message>? messages,
+  }) : messages = messages ?? [];
+  final String contactHex;
+  String name;
+  final String onion;
+  final String userCode;
+  /// Local path to the contact's picture, if they sent one.
+  String? picturePath;
+  bool verified;
+  final List<Message> messages;
+  Message? get last => messages.isEmpty ? null : messages.last;
+}
+
+/// One member of a group, as the roster knows them.
+class GroupMemberInfo {
+  GroupMemberInfo({required this.identityHex, required this.displayName, required this.onion});
+  final String identityHex;
+  final String displayName;
+  final String onion;
+}
+
+/// A group conversation. Messages go out over each member's own 1:1 session,
+/// so a member who is offline when we write simply does not get that message.
+class GroupChat {
+  GroupChat({
+    required this.idHex,
+    required this.name,
+    required this.members,
+    List<Message>? messages,
+  }) : messages = messages ?? [];
+  final String idHex;
+  String name;
+  List<GroupMemberInfo> members;
+  final List<Message> messages;
+  Message? get last => messages.isEmpty ? null : messages.last;
+}
+
+int _nowSecs() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+/// Global app state, backed by the real core.
+class AppState extends ChangeNotifier {
+  UmbraApp? _app;
+
+  bool hasIdentity = false;
+  /// True while the user is creating an additional account.
+  bool creatingAccount = false;
+  String username = '';
+  String userCode = '';
+  String identityFingerprint = '';
+  int paddingFloorIndex = 0;
+  String? lastError;
+
+  // --- network state (Tor onion transport) ---
+  /// Our own onion address; empty until the service is up.
+  String onion = '';
+  /// Human-readable status of the network layer.
+  String netStatus = '';
+  /// Identities (hex) of peers we currently have a live session with.
+  final Set<String> connectedPeers = {};
+  String? get connectedPeerHex => connectedPeers.isEmpty ? null : connectedPeers.first;
+
+  bool isConnectedTo(String contactHex) => connectedPeers.contains(contactHex);
+
+  bool get torConnected => onion.isNotEmpty;
+  bool get isConnecting => hasIdentity && onion.isEmpty;
+
+  // --- updates (checked through Tor, signature-verified in Rust) ---
+  /// The version this build reports.
+  String get version => appVersion();
+  /// Human-readable state of the update check.
+  String updateStatus = '';
+  /// A newer version is already installed next to the app; a restart uses it.
+  String? updateReadyVersion;
+
+  final List<Chat> chats = [];
+  final List<GroupChat> groups = [];
+  final List<Device> devices = [];
+
+  Future<String> _dir() async => (await getApplicationSupportDirectory()).path;
+
+  /// Accounts stored on this computer.
+  Future<List<AccountView>> accounts() async =>
+      UmbraApp.listAccounts(root: await _dir());
+
+  /// Create an additional account (its own identity, keys and history).
+  Future<bool> createAccount(
+    String username,
+    String passphrase, {
+    bool autologin = false,
+  }) async {
+    try {
+      final app = UmbraApp.createAccount(
+        root: await _dir(),
+        name: username,
+        passphrase: passphrase,
+        autologin: autologin,
+      );
+      creatingAccount = false;
+      _adopt(app);
+      return true;
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Sign in to an account with its passphrase.
+  Future<bool> signIn(String id, String passphrase, {bool remember = false}) async {
+    try {
+      final app = UmbraApp.openAccount(
+        root: await _dir(),
+        id: id,
+        passphrase: passphrase,
+        remember: remember,
+      );
+      _adopt(app);
+      return true;
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Sign in to an account whose passphrase this computer remembers.
+  Future<bool> signInAuto(String id) async {
+    try {
+      final app = UmbraApp.openAccountAuto(root: await _dir(), id: id);
+      _adopt(app);
+      return true;
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Delete an account and all of its local data.
+  Future<void> forgetAccount(String id) async {
+    try {
+      UmbraApp.forgetAccount(root: await _dir(), id: id);
+    } catch (e) {
+      lastError = _clean(e);
+    }
+    notifyListeners();
+  }
+
+  /// Show the "create another account" form.
+  void startNewAccountFlow() {
+    creatingAccount = true;
+    notifyListeners();
+  }
+
+  void cancelNewAccountFlow() {
+    creatingAccount = false;
+    notifyListeners();
+  }
+
+  /// Whether this account signs in automatically on this computer.
+  bool get autologinEnabled => _app?.autologinEnabled() ?? false;
+
+  /// Turn auto sign-in on (needs the passphrase) or off.
+  bool setAutologin(String passphrase, bool enabled) {
+    try {
+      _app?.setAutologin(passphrase: passphrase, enabled: enabled);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Sign out: drop the in-memory session and return to the account picker.
+  /// The network keeps running only for the signed-in account, so we stop it by
+  /// letting the app state go; Tor is torn down when the app exits.
+  void signOut() {
+    _app = null;
+    hasIdentity = false;
+    username = '';
+    userCode = '';
+    identityFingerprint = '';
+    onion = '';
+    connectedPeers.clear();
+    chats.clear();
+    groups.clear();
+    devices.clear();
+    netStatus = '';
+    notifyListeners();
+  }
+
+  void _adopt(UmbraApp app) {
+    _app = app;
+    username = app.username();
+    userCode = app.userCode();
+    identityFingerprint = _group(app.identityHex());
+    hasIdentity = true;
+    _reloadContacts();
+    _reloadGroups();
+    _startNetwork(app);
+    devices
+      ..clear()
+      ..add(Device(
+        name: 'Tento počítač',
+        platform: 'Windows',
+        fingerprint: userCode,
+        lastSeen: 'právě teď',
+        current: true,
+      ));
+    notifyListeners();
+  }
+
+  /// Subscribe to the Rust network layer: Tor bootstrap, our onion address,
+  /// peer connect/disconnect, and incoming messages.
+  void _startNetwork(UmbraApp app) {
+    netStatus = L.t('net.starting');
+    app.startNetwork().listen((ev) {
+      switch (ev.kind) {
+        case 'status':
+          netStatus = _render(ev.data);
+          break;
+        case 'onion':
+          onion = ev.data;
+          netStatus = L.t('net.online');
+          break;
+        case 'connected':
+          connectedPeers.add(ev.peerHex);
+          netStatus = L.t('net.connectedPeer');
+          _ensureChat(ev.peerHex);
+          break;
+        case 'disconnected':
+          connectedPeers.remove(ev.peerHex);
+          netStatus = onion.isEmpty ? L.t('net.offline') : L.t('net.online');
+          break;
+        case 'sent':
+          _markSent(ev.peerHex, ev.data);
+          break;
+        case 'queued':
+          netStatus = L.t('net.queued');
+          break;
+        case 'message':
+          _receive(ev.peerHex, ev.data);
+          break;
+        // Group traffic: the Rust side has already stored (or refused) it, so
+        // here we only mirror it into the open UI.
+        case 'group_message':
+          _receiveGroup(ev.peerHex, ev.data);
+          break;
+        case 'group_sent':
+          _markGroupSent(ev.data);
+          break;
+        case 'group_invite':
+        case 'group_info':
+          _reloadGroups();
+          break;
+        case 'group_removed':
+          groups.removeWhere((g) => g.idHex == ev.data);
+          break;
+        case 'profile':
+          final chat = _ensureChat(ev.peerHex);
+          if (ev.data.isNotEmpty) chat.name = ev.data;
+          chat.picturePath = _app?.contactPicturePath(contactHex: ev.peerHex);
+          if (chat.picturePath != null && chat.picturePath!.isEmpty) {
+            chat.picturePath = null;
+          }
+          break;
+        case 'file_start':
+          _fileStart(ev.peerHex, ev.data, incoming: true);
+          break;
+        case 'file_send_start':
+          _fileStart(ev.peerHex, ev.data, incoming: false);
+          break;
+        case 'file_progress':
+        case 'file_send_progress':
+          _fileProgress(ev.peerHex, ev.data);
+          break;
+        case 'file_done':
+          _fileDone(ev.peerHex, ev.data);
+          break;
+        case 'file_sent':
+          _fileSent(ev.peerHex);
+          break;
+        // The Rust side does the whole update: check over Tor, verify the
+        // signature, unpack next to the app. Here we only tell the user.
+        case 'update_downloading':
+          updateStatus = L.t('update.downloading').replaceAll('{v}', ev.data);
+          break;
+        case 'update_installed':
+          updateReadyVersion = ev.data;
+          updateStatus = L.t('update.ready').replaceAll('{v}', ev.data);
+          break;
+        case 'update_uptodate':
+          updateStatus = L.t('update.upToDate');
+          break;
+        case 'update_error':
+          updateStatus = L.t('update.failed').replaceAll('{e}', ev.data);
+          break;
+        case 'error':
+          lastError = _render(ev.data);
+          netStatus = lastError!;
+          break;
+      }
+      notifyListeners();
+    }, onError: (Object e) {
+      lastError = _clean(e);
+      netStatus = L.t('net.error');
+      notifyListeners();
+    });
+  }
+
+  /// Make sure a chat row exists for a peer that contacted us.
+  Chat _ensureChat(String peerHex) {
+    final existing = chats.where((c) => c.contactHex == peerHex);
+    if (existing.isNotEmpty) return existing.first;
+    final chat = Chat(
+      contactHex: peerHex,
+      name: L.t('chats.unknown'),
+      onion: '',
+      userCode: peerHex.length >= 16 ? peerHex.substring(0, 16).toUpperCase() : peerHex,
+    );
+    chats.insert(0, chat);
+    return chat;
+  }
+
+  /// An incoming, already-decrypted message from a peer.
+  void _receive(String peerHex, String body) {
+    final chat = _ensureChat(peerHex);
+    final now = DateTime.now();
+    chat.messages.add(Message(body, outgoing: false, at: now));
+    try {
+      _app?.addMessage(
+        contactHex: peerHex,
+        outgoing: false,
+        sentAt: BigInt.from(now.millisecondsSinceEpoch ~/ 1000),
+        body: body,
+      );
+    } catch (_) {
+      // Storing history must never drop a delivered message.
+    }
+  }
+
+  /// A file transfer started (either direction): show a placeholder bubble.
+  void _fileStart(String peerHex, String data, {required bool incoming}) {
+    final parts = data.split('|');
+    final name = parts.first;
+    final size = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
+    final chat = _ensureChat(peerHex);
+    chat.messages.add(Message(
+      name,
+      outgoing: !incoming,
+      at: DateTime.now(),
+      pending: true,
+      fileName: name,
+      fileSize: size,
+    )..progress = 0);
+    netStatus = incoming ? L.t('net.receivingFile') : L.t('net.sendingFile');
+  }
+
+  void _fileProgress(String peerHex, String data) {
+    final parts = data.split('|');
+    if (parts.length < 2) return;
+    final done = int.tryParse(parts[0]) ?? 0;
+    final total = int.tryParse(parts[1]) ?? 0;
+    final chat = _ensureChat(peerHex);
+    for (final m in chat.messages.reversed) {
+      if (m.isFile && m.progress != null && m.progress! < 1) {
+        m.progress = total == 0 ? 1 : (done / total).clamp(0, 1).toDouble();
+        break;
+      }
+    }
+  }
+
+  void _fileDone(String peerHex, String path) {
+    final chat = _ensureChat(peerHex);
+    for (final m in chat.messages.reversed) {
+      if (m.isFile && !m.outgoing) {
+        m.filePath = path;
+        m.progress = 1;
+        m.pending = false;
+        break;
+      }
+    }
+    netStatus = onion.isEmpty ? L.t('net.offline') : L.t('net.online');
+  }
+
+  void _fileSent(String peerHex) {
+    final chat = _ensureChat(peerHex);
+    for (final m in chat.messages.reversed) {
+      if (m.isFile && m.outgoing) {
+        m.progress = 1;
+        m.pending = false;
+        break;
+      }
+    }
+    netStatus = onion.isEmpty ? L.t('net.offline') : L.t('net.online');
+  }
+
+  /// Send a file to a contact over the encrypted session.
+  void sendFile(Chat chat, String path) {
+    _app?.sendFile(contactHex: chat.contactHex, path: path);
+    notifyListeners();
+  }
+
+  /// Our own profile picture bytes (empty if none).
+  Uint8List myPicture() => _app?.myPicture() ?? Uint8List(0);
+
+  /// Set our profile picture; it is stored encrypted and pushed to contacts.
+  void setMyPicture(Uint8List bytes) {
+    try {
+      _app?.setMyPicture(bytes: bytes);
+      notifyListeners();
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
+  }
+
+  /// A queued message finally went out: stop showing it as pending.
+  void _markSent(String peerHex, String body) {
+    for (final chat in chats) {
+      if (chat.contactHex != peerHex) continue;
+      for (final m in chat.messages) {
+        if (m.outgoing && m.pending && m.body == body) {
+          m.pending = false;
+          return;
+        }
+      }
+    }
+  }
+
+  /// Dial a contact over Tor.
+  void connectTo(Chat chat) {
+    _app?.connectPeer(contactHex: chat.contactHex);
+    netStatus = L.t('net.connecting');
+    notifyListeners();
+  }
+
+  void _reloadContacts() {
+    final app = _app;
+    if (app == null) return;
+    chats.clear();
+    for (final c in app.listContacts()) {
+      final chat = Chat(
+        contactHex: c.identityHex,
+        name: c.displayName.isEmpty ? 'Kontakt' : c.displayName,
+        onion: c.onion,
+        userCode: c.userCode,
+      );
+      for (final m in app.listMessages(contactHex: c.identityHex, limit: 500)) {
+        chat.messages.add(Message(
+          m.body,
+          outgoing: m.outgoing,
+          at: DateTime.fromMillisecondsSinceEpoch(m.sentAt.toInt() * 1000),
+        ));
+      }
+      chats.add(chat);
+    }
+  }
+
+  // --- groups ---
+
+  void _reloadGroups() {
+    final app = _app;
+    if (app == null) return;
+    try {
+      final loaded = app.listGroups().map((g) {
+        final chat = GroupChat(
+          idHex: g.idHex,
+          name: g.name,
+          members: g.members
+              .map((m) => GroupMemberInfo(
+                    identityHex: m.identityHex,
+                    displayName: m.displayName,
+                    onion: m.onion,
+                  ))
+              .toList(),
+        );
+        for (final m in app.listGroupMessages(groupIdHex: g.idHex, limit: 500)) {
+          chat.messages.add(Message(
+            m.body,
+            outgoing: m.outgoing,
+            at: DateTime.fromMillisecondsSinceEpoch(m.sentAt.toInt() * 1000),
+            senderName: m.outgoing ? null : m.senderName,
+          ));
+        }
+        return chat;
+      }).toList();
+      groups
+        ..clear()
+        ..addAll(loaded);
+    } catch (e) {
+      lastError = _clean(e);
+    }
+  }
+
+  GroupChat? groupById(String idHex) {
+    for (final g in groups) {
+      if (g.idHex == idHex) return g;
+    }
+    return null;
+  }
+
+  /// Create a group from contacts. The roster is pushed to every member, which
+  /// is also how they learn they are in it.
+  bool createGroup(String name, List<String> memberHexes) {
+    final app = _app;
+    if (app == null || name.trim().isEmpty) return false;
+    try {
+      app.createGroup(
+        name: name.trim(),
+        memberHexes: memberHexes,
+        now: BigInt.from(_nowSecs()),
+      );
+      _reloadGroups();
+      notifyListeners();
+      return true;
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  bool addToGroup(GroupChat group, String contactHex) {
+    final app = _app;
+    if (app == null) return false;
+    try {
+      app.addGroupMember(groupIdHex: group.idHex, contactHex: contactHex);
+      _reloadGroups();
+      notifyListeners();
+      return true;
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  void leaveGroup(GroupChat group) {
+    try {
+      _app?.leaveGroup(groupIdHex: group.idHex);
+    } catch (e) {
+      lastError = _clean(e);
+    }
+    groups.removeWhere((g) => g.idHex == group.idHex);
+    notifyListeners();
+  }
+
+  /// Send to a group: stored once, fanned out to each member separately.
+  void sendGroupMessage(GroupChat group, String text) {
+    final app = _app;
+    final t = text.trim();
+    if (app == null || t.isEmpty) return;
+    final now = DateTime.now();
+    try {
+      app.sendGroupMessage(
+        groupIdHex: group.idHex,
+        text: t,
+        now: BigInt.from(now.millisecondsSinceEpoch ~/ 1000),
+      );
+      group.messages.add(Message(
+        t,
+        outgoing: true,
+        at: now,
+        // Someone in the group has to be reachable for it to land anywhere.
+        pending: !group.members.any((m) => isConnectedTo(m.identityHex)),
+      ));
+      notifyListeners();
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
+  }
+
+  /// `gid|text` from the Rust layer, already persisted there.
+  void _receiveGroup(String peerHex, String data) {
+    final split = data.indexOf('|');
+    if (split <= 0) return;
+    final group = groupById(data.substring(0, split));
+    if (group == null) {
+      _reloadGroups();
+      return;
+    }
+    final sender = group.members.where((m) => m.identityHex == peerHex);
+    group.messages.add(Message(
+      data.substring(split + 1),
+      outgoing: false,
+      at: DateTime.now(),
+      senderName: sender.isEmpty ? L.t('chats.unknown') : sender.first.displayName,
+    ));
+  }
+
+  /// A queued group message reached at least one member.
+  void _markGroupSent(String data) {
+    final split = data.indexOf('|');
+    if (split <= 0) return;
+    final group = groupById(data.substring(0, split));
+    if (group == null) return;
+    final body = data.substring(split + 1);
+    for (final m in group.messages) {
+      if (m.outgoing && m.pending && m.body == body) {
+        m.pending = false;
+        return;
+      }
+    }
+  }
+
+  /// Add a contact from a pasted `umbra1:` invite. Returns false on a bad code.
+  bool addContactByCode(String raw) {
+    final app = _app;
+    if (app == null) return false;
+    try {
+      final c = app.addContact(inviteCode: raw.trim(), now: BigInt.from(_nowSecs()));
+      final chat = Chat(
+        contactHex: c.identityHex,
+        name: c.displayName.isEmpty ? 'Kontakt' : c.displayName,
+        onion: c.onion,
+        userCode: c.userCode,
+      );
+      chats.insert(0, chat);
+      notifyListeners();
+      // Start reaching the contact straight away; the Rust side keeps retrying.
+      if (torConnected) connectTo(chat);
+      return true;
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Send over the live Tor session (and record it in encrypted history).
+  void sendMessage(Chat chat, String text) {
+    final app = _app;
+    final t = text.trim();
+    if (app == null || t.isEmpty) return;
+    final now = DateTime.now();
+    try {
+      app.sendOverNetwork(contactHex: chat.contactHex, text: t);
+      app.addMessage(
+        contactHex: chat.contactHex,
+        outgoing: true,
+        sentAt: BigInt.from(now.millisecondsSinceEpoch ~/ 1000),
+        body: t,
+      );
+      chat.messages.add(Message(
+        t,
+        outgoing: true,
+        at: now,
+        pending: !isConnectedTo(chat.contactHex),
+      ));
+      notifyListeners();
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
+  }
+
+  /// Restart into the version the updater already put in place.
+  Future<void> restartForUpdate() async {
+    try {
+      await Process.start(
+        Platform.resolvedExecutable,
+        const [],
+        mode: ProcessStartMode.detached,
+        workingDirectory: File(Platform.resolvedExecutable).parent.path,
+      );
+      exit(0);
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
+  }
+
+  /// A shareable `umbra1:` invite (empty until our onion address is ready).
+  String myInvite() => _app?.myInvite() ?? '';
+
+  void toggleVerified(Chat chat) {
+    chat.verified = !chat.verified;
+    notifyListeners();
+  }
+
+  void setPaddingFloor(int index) {
+    paddingFloorIndex = index;
+    notifyListeners();
+  }
+
+  void revokeDevice(Device d) {
+    d.revoked = true;
+    notifyListeners();
+  }
+
+  static String _group(String hex) {
+    final take = hex.length >= 32 ? hex.substring(0, 32) : hex;
+    final groups = <String>[];
+    for (var i = 0; i < take.length; i += 4) {
+      groups.add(take.substring(i, i + 4 > take.length ? take.length : i + 4));
+    }
+    return groups.join(' ');
+  }
+
+  /// Turn a status/error code from Rust into a sentence in the chosen language.
+  static String _render(String code) {
+    if (code == 'tor_starting') return L.t('net.torStarting');
+    if (code == 'queued') return L.t('net.queued');
+    if (code == 'stale_invite') return L.t('net.staleInvite');
+    if (code == 'net_not_running') return L.t('net.notRunning');
+    if (code.startsWith('connecting|')) {
+      final p = code.split('|');
+      return L
+          .t('net.attempt')
+          .replaceAll('{a}', p.length > 1 ? p[1] : '?')
+          .replaceAll('{b}', p.length > 2 ? p[2] : '?');
+    }
+    if (code.startsWith('unreachable|')) {
+      return L.t('net.unreachable').replaceAll('{e}', code.substring(12));
+    }
+    return code; // Tor's own bootstrap lines and anything else pass through
+  }
+
+  static String _clean(Object e) {
+    var s = e.toString();
+    if (s.startsWith('Exception: ')) s = s.substring(11);
+    return s;
+  }
+}
+
+final AppState appState = AppState();

@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+[package]
+name = "umbra-cli"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Runnable demo/CLI exercising the Umbra core on one machine."
+
+[dependencies]
+umbra-core = { path = "../core" }
+getrandom = "0.2"
+
+[[bin]]
+name = "umbra"
+path = "src/main.rs"
+
+# Release signing: the key that decides which builds users will install.
+[[bin]]
+name = "umbra-sign"
+path = "src/bin/sign.rs"

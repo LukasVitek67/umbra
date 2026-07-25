@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+[workspace]
+resolver = "2"
+members = ["core", "cli", "transport", "app/rust"]
+
+[workspace.package]
+edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = ""
+rust-version = "1.75"
+
+# Build the whole workspace with overflow checks even in release: this is a
+# security-sensitive codebase, a silent wrap is worse than a panic.
+[profile.release]
+overflow-checks = true
+panic = "abort"
+lto = true
+codegen-units = 1

@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+[package]
+name = "umbra-core"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Core crypto/transport library for the Umbra encrypted P2P messenger."
+
+# No runtime dependencies yet. Each is added in the slice that first needs it,
+# so `cargo test` stays green from the first commit. Planned additions (see
+# docs/ARCHITECTURE.md): argon2, chacha20poly1305, x25519-dalek, ed25519-dalek,
+# hkdf, zeroize, vodozemac, snow, arti-client, tor-hsservice, rusqlite (sqlcipher).
+[dependencies]
+# At-rest secret protection (crypto::keystore). All audited RustCrypto/PHC
+# crates; getrandom 0.2 uses direct OS FFI (no heavy windows-sys pull).
+argon2 = "0.5"              # Argon2id KDF (passphrase -> key)
+chacha20poly1305 = "0.10"   # XChaCha20-Poly1305 AEAD
+getrandom = "0.2"           # OS CSPRNG for salt + nonce
+zeroize = "1"               # wipe derived key material from memory
+ed25519-dalek = "2"         # identity/device signatures (identity module)
+vodozemac = "0.8"           # Olm Double Ratchet E2E sessions (ratchet module)
+rusqlite = { version = "0.37", features = ["bundled"] } # local SQLite (store); 0.37 aligns with Arti's tor-dirmgr (shared sqlite3 link)
+base64 = "0.22"             # invite-code encoding (invite module)
+sha2 = "0.10"               # invite checksum (invite module)
+
+# No dev-dependencies either: the property-style tests use a tiny in-file
+# SplitMix64 PRNG instead of `proptest`, so the whole crate pulls ZERO crates.
+# This keeps `cargo test` runnable on a space-constrained machine and shrinks
+# the audit surface. (Re-add proptest later when disk/CI allows, if desired.)
+[dev-dependencies]
+
+[lib]
+name = "umbra_core"
+# Both an rlib (for Rust tests / other Rust crates) and a cdylib (the .so/.dll
+# that Flutter loads via flutter_rust_bridge).
+crate-type = ["rlib", "cdylib"]
