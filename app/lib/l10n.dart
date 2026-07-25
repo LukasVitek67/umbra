@@ -90,6 +90,11 @@ class L {
       'settings.removePicture': 'Remove',
       'chat.pending': 'waiting to connect',
       'chat.waiting': 'waiting for them',
+      'chat.today': 'Today',
+      'chat.yesterday': 'Yesterday',
+      'chats.emptyTitle': 'No conversations yet',
+      'chats.emptyHelp':
+          'Send someone your invite, or paste theirs. Umbra has no user directory — a conversation starts only because you two chose it.',
       'chat.sent': 'sent',
       'chat.outbox': '{n} waiting — they go out as soon as {name} is online.',
       'chat.outboxOne': '1 waiting — it goes out as soon as {name} is online.',
@@ -234,6 +239,10 @@ class L {
       'contacts.unblock': 'Unblock',
       'groups.rename': 'Rename group',
       'notif.message': 'New message',
+      'tray.open': 'Open Umbra',
+      'tray.quit': 'Quit (you stop being reachable)',
+      'settings.trayHint':
+          'Closing the window leaves Umbra running in the tray so messages keep arriving. Quit from the tray icon.',
     },
     'cs': {
       'app.tagline': 'Šifrovaná peer-to-peer komunikace.\nŽádný server, žádné stopy.',
@@ -276,6 +285,11 @@ class L {
       'settings.removePicture': 'Odebrat',
       'chat.pending': 'čeká na spojení',
       'chat.waiting': 'čeká na protějšek',
+      'chat.today': 'Dnes',
+      'chat.yesterday': 'Včera',
+      'chats.emptyTitle': 'Zatím žádné konverzace',
+      'chats.emptyHelp':
+          'Pošli někomu svoji pozvánku, nebo vlož jeho. Umbra nemá seznam uživatelů — rozhovor vznikne jen tím, že se na něm vy dva domluvíte.',
       'chat.sent': 'odesláno',
       'chat.outbox': 'Čeká {n} zpráv — odejdou, jakmile bude {name} online.',
       'chat.outboxOne': 'Čeká 1 zpráva — odejde, jakmile bude {name} online.',
@@ -420,6 +434,10 @@ class L {
       'contacts.unblock': 'Odblokovat',
       'groups.rename': 'Přejmenovat skupinu',
       'notif.message': 'Nová zpráva',
+      'tray.open': 'Otevřít Umbru',
+      'tray.quit': 'Ukončit (přestaneš být dostupný)',
+      'settings.trayHint':
+          'Zavřením okna Umbra běží dál v liště, takže zprávy pořád chodí. Ukončit ji jde přes ikonu v liště.',
     },
   };
 }

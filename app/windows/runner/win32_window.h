@@ -34,7 +34,12 @@ class Win32Window {
   // consistent size this function will scale the inputted width and height as
   // as appropriate for the default monitor. The window is invisible until
   // |Show| is called. Returns true if the window was created successfully.
-  bool Create(const std::wstring& title, const Point& origin, const Size& size);
+  // Pass |show| = false to leave the window hidden (Umbra starting into the
+  // tray at sign-in).
+  bool Create(const std::wstring& title,
+              const Point& origin,
+              const Size& size,
+              bool show = true);
 
   // Show the current window. Returns true if the window was successfully shown.
   bool Show();

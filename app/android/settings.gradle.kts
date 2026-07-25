@@ -19,8 +19,12 @@ pluginManagement {
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
-    id("com.android.application") version "9.0.1" apply false
-    id("org.jetbrains.kotlin.android") version "2.3.20" apply false
+    // Android Gradle Plugin 8.x, to match the Gradle 8 wrapper (see the note in
+    // gradle/wrapper/gradle-wrapper.properties).
+    id("com.android.application") version "8.7.3" apply false
+    // Kotlin 2.2 is the newest line that still runs on Gradle 8; 2.1 is too old
+    // for the Flutter 3.44 embedding (internal compiler error).
+    id("org.jetbrains.kotlin.android") version "2.2.20" apply false
 }
 
 include(":app")

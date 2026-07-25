@@ -22,15 +22,28 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
 
+  // Started by Windows at sign-in ("--background"): come up in the tray without
+  // ever showing the window. Deciding it here rather than hiding it from Dart
+  // avoids the window flashing on screen at every sign-in.
+  bool start_hidden = false;
+  for (const auto& arg : command_line_arguments) {
+    if (arg == "--background") {
+      start_hidden = true;
+    }
+  }
+
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1400, 860);
-  if (!window.Create(L"Umbra", origin, size)) {
+  if (!window.Create(L"Umbra", origin, size, !start_hidden)) {
     return EXIT_FAILURE;
   }
-  window.SetQuitOnClose(true);
+  // Closing the window only hides it (see background.dart), so quitting is a
+  // deliberate choice from the tray — otherwise the user would silently stop
+  // being reachable.
+  window.SetQuitOnClose(false);
 
   ::MSG msg;
   while (::GetMessage(&msg, nullptr, 0, 0)) {

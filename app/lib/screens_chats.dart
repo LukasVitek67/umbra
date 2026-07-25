@@ -230,6 +230,9 @@ class ChatsScreen extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
                 child: _WaitingSection(waiting: waiting),
               ),
+            if (chats.isEmpty && groups.isEmpty && waiting.isEmpty)
+              Expanded(child: _EmptyChats())
+            else
             Expanded(
               // Groups sit on top of the 1:1 conversations in one list.
               child: ListView.separated(
@@ -256,6 +259,74 @@ class ChatsScreen extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// First run: no contacts, no groups, nothing waiting. Say what to do instead
+/// of showing an empty box.
+class _EmptyChats extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.forum_outlined, size: 40, color: UmbraColors.textMuted),
+            const SizedBox(height: 14),
+            Text(L.t('chats.emptyTitle'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+            const SizedBox(height: 6),
+            Text(
+              L.t('chats.emptyHelp'),
+              textAlign: TextAlign.center,
+              style: TextStyle(color: UmbraColors.textMuted, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: () => showAddContact(context),
+              icon: const Icon(Icons.person_add_alt_1, size: 18),
+              label: Text(L.t('chats.add')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A quiet date line between messages from different days.
+class _DaySeparator extends StatelessWidget {
+  const _DaySeparator({required this.day});
+  final DateTime day;
+
+  String _label() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final that = DateTime(day.year, day.month, day.day);
+    final diff = today.difference(that).inDays;
+    if (diff == 0) return L.t('chat.today');
+    if (diff == 1) return L.t('chat.yesterday');
+    return '${that.day}. ${that.month}. ${that.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: UmbraColors.surfaceHigh,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: UmbraColors.border),
+        ),
+        child: Text(_label(),
+            style: TextStyle(color: UmbraColors.textMuted, fontSize: 11)),
+      ),
     );
   }
 }
@@ -819,7 +890,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 controller: _scroll,
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                 itemCount: chat.messages.length,
-                itemBuilder: (context, i) => _Bubble(msg: chat.messages[i]),
+                itemBuilder: (context, i) {
+                  final msg = chat.messages[i];
+                  // A date line where the day changes, so a long history stays
+                  // readable.
+                  final prev = i == 0 ? null : chat.messages[i - 1].at;
+                  final newDay = prev == null ||
+                      prev.day != msg.at.day ||
+                      prev.month != msg.at.month ||
+                      prev.year != msg.at.year;
+                  if (!newDay) return _Bubble(msg: msg);
+                  return Column(
+                    children: [_DaySeparator(day: msg.at), _Bubble(msg: msg)],
+                  );
+                },
               ),
             ),
           ),

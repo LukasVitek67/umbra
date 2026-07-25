@@ -44,7 +44,12 @@ dependencies {
     // The official tor daemon, built for Android by the Guardian Project (the
     // people behind Orbot). Ships as libtor.so for every ABI; we do not build
     // our own Tor, exactly as on the desktop.
-    implementation("info.guardianproject:tor-android:0.4.9.11")
+    //
+    // Pinned to the 0.4.8 line on purpose: from 0.4.9.5 on, the package demands
+    // compileSdk 37, which needs an Android Gradle Plugin that cargokit cannot
+    // build with yet (Gradle 9 dropped Project.exec()). Worth revisiting once
+    // flutter_rust_bridge ships a cargokit that runs on Gradle 9.
+    implementation("info.guardianproject:tor-android:0.4.8.22")
 }
 
 kotlin {

@@ -122,7 +122,8 @@ Win32Window::~Win32Window() {
 
 bool Win32Window::Create(const std::wstring& title,
                          const Point& origin,
-                         const Size& size) {
+                         const Size& size,
+                         bool show) {
   Destroy();
 
   const wchar_t* window_class =
@@ -145,6 +146,11 @@ bool Win32Window::Create(const std::wstring& title,
   }
 
   UpdateTheme(window);
+
+  if (!show) {
+    // Created but never shown: Umbra is running in the tray.
+    ShowWindow(window, SW_HIDE);
+  }
 
   return OnCreate();
 }

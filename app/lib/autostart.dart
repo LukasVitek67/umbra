@@ -6,11 +6,33 @@
 
 import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
+
+import 'background.dart';
+
 class Autostart {
   static const _key = r'HKCU\Software\Microsoft\Windows\CurrentVersion\Run';
   static const _valueName = 'Umbra';
 
   static bool get supported => Platform.isWindows;
+
+  /// Turn auto-start on the first time Umbra runs on this computer.
+  ///
+  /// A messenger nobody can reach is not much of a messenger, so the default is
+  /// "on" — but only as a starting point: the marker file means a user who
+  /// switches it off in Settings is never overruled on the next start.
+  static Future<void> enableByDefaultOnce() async {
+    if (!supported) return;
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final marker = File('${dir.path}${Platform.pathSeparator}autostart.configured');
+      if (await marker.exists()) return;
+      await set(true);
+      await marker.writeAsString('1');
+    } catch (_) {
+      // Never block startup on a convenience setting.
+    }
+  }
 
   /// True when Windows is set to launch this build at sign-in.
   static Future<bool> isEnabled() async {
@@ -35,7 +57,8 @@ class Autostart {
               '/t',
               'REG_SZ',
               '/d',
-              '"${Platform.resolvedExecutable}"',
+              // Launched at sign-in it belongs in the tray, not on screen.
+              '"${Platform.resolvedExecutable}" $kBackgroundFlag',
               '/f',
             ])
           : await Process.run('reg.exe', ['delete', _key, '/v', _valueName, '/f']);

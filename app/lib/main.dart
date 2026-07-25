@@ -2,6 +2,8 @@
 import 'package:flutter/material.dart';
 
 import 'accounts_screen.dart';
+import 'autostart.dart';
+import 'background.dart';
 import 'connecting.dart';
 import 'profile_button.dart';
 import 'l10n.dart';
@@ -13,13 +15,18 @@ import 'screens_more.dart';
 import 'src/rust/frb_generated.dart';
 import 'theme.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await RustLib.init();
   await L.load();
   await UmbraTheme.load();
   await Notifications.init();
   await locateBundledBinaries();
+  // Started by Windows at sign-in: come up in the tray, not in the user's face.
+  await BackgroundMode.init(startHidden: args.contains(kBackgroundFlag));
+  // Being reachable is the point of a messenger, so this is on unless the user
+  // turns it off (asked exactly once, on first run).
+  await Autostart.enableByDefaultOnce();
   runApp(const UmbraAppRoot());
 }
 
@@ -28,10 +35,16 @@ class UmbraAppRoot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The theme sits outermost: changing it rebuilds every screen below.
+    // The theme sits outermost. The key matters: widgets read their colours
+    // from UmbraColors while building, and Flutter skips rebuilding a subtree
+    // whose widget instance is unchanged — every `const` widget would keep the
+    // colours of the theme it was first built under (white bubbles in a dark
+    // theme, a mint accent in the violet one). Changing the key on a theme
+    // switch throws the tree away and builds it again with the new palette.
     return ValueListenableBuilder<UmbraPalette>(
       valueListenable: UmbraTheme.notifier,
-      builder: (context, _, _) => MaterialApp(
+      builder: (context, palette, _) => MaterialApp(
+        key: ValueKey('theme-${palette.id}-${palette.accent.toARGB32()}'),
         title: 'Umbra',
         debugShowCheckedModeBanner: false,
         theme: umbraTheme(),

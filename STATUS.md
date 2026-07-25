@@ -70,6 +70,45 @@ Opravy nalezené během testování (všechny v kódu):
   `reg.exe` (bez admina, uživatel to umí sám zrušit). Přepínač se řídí reálným
   stavem registru — když zápis selže, skočí zpět a řekne to.
 
+## 📱 1.3.0 — Android APK
+Android build **existuje a sestaví se**; na reálném telefonu zatím neověřený.
+
+- `flutter build apk --release --split-per-abi` → **arm64 14,1 MB**, armv7 13,0 MB,
+  x86_64 14,2 MB
+- Tor uvnitř APK jako `libtor.so` (8,8 MB, balíček `info.guardianproject:tor-android`
+  od lidí za Orbotem) — Android nespustí binárku zapsanou aplikací, proto knihovna;
+  cesta se předá přes MethodChannel do Rustu (`set_native_dir`)
+- oprávnění: `INTERNET`, `FOREGROUND_SERVICE`, `POST_NOTIFICATIONS`
+- ⏳ **mosty (obfs4/snowflake) na Androidu nejsou** — `lyrebird` pro Android není
+  jako hotová knihovna, musel by se kompilovat z Go. Android se tedy připojuje
+  k Toru přímo (necenzurovaná síť ok, cenzurovaná ne)
+- ⏳ běh na pozadí na Androidu není dořešený (chybí foreground service, systém
+  aplikaci uspí) — proto zatím APK neber jako hotový produkt
+- co bylo potřeba vyřešit: JDK 17 nespustí `Pipe.open()` v cestě s 8.3 jménem
+  (`C:\Users\LUKAS~1.VIT\…`) → build musí běžet s `TMP=C:\Temp`; cargokit ještě
+  volá `Project.exec()`, takže Gradle **8.12** + AGP 8.7.3 + Kotlin 2.2.20;
+  `tor-android` připnutý na 0.4.8.22, protože 0.4.9.x chce compileSdk 37
+
+## 🖥️ 1.3.0 — běh na pozadí (jako WhatsApp)
+- start s Windows zapisuje `"umbra.exe" --background`; runner s tímto přepínačem
+  okno **vůbec neukáže** (`Win32Window::Create(show=false)`) a appka naběhne do
+  systémové lišty — Tor a onion služba běží, uživatel nic nevidí
+- zavření okna appku **neukončí**, jen schová (`SetQuitOnClose(false)`); ukončit
+  jde z menu ikony v liště („Ukončit — přestaneš být dostupný")
+- spouštění s Windows je **defaultně zapnuté** (jednorázově při prvním startu,
+  značka `autostart.configured`, takže vypnutí uživatele se už nepřebíjí)
+- notifikace se ukazují jen když appka nemá fokus nebo je otevřený jiný chat
+- ověřeno: `--background` → okno `hidden`, bez přepínače → `VISIBLE`
+
+## 🎨 1.3.0 — opravené motivy a UI
+- **motiv se teď propíše všude**: barvy se čtou při stavbě widgetu a Flutter
+  přeskakuje přestavbu `const` podstromů, takže po přepnutí zůstávala část
+  obrazovky v barvách předchozího motivu (bílé bubliny, mátový akcent ve fialovém
+  motivu). `MaterialApp` má klíč odvozený z palety → strom se postaví znovu celý.
+- prázdný stav seznamu chatů místo prázdné plochy
+- oddělovače dnů v konverzaci (Dnes / Včera / datum)
+- 2 widget testy na motivy (`flutter test`)
+
 ## 👥 1.2.0 — kontakty, nevyřízené, blokování, notifikace
 - **Nevyřízené**: kdo napíše první a není v kontaktech, přistane v sekci nahoře
   v seznamu chatů. Jde si přečíst, co poslal, a pak **Přijmout** / **Zablokovat**.
