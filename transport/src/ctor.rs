@@ -223,14 +223,52 @@ impl TorProcess {
 
 /// Open a TCP stream to `host:port` through Tor's SOCKS5 proxy.
 pub async fn socks5_connect(socks_port: u16, host: &str, port: u16) -> Result<TcpStream> {
+    socks5_connect_isolated(socks_port, host, port, "").await
+}
+
+/// The same, but on a circuit of its own when `isolation` is non-empty.
+///
+/// Tor isolates streams by SOCKS credentials (`IsolateSOCKSAuth`, on by
+/// default), so a different user name means a different exit. That is how we
+/// get a second opinion when an exit is rate-limited or blocked by the far end.
+pub async fn socks5_connect_isolated(
+    socks_port: u16,
+    host: &str,
+    port: u16,
+    isolation: &str,
+) -> Result<TcpStream> {
     let mut s = TcpStream::connect(("127.0.0.1", socks_port)).await?;
 
-    // Greeting: SOCKS5, one method, "no authentication".
-    s.write_all(&[0x05, 0x01, 0x00]).await?;
-    let mut reply = [0u8; 2];
-    s.read_exact(&mut reply).await?;
-    if reply != [0x05, 0x00] {
-        bail!("SOCKS5: proxy odmítla handshake");
+    if isolation.is_empty() {
+        // Greeting: SOCKS5, one method, "no authentication".
+        s.write_all(&[0x05, 0x01, 0x00]).await?;
+        let mut reply = [0u8; 2];
+        s.read_exact(&mut reply).await?;
+        if reply != [0x05, 0x00] {
+            bail!("SOCKS5: proxy odmítla handshake");
+        }
+    } else {
+        // Offer username/password; the values are only a circuit label.
+        s.write_all(&[0x05, 0x01, 0x02]).await?;
+        let mut reply = [0u8; 2];
+        s.read_exact(&mut reply).await?;
+        if reply != [0x05, 0x02] {
+            bail!("SOCKS5: proxy odmítla přihlášení");
+        }
+        let user = isolation.as_bytes();
+        if user.len() > 255 {
+            bail!("izolační jmenovka je příliš dlouhá");
+        }
+        let mut auth = vec![0x01, user.len() as u8];
+        auth.extend_from_slice(user);
+        auth.push(1); // one-byte password, Tor ignores the value
+        auth.push(b'x');
+        s.write_all(&auth).await?;
+        let mut auth_reply = [0u8; 2];
+        s.read_exact(&mut auth_reply).await?;
+        if auth_reply[1] != 0x00 {
+            bail!("SOCKS5: přihlášení odmítnuto");
+        }
     }
 
     // CONNECT to a domain name (Tor resolves .onion itself).

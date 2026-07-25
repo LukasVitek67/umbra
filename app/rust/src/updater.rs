@@ -28,7 +28,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_rustls::TlsConnector;
 use umbra_core::identity::verify as ed25519_verify;
-use umbra_transport::ctor::socks5_connect;
+use umbra_transport::ctor::socks5_connect_isolated;
 
 /// Where releases live. Public on purpose: the updater needs no token, so the
 /// binary carries no secret an attacker could pull out of it.
@@ -165,7 +165,51 @@ pub struct Release {
     sig_url: Option<String>,
 }
 
+/// What the newest release is.
+///
+/// The plain `/releases/latest` page is asked first: it answers with a redirect
+/// to the tagged version and is *not* rate-limited. The JSON API is only a
+/// fallback, because unauthenticated API calls are limited per client IP — and
+/// over Tor that IP is an exit shared with the whole world, so it is usually
+/// already exhausted (GitHub answers 403).
 async fn latest_release(socks_port: u16) -> Result<Release, String> {
+    match latest_via_redirect(socks_port).await {
+        Ok(release) => Ok(release),
+        Err(first) => latest_via_api(socks_port)
+            .await
+            .map_err(|second| format!("{first}; API: {second}")),
+    }
+}
+
+/// Read the version from where `/releases/latest` points.
+async fn latest_via_redirect(socks_port: u16) -> Result<Release, String> {
+    let (status, _, location) = request(socks_port, "github.com", &format!("/{REPO}/releases/latest")).await?;
+    let Some(location) = location else {
+        return Err(format!("/releases/latest neodpovědělo přesměrováním ({status})"));
+    };
+    let tag = location
+        .rsplit("/tag/")
+        .next()
+        .filter(|t| !t.is_empty() && *t != location)
+        .ok_or_else(|| format!("z odkazu {location} nejde vyčíst verze"))?;
+    let version = tag.trim().trim_start_matches('v').to_string();
+    if version.is_empty() {
+        return Err("prázdná verze".to_string());
+    }
+    // Release archives are named by tools/release.ps1, so the download URLs
+    // follow from the version alone.
+    Ok(Release {
+        zip_url: Some(format!(
+            "https://github.com/{REPO}/releases/download/{tag}/Umbra-{version}.zip"
+        )),
+        sig_url: Some(format!(
+            "https://github.com/{REPO}/releases/download/{tag}/Umbra-{version}.zip.sig"
+        )),
+        version,
+    })
+}
+
+async fn latest_via_api(socks_port: u16) -> Result<Release, String> {
     let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
     let body = http_get(socks_port, &url).await?;
     let json: serde_json::Value =
@@ -354,13 +398,18 @@ pub fn clean_leftovers(install_dir: &Path) {
 /// GET a URL through Tor, following redirects (GitHub sends assets to a CDN).
 async fn http_get(socks_port: u16, url: &str) -> Result<Vec<u8>, String> {
     let mut url = url.to_string();
-    for _ in 0..4 {
+    for _ in 0..5 {
         let (host, path) = split_url(&url)?;
         let (status, body, location) = request(socks_port, &host, &path).await?;
         match status {
             200 => return Ok(body),
             301 | 302 | 303 | 307 | 308 => {
                 url = location.ok_or_else(|| "přesměrování bez cíle".to_string())?;
+            }
+            403 | 429 => {
+                return Err(format!(
+                    "GitHub odmítl dotaz z tohoto Tor uzlu ({status}) — zkusím to znovu později"
+                ))
             }
             other => return Err(format!("GitHub odpověděl {other}")),
         }
@@ -379,15 +428,47 @@ fn split_url(url: &str) -> Result<(String, String), String> {
 }
 
 /// One HTTPS request over a Tor circuit. Returns status, body and `Location`.
+///
+/// A rate-limited or blocked exit is retried once on a **different** circuit —
+/// over Tor that is the difference between "GitHub says no" and "this one exit
+/// says no".
 async fn request(
     socks_port: u16,
     host: &str,
     path: &str,
 ) -> Result<(u16, Vec<u8>, Option<String>), String> {
+    let first = request_on_circuit(socks_port, host, path, "").await;
+    match &first {
+        Ok((403, _, _)) | Ok((429, _, _)) | Err(_) => {
+            // A label Tor has not seen before means a fresh exit.
+            let tag = format!("umbra-{}", now_tag());
+            match request_on_circuit(socks_port, host, path, &tag).await {
+                Ok(second) => Ok(second),
+                Err(_) => first,
+            }
+        }
+        _ => first,
+    }
+}
+
+/// A label that changes between attempts, so Tor builds a new circuit.
+fn now_tag() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+async fn request_on_circuit(
+    socks_port: u16,
+    host: &str,
+    path: &str,
+    isolation: &str,
+) -> Result<(u16, Vec<u8>, Option<String>), String> {
     // rustls needs a crypto provider chosen once per process.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let tcp = socks5_connect(socks_port, host, 443)
+    let tcp = socks5_connect_isolated(socks_port, host, 443, isolation)
         .await
         .map_err(|e| format!("Tor nedokázal otevřít spojení na {host}: {e}"))?;
 

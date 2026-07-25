@@ -70,6 +70,18 @@ Opravy nalezené během testování (všechny v kódu):
   `reg.exe` (bez admina, uživatel to umí sám zrušit). Přepínač se řídí reálným
   stavem registru — když zápis selže, skočí zpět a řekne to.
 
+## 🐞 Opraveno 1.1.1 — updater dostával od GitHubu 403
+Kontrola verze šla přes **GitHub API**, které má limit dotazů na IP. Přes Tor je
+tou IP výstupní uzel sdílený se všemi, takže limit bývá vyčerpaný a appka
+dostávala `403` a nikdy se neaktualizovala.
+
+- verze se teď čte z přesměrování `github.com/<repo>/releases/latest` →
+  `/tag/vX.Y.Z`, což **žádný limit nemá**; API zůstalo jen jako záloha
+- adresy souborů se odvodí z verze (jméno archivu určuje `tools/release.ps1`)
+- při `403`/`429` se dotaz zopakuje na **jiném Tor okruhu**
+  (`socks5_connect_isolated` — jiné SOCKS jméno = jiný výstupní uzel)
+- ověřeno přes Tor: `/releases/latest` → 302 na `v1.1.0`, stažení `.sig` → 200
+
 ## ✉️ 1.1.0 — psaní protějšku, který je offline
 Fronta zpráv byla **jen v paměti**: zavřením appky se čekající zpráva ztratila.
 
