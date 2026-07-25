@@ -485,21 +485,32 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             builder: (context, _) {
               final live = appState.isConnectedTo(chat.contactHex);
               if (live) return const SizedBox.shrink();
+              // Messages written while they are away are not lost: they sit in
+              // the encrypted outbox. Say so, with the count, instead of only
+              // spinning.
+              final waiting = chat.messages.where((m) => m.outgoing && m.pending).length;
               return Container(
                 width: double.infinity,
                 color: UmbraColors.surfaceHigh,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 child: Row(
                   children: [
-                    const SizedBox(
-                      height: 14,
-                      width: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
+                    if (waiting == 0)
+                      const SizedBox(
+                        height: 14,
+                        width: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      Icon(Icons.schedule_send, size: 15, color: UmbraColors.accent),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        appState.netStatus,
+                        waiting == 0
+                            ? appState.netStatus
+                            : (waiting == 1 ? L.t('chat.outboxOne') : L.t('chat.outbox'))
+                                .replaceAll('{n}', '$waiting')
+                                .replaceAll('{name}', chat.name),
                         style: TextStyle(color: UmbraColors.textMuted, fontSize: 12),
                       ),
                     ),
@@ -868,16 +879,30 @@ class _Bubble extends StatelessWidget {
                 Text(_hhmm(msg.at), style: TextStyle(color: UmbraColors.textMuted, fontSize: 11)),
                 if (out) ...[
                   const SizedBox(width: 6),
+                  // Three honest states: still in the outbox, handed to the
+                  // peer's session, confirmed by their app.
                   Icon(
-                    msg.pending ? Icons.schedule : Icons.done,
-                    size: 11,
-                    color: msg.pending ? UmbraColors.danger : UmbraColors.accent,
+                    msg.pending
+                        ? Icons.schedule
+                        : msg.delivered
+                            ? Icons.done_all
+                            : Icons.done,
+                    size: 12,
+                    color: msg.pending
+                        ? UmbraColors.textMuted
+                        : msg.delivered
+                            ? UmbraColors.accent
+                            : UmbraColors.textMuted,
                   ),
                   const SizedBox(width: 3),
                   Text(
-                    msg.pending ? L.t('chat.pending') : L.t('chat.delivered'),
+                    msg.pending
+                        ? L.t('chat.waiting')
+                        : msg.delivered
+                            ? L.t('chat.delivered')
+                            : L.t('chat.sent'),
                     style: TextStyle(
-                        color: msg.pending ? UmbraColors.danger : UmbraColors.textMuted,
+                        color: msg.delivered ? UmbraColors.accent : UmbraColors.textMuted,
                         fontSize: 11),
                   ),
                   const SizedBox(width: 8),

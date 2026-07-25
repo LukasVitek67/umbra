@@ -18,7 +18,9 @@ use umbra_core::crypto::keystore;
 use umbra_core::identity::{user_code, Keypair};
 use umbra_core::invite::Invite;
 use umbra_core::group::{Group, GroupMember};
-use umbra_core::store::{Contact, Direction, NewGroupMessage, NewMessage, Store};
+use umbra_core::store::{
+    Contact, Direction, MessageState, NewGroupMessage, NewMessage, Store,
+};
 use umbra_transport::ctor::TorService;
 
 use crate::accounts::{self, AccountEntry};
@@ -60,10 +62,7 @@ static CONTACTS: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 /// The signed-in account, so payload handlers can persist without going
 /// through Dart. Set when the network starts.
 static APP: Mutex<Option<Arc<Mutex<Inner>>>> = Mutex::new(None);
-/// Messages waiting for a session to come up, per contact.
-static PENDING: Mutex<Option<HashMap<String, Vec<Pending>>>> = Mutex::new(None);
-
-/// One queued payload: the bytes to put on the wire, plus what the UI should
+/// One outgoing payload: the bytes to put on the wire, plus what the UI should
 /// be told once it actually goes out.
 #[derive(Clone)]
 struct Pending {
@@ -72,6 +71,9 @@ struct Pending {
     ui: String,
     /// Group id (hex) when this is a group message, empty for 1:1.
     group_hex: String,
+    /// The stored message this frame carries. `None` for frames that are not
+    /// worth keeping if the peer is away (address, roster pushes).
+    message_id: Option<i64>,
 }
 /// Contacts we are currently dialling, so we never dial one twice at once.
 static DIALLING: Mutex<Option<HashSet<String>>> = Mutex::new(None);
@@ -79,6 +81,8 @@ static DIALLING: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 static KEEPALIVE: AtomicBool = AtomicBool::new(false);
 /// The update loop is started once.
 static UPDATER: AtomicBool = AtomicBool::new(false);
+/// Tor's SOCKS port, so an update can be fetched on demand.
+static SOCKS: Mutex<Option<u16>> = Mutex::new(None);
 /// Where to append a plain-text diagnostic log (data dir / umbra-app.log).
 static LOGPATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
@@ -96,20 +100,16 @@ fn log_line(text: &str) {
     }
 }
 
-/// Queue a payload for a contact that has no live session yet.
-fn queue_message(peer_hex: &str, item: Pending) {
-    let mut g = PENDING.lock().unwrap();
-    g.get_or_insert_with(HashMap::new)
-        .entry(peer_hex.to_string())
-        .or_default()
-        .push(item);
-}
-
-/// Deliver everything queued for `peer_hex` now that a session exists.
+/// Deliver everything the database has waiting for `peer_hex`.
+///
+/// The queue lives in the encrypted store, not in memory: "it will be delivered
+/// when they come back" has to survive closing the app, otherwise it is a lie.
 async fn flush_pending(peer_hex: &str) {
+    let Some(app) = APP.lock().unwrap().clone() else { return };
+    let Some(pk) = unhex(peer_hex) else { return };
     let queued = {
-        let mut g = PENDING.lock().unwrap();
-        g.as_mut().and_then(|m| m.remove(peer_hex)).unwrap_or_default()
+        let g = app.lock().unwrap();
+        g.store.outbox_for(&pk).unwrap_or_default()
     };
     if queued.is_empty() {
         return;
@@ -117,41 +117,84 @@ async fn flush_pending(peer_hex: &str) {
     let svc = SERVICE.lock().unwrap().clone();
     let Some(svc) = svc else { return };
     for item in queued {
-        if let Err(e) = svc.send_bytes(peer_hex, item.bytes.clone()).await {
-            // Still not deliverable: put it back and stop for now.
-            queue_message(peer_hex, item);
-            emit("error", &format!("odeslání selhalo: {e}"), peer_hex);
+        if let Err(e) = svc.send_bytes(peer_hex, item.payload.clone()).await {
+            // Still not deliverable: it stays in the outbox for the next try.
+            log_line(&format!("flush stopped: {e}"));
             return;
         }
-        if item.group_hex.is_empty() {
-            emit("sent", &item.ui, peer_hex);
-        } else {
-            emit("group_sent", &format!("{}|{}", item.group_hex, item.ui), peer_hex);
+        let ui = String::from_utf8_lossy(&item.body).to_string();
+        {
+            let g = app.lock().unwrap();
+            let _ = g.store.dequeue(item.id);
+            if item.group_id.is_none() {
+                let _ = g.store.set_message_state(item.message_id, MessageState::Sent);
+            }
+        }
+        match item.group_id {
+            None => emit("sent", &ui, peer_hex),
+            Some(gid) => emit("group_sent", &format!("{}|{}", hex(&gid), ui), peer_hex),
         }
     }
+    emit("outbox", &format!("{}", pending_count()), peer_hex);
 }
 
-/// Send a payload to one peer, queueing (and dialling) if there is no session.
+/// How many messages are still waiting, across all peers.
+fn pending_count() -> u32 {
+    let Some(app) = APP.lock().unwrap().clone() else { return 0 };
+    let g = app.lock().unwrap();
+    g.store
+        .outbox_summary()
+        .map(|v| v.iter().map(|(_, n)| n).sum())
+        .unwrap_or(0)
+}
+
+/// Send a frame to one peer; if there is no session, leave it in the outbox and
+/// start dialling. `message_id` ties it to the row the UI shows.
 async fn send_or_queue(peer_hex: &str, item: Pending) {
     let svc = SERVICE.lock().unwrap().clone();
-    let Some(svc) = svc else {
-        emit("error", "net_not_running", peer_hex);
-        return;
-    };
-    if svc.send_bytes(peer_hex, item.bytes.clone()).await.is_ok() {
-        if item.group_hex.is_empty() {
-            emit("sent", &item.ui, peer_hex);
-        } else {
-            emit("group_sent", &format!("{}|{}", item.group_hex, item.ui), peer_hex);
+    if let Some(svc) = svc {
+        if svc.send_bytes(peer_hex, item.bytes.clone()).await.is_ok() {
+            if let (Some(app), Some(id)) = (APP.lock().unwrap().clone(), item.message_id) {
+                let g = app.lock().unwrap();
+                if item.group_hex.is_empty() {
+                    let _ = g.store.set_message_state(id, MessageState::Sent);
+                }
+            }
+            if item.group_hex.is_empty() {
+                emit("sent", &item.ui, peer_hex);
+            } else {
+                emit("group_sent", &format!("{}|{}", item.group_hex, item.ui), peer_hex);
+            }
+            return;
         }
-        return;
     }
+
+    // Not deliverable now. Anything tied to a stored message waits in the
+    // outbox; transient frames (a roster push, our address) are simply dropped.
+    if let (Some(app), Some(id), Some(pk)) =
+        (APP.lock().unwrap().clone(), item.message_id, unhex(peer_hex))
+    {
+        let gid = if item.group_hex.is_empty() {
+            None
+        } else {
+            unhex16(&item.group_hex)
+        };
+        let g = app.lock().unwrap();
+        let _ = g.store.queue_outgoing(
+            &pk,
+            id,
+            gid,
+            &item.bytes,
+            item.ui.as_bytes(),
+            now_secs(),
+        );
+    }
+    emit("queued", &format!("{}", pending_count()), peer_hex);
+
     let onion = {
         let g = CONTACTS.lock().unwrap();
         g.as_ref().and_then(|m| m.get(peer_hex).cloned())
     };
-    queue_message(peer_hex, item);
-    emit("queued", "queued", peer_hex);
     if let Some(onion) = onion {
         if !onion.is_empty() {
             dial_once(peer_hex.to_string(), onion);
@@ -237,9 +280,30 @@ fn spawn_updater(socks_port: u16) {
     }
     let Some(dir) = install_dir() else { return };
     updater::clean_leftovers(&dir);
+    *SOCKS.lock().unwrap() = Some(socks_port);
     rt().spawn(async move {
         updater::run_loop(socks_port, dir, |kind, data| emit(kind, data, "")).await;
     });
+}
+
+/// Install the update the user was offered. Progress arrives as
+/// `update_downloading` / `update_installed` / `update_error` events.
+#[frb(sync)]
+pub fn install_update() {
+    let socks = *SOCKS.lock().unwrap();
+    let (Some(socks), Some(dir)) = (socks, install_dir()) else {
+        emit("update_error", "síť ještě neběží", "");
+        return;
+    };
+    rt().spawn(async move {
+        updater::install_offered(socks, dir, |kind, data| emit(kind, data, "")).await;
+    });
+}
+
+/// The version waiting to be installed, empty when there is none.
+#[frb(sync)]
+pub fn offered_update() -> String {
+    updater::offered_version().unwrap_or_default()
 }
 
 /// This build's version, for the UI.
@@ -282,6 +346,8 @@ pub struct MessageView {
     pub outgoing: bool,
     pub sent_at: u64,
     pub body: String,
+    /// 0 = still waiting for the peer, 1 = handed over, 2 = confirmed by them.
+    pub state: u8,
 }
 
 /// One member of a group, flattened for the UI.
@@ -864,15 +930,47 @@ impl UmbraApp {
         });
     }
 
-    /// Send a message to the currently connected peer.
+    /// Store a message and send it. If the contact is not reachable it waits in
+    /// the encrypted outbox and goes out by itself once they appear — closing
+    /// the app does not lose it.
     #[frb(sync)]
-    pub fn send_over_network(&self, contact_hex: String, text: String) {
+    pub fn send_over_network(&self, contact_hex: String, text: String, now: u64) -> Result<(), String> {
+        let pk = unhex(&contact_hex).ok_or_else(|| "bad contact id".to_string())?;
+        let message_id = {
+            let g = self.inner.lock().unwrap();
+            g.store
+                .insert_message(&NewMessage {
+                    contact_pubkey: pk,
+                    direction: Direction::Outgoing,
+                    sent_at: now,
+                    body: text.as_bytes(),
+                })
+                .map_err(|e| e.to_string())?
+        };
         rt().spawn(async move {
-            // No live session yet: the message is held and the contact dialled
-            // in the background.
             let bytes = envelope::encode_text(&text);
-            send_or_queue(&contact_hex, Pending { bytes, ui: text, group_hex: String::new() }).await;
+            send_or_queue(
+                &contact_hex,
+                Pending {
+                    bytes,
+                    ui: text,
+                    group_hex: String::new(),
+                    message_id: Some(message_id),
+                },
+            )
+            .await;
         });
+        Ok(())
+    }
+
+    /// How many messages are still waiting for their peer.
+    #[frb(sync)]
+    pub fn pending_messages(&self) -> u32 {
+        let g = self.inner.lock().unwrap();
+        g.store
+            .outbox_summary()
+            .map(|v| v.iter().map(|(_, n)| n).sum())
+            .unwrap_or(0)
     }
 
     /// Add a contact from a pasted `umbra1:` invite. Returns the parsed contact.
@@ -954,6 +1052,11 @@ impl UmbraApp {
                 outgoing: matches!(m.direction, Direction::Outgoing),
                 sent_at: m.sent_at,
                 body: String::from_utf8_lossy(&m.body).to_string(),
+                state: match m.state {
+                    MessageState::Waiting => 0,
+                    MessageState::Sent => 1,
+                    MessageState::Delivered => 2,
+                },
             })
             .collect())
     }
@@ -1079,14 +1182,15 @@ impl UmbraApp {
     ) -> Result<(), String> {
         let gid = unhex16(&group_id_hex).ok_or_else(|| "bad group id".to_string())?;
         let me = self.identity_pubkey();
-        let group = {
+        let (group, message_id) = {
             let g = self.inner.lock().unwrap();
             let group = g
                 .store
                 .get_group(&gid)
                 .map_err(|e| e.to_string())?
                 .ok_or_else(|| "skupina nenalezena".to_string())?;
-            g.store
+            let id = g
+                .store
                 .insert_group_message(&NewGroupMessage {
                     group_id: gid,
                     sender_pubkey: me,
@@ -1095,7 +1199,7 @@ impl UmbraApp {
                     body: text.as_bytes(),
                 })
                 .map_err(|e| e.to_string())?;
-            group
+            (group, id)
         };
 
         let bytes = envelope::encode_group_text(&gid, &text);
@@ -1105,6 +1209,7 @@ impl UmbraApp {
                 bytes: bytes.clone(),
                 ui: text.clone(),
                 group_hex: group_id_hex.clone(),
+                message_id: Some(message_id),
             };
             rt().spawn(async move { send_or_queue(&peer_hex, item).await });
         }
@@ -1188,6 +1293,9 @@ fn broadcast_group_info(group: &Group, me: &[u8; 32]) {
             bytes: bytes.clone(),
             ui: String::new(),
             group_hex: group_hex.clone(),
+            // A roster is a snapshot: if they are away, the next connection
+            // carries a fresher one anyway.
+            message_id: None,
         };
         rt().spawn(async move { send_or_queue(&peer_hex, item).await });
     }
@@ -1287,6 +1395,22 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
             // survive a restart.
             remember_peer(peer_hex, None, None);
             emit("message", &text, peer_hex);
+            // Confirm it arrived, so their app can stop saying "waiting".
+            let svc = SERVICE.lock().unwrap().clone();
+            if let Some(svc) = svc {
+                let _ = svc.send_bytes(peer_hex, envelope::encode_receipt(&text)).await;
+            }
+        }
+        Payload::Receipt { body } => {
+            if let (Some(app), Some(pk)) = (APP.lock().unwrap().clone(), unhex(peer_hex)) {
+                let marked = {
+                    let g = app.lock().unwrap();
+                    g.store.mark_delivered(&pk, body.as_bytes()).ok().flatten()
+                };
+                if marked.is_some() {
+                    emit("delivered", &body, peer_hex);
+                }
+            }
         }
         Payload::Address { onion, name } => {
             remember_peer(peer_hex, Some(&name), Some(&onion));

@@ -303,7 +303,8 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return UpdateWatcher(
+      child: Scaffold(
       body: Column(
         children: [
           // Top bar: the account you are signed in as lives here.
@@ -354,6 +355,7 @@ class _HomeShellState extends State<HomeShell> {
           Expanded(child: _shell()),
         ],
       ),
+      ),
     );
   }
 
@@ -371,6 +373,17 @@ class _HomeShellState extends State<HomeShell> {
             leading: const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
               child: UmbraMark(size: 40),
+            ),
+            // The update lives at the bottom of the bar: always visible, never
+            // in the way of a conversation.
+            trailing: const Expanded(
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: UpdateRailButton(),
+                ),
+              ),
             ),
             destinations: [
               NavigationRailDestination(
@@ -413,6 +426,173 @@ class _HomeShellState extends State<HomeShell> {
         },
     );
   }
+}
+
+/// The update button at the bottom of the left bar: a dot when there is
+/// something to do, otherwise a quiet check mark.
+class UpdateRailButton extends StatelessWidget {
+  const UpdateRailButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: appState,
+      builder: (context, _) {
+        final offered = appState.updateAvailableVersion;
+        final ready = appState.updateReadyVersion;
+        final busy = appState.updateDownloading;
+        final highlight = offered != null || ready != null || busy;
+        return Tooltip(
+          message: busy
+              ? L.t('update.downloading').replaceAll('{v}', offered ?? '')
+              : ready != null
+                  ? L.t('update.ready').replaceAll('{v}', ready)
+                  : offered != null
+                      ? L.t('update.available').replaceAll('{v}', offered)
+                      : '${L.t('update.title')} ${appState.version}',
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => showUpdateDialog(context),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  busy
+                      ? SizedBox(
+                          height: 22,
+                          width: 22,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: UmbraColors.accent),
+                        )
+                      : Icon(
+                          ready != null
+                              ? Icons.system_update_alt
+                              : highlight
+                                  ? Icons.download_for_offline_outlined
+                                  : Icons.verified_outlined,
+                          size: 22,
+                          color: highlight ? UmbraColors.accent : UmbraColors.textMuted,
+                        ),
+                  if (highlight && !busy)
+                    Positioned(
+                      right: -2,
+                      top: -2,
+                      child: Container(
+                        width: 9,
+                        height: 9,
+                        decoration: BoxDecoration(
+                          color: UmbraColors.accent,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: UmbraColors.surface, width: 1.5),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Offer the update (or the restart, once it is installed).
+void showUpdateDialog(BuildContext context) {
+  final offered = appState.updateAvailableVersion;
+  final ready = appState.updateReadyVersion;
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: UmbraColors.surfaceHigh,
+      title: Text(ready != null
+          ? L.t('update.ready').replaceAll('{v}', ready)
+          : offered != null
+              ? L.t('update.dialogTitle').replaceAll('{v}', offered)
+              : '${L.t('update.title')} ${appState.version}'),
+      content: Text(
+        ready != null
+            ? L.t('update.dialogBody')
+            : offered != null
+                ? L.t('update.dialogBody')
+                : appState.updateStatus.isEmpty
+                    ? L.t('update.checking')
+                    : appState.updateStatus,
+        style: TextStyle(color: UmbraColors.textMuted, fontSize: 13, height: 1.4),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            if (ready == null && offered != null) appState.postponeUpdate();
+            Navigator.pop(ctx);
+          },
+          child: Text(offered != null || ready != null
+              ? L.t('update.later')
+              : L.t('common.cancel')),
+        ),
+        if (ready != null)
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              appState.restartForUpdate();
+            },
+            icon: const Icon(Icons.restart_alt, size: 18),
+            label: Text(L.t('update.restart')),
+          )
+        else if (offered != null)
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              appState.installUpdateNow();
+            },
+            icon: const Icon(Icons.download, size: 18),
+            label: Text(L.t('update.install')),
+          ),
+      ],
+    ),
+  );
+}
+
+/// Pops the update dialog by itself the moment a new version shows up, so the
+/// user does not have to go looking for it.
+class UpdateWatcher extends StatefulWidget {
+  const UpdateWatcher({super.key, required this.child});
+  final Widget child;
+
+  @override
+  State<UpdateWatcher> createState() => _UpdateWatcherState();
+}
+
+class _UpdateWatcherState extends State<UpdateWatcher> {
+  String? _asked;
+
+  @override
+  void initState() {
+    super.initState();
+    appState.addListener(_check);
+  }
+
+  @override
+  void dispose() {
+    appState.removeListener(_check);
+    super.dispose();
+  }
+
+  void _check() {
+    final offered = appState.updateAvailableVersion;
+    if (offered == null || offered == _asked || !mounted) return;
+    _asked = offered;
+    // Wait for the current frame: a dialog cannot open during a build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && appState.updateAvailableVersion != null) {
+        showUpdateDialog(context);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// Decides what a launch looks like: straight into an account that signs in

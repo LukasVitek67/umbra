@@ -18,7 +18,14 @@
 //!                 ‖ member_count(u16) ‖ member*
 //!       member =  identity(32) ‖ name_len(u16) ‖ name ‖ onion_len(u16) ‖ onion
 //!   7 ADDRESS     onion_len(u16) ‖ onion ‖ name
+//!   8 RECEIPT     utf-8 body of the message that arrived
 //! ```
+//!
+//! `RECEIPT` echoes the text back so the sender can turn "sent" into
+//! "delivered". Echoing the body avoids adding message ids to the `TEXT` frame,
+//! which older builds would not understand — and it travels inside the same
+//! encrypted session, so it reveals nothing a passive observer did not already
+//! see as ciphertext.
 //!
 //! `ADDRESS` is sent right after a session comes up. Without it, a peer who
 //! contacted us first would be someone we can never dial back: the session
@@ -45,6 +52,7 @@ pub const FILE_END: u8 = 4;
 pub const GROUP_TEXT: u8 = 5;
 pub const GROUP_INFO: u8 = 6;
 pub const ADDRESS: u8 = 7;
+pub const RECEIPT: u8 = 8;
 
 /// A decoded incoming payload.
 pub enum Payload {
@@ -60,6 +68,8 @@ pub enum Payload {
     /// Where to reach the sender, so a conversation they started can be
     /// continued from our side later.
     Address { onion: String, name: String },
+    /// "Your message arrived" — carries the text it confirms.
+    Receipt { body: String },
 }
 
 pub fn encode_text(text: &str) -> Vec<u8> {
@@ -140,6 +150,13 @@ pub fn encode_address(onion: &str, name: &str) -> Vec<u8> {
     v
 }
 
+pub fn encode_receipt(body: &str) -> Vec<u8> {
+    let mut v = Vec::with_capacity(1 + body.len());
+    v.push(RECEIPT);
+    v.extend_from_slice(body.as_bytes());
+    v
+}
+
 fn push_str(out: &mut Vec<u8>, s: &str) {
     let b = s.as_bytes();
     let n = b.len().min(u16::MAX as usize);
@@ -206,6 +223,9 @@ pub fn decode(bytes: &[u8]) -> Option<Payload> {
             let id: [u8; 16] = rest.get(..16)?.try_into().ok()?;
             Some(Payload::FileEnd { id })
         }
+        RECEIPT => Some(Payload::Receipt {
+            body: String::from_utf8_lossy(rest).to_string(),
+        }),
         ADDRESS => {
             let (onion, rest) = take_str(rest)?;
             Some(Payload::Address {
@@ -304,6 +324,14 @@ mod tests {
         assert!(decode(&[250, 1, 2]).is_none());
         assert!(decode(&[GROUP_TEXT, 1, 2, 3]).is_none());
         assert!(decode(&[GROUP_INFO, 1, 2, 3]).is_none());
+    }
+
+    #[test]
+    fn receipt_roundtrip() {
+        match decode(&encode_receipt("ahoj světe")).unwrap() {
+            Payload::Receipt { body } => assert_eq!(body, "ahoj světe"),
+            _ => panic!("wrong kind"),
+        }
     }
 
     #[test]

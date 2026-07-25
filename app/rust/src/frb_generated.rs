@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1526664831;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1635708258;
 
 // Section: executor
 
@@ -1152,6 +1152,54 @@ fn wire__crate__api__umbra__UmbraApp_open_account_auto_impl(
         },
     )
 }
+fn wire__crate__api__umbra__UmbraApp_pending_messages_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "UmbraApp_pending_messages",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<
+                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<UmbraApp>,
+            >>::sse_decode(&mut deserializer);
+            deserializer.end();
+            transform_result_sse::<_, ()>((move || {
+                let mut api_that_guard = None;
+                let decode_indices_ =
+                    flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                        flutter_rust_bridge::for_generated::LockableOrderInfo::new(
+                            &api_that, 0, false,
+                        ),
+                    ]);
+                for i in decode_indices_ {
+                    match i {
+                        0 => api_that_guard = Some(api_that.lockable_decode_sync_ref()),
+                        _ => unreachable!(),
+                    }
+                }
+                let api_that_guard = api_that_guard.unwrap();
+                let output_ok = Result::<_, ()>::Ok(
+                    crate::api::umbra::UmbraApp::pending_messages(&*api_that_guard),
+                )?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
 fn wire__crate__api__umbra__UmbraApp_send_file_impl(
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -1286,8 +1334,9 @@ fn wire__crate__api__umbra__UmbraApp_send_over_network_impl(
             >>::sse_decode(&mut deserializer);
             let api_contact_hex = <String>::sse_decode(&mut deserializer);
             let api_text = <String>::sse_decode(&mut deserializer);
+            let api_now = <u64>::sse_decode(&mut deserializer);
             deserializer.end();
-            transform_result_sse::<_, ()>((move || {
+            transform_result_sse::<_, String>((move || {
                 let mut api_that_guard = None;
                 let decode_indices_ =
                     flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
@@ -1302,13 +1351,12 @@ fn wire__crate__api__umbra__UmbraApp_send_over_network_impl(
                     }
                 }
                 let api_that_guard = api_that_guard.unwrap();
-                let output_ok = Result::<_, ()>::Ok({
-                    crate::api::umbra::UmbraApp::send_over_network(
-                        &*api_that_guard,
-                        api_contact_hex,
-                        api_text,
-                    );
-                })?;
+                let output_ok = crate::api::umbra::UmbraApp::send_over_network(
+                    &*api_that_guard,
+                    api_contact_hex,
+                    api_text,
+                    api_now,
+                )?;
                 Ok(output_ok)
             })())
         },
@@ -1656,6 +1704,66 @@ fn wire__crate__api__simple__init_app_impl(
         },
     )
 }
+fn wire__crate__api__umbra__install_update_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "install_update",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            transform_result_sse::<_, ()>((move || {
+                let output_ok = Result::<_, ()>::Ok({
+                    crate::api::umbra::install_update();
+                })?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
+fn wire__crate__api__umbra__offered_update_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "offered_update",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            transform_result_sse::<_, ()>((move || {
+                let output_ok = Result::<_, ()>::Ok(crate::api::umbra::offered_update())?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
 
 // Section: related_funcs
 
@@ -1906,10 +2014,12 @@ impl SseDecode for crate::api::umbra::MessageView {
         let mut var_outgoing = <bool>::sse_decode(deserializer);
         let mut var_sentAt = <u64>::sse_decode(deserializer);
         let mut var_body = <String>::sse_decode(deserializer);
+        let mut var_state = <u8>::sse_decode(deserializer);
         return crate::api::umbra::MessageView {
             outgoing: var_outgoing,
             sent_at: var_sentAt,
             body: var_body,
+            state: var_state,
         };
     }
 }
@@ -1977,10 +2087,10 @@ fn pde_ffi_dispatcher_primary_impl(
 ) {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        31 => {
+        32 => {
             wire__crate__api__umbra__UmbraApp_start_network_impl(port, ptr, rust_vec_len, data_len)
         }
-        36 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
+        37 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2022,17 +2132,20 @@ fn pde_ffi_dispatcher_sync_impl(
         23 => wire__crate__api__umbra__UmbraApp_open_impl(ptr, rust_vec_len, data_len),
         24 => wire__crate__api__umbra__UmbraApp_open_account_impl(ptr, rust_vec_len, data_len),
         25 => wire__crate__api__umbra__UmbraApp_open_account_auto_impl(ptr, rust_vec_len, data_len),
-        26 => wire__crate__api__umbra__UmbraApp_send_file_impl(ptr, rust_vec_len, data_len),
-        27 => {
+        26 => wire__crate__api__umbra__UmbraApp_pending_messages_impl(ptr, rust_vec_len, data_len),
+        27 => wire__crate__api__umbra__UmbraApp_send_file_impl(ptr, rust_vec_len, data_len),
+        28 => {
             wire__crate__api__umbra__UmbraApp_send_group_message_impl(ptr, rust_vec_len, data_len)
         }
-        28 => wire__crate__api__umbra__UmbraApp_send_over_network_impl(ptr, rust_vec_len, data_len),
-        29 => wire__crate__api__umbra__UmbraApp_set_autologin_impl(ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__umbra__UmbraApp_set_my_picture_impl(ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__umbra__UmbraApp_user_code_impl(ptr, rust_vec_len, data_len),
-        33 => wire__crate__api__umbra__UmbraApp_username_impl(ptr, rust_vec_len, data_len),
-        34 => wire__crate__api__umbra__app_version_impl(ptr, rust_vec_len, data_len),
-        35 => wire__crate__api__simple__greet_impl(ptr, rust_vec_len, data_len),
+        29 => wire__crate__api__umbra__UmbraApp_send_over_network_impl(ptr, rust_vec_len, data_len),
+        30 => wire__crate__api__umbra__UmbraApp_set_autologin_impl(ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__umbra__UmbraApp_set_my_picture_impl(ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__umbra__UmbraApp_user_code_impl(ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__umbra__UmbraApp_username_impl(ptr, rust_vec_len, data_len),
+        35 => wire__crate__api__umbra__app_version_impl(ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__simple__greet_impl(ptr, rust_vec_len, data_len),
+        38 => wire__crate__api__umbra__install_update_impl(ptr, rust_vec_len, data_len),
+        39 => wire__crate__api__umbra__offered_update_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2174,6 +2287,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::umbra::MessageView {
             self.outgoing.into_into_dart().into_dart(),
             self.sent_at.into_into_dart().into_dart(),
             self.body.into_into_dart().into_dart(),
+            self.state.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2394,6 +2508,7 @@ impl SseEncode for crate::api::umbra::MessageView {
         <bool>::sse_encode(self.outgoing, serializer);
         <u64>::sse_encode(self.sent_at, serializer);
         <String>::sse_encode(self.body, serializer);
+        <u8>::sse_encode(self.state, serializer);
     }
 }
 

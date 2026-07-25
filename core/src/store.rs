@@ -45,8 +45,22 @@ CREATE TABLE IF NOT EXISTS messages (
     contact_pubkey BLOB NOT NULL,       -- 32 bytes, plaintext (query/order)
     direction      INTEGER NOT NULL,    -- 0 = incoming, 1 = outgoing
     sent_at        INTEGER NOT NULL,    -- plaintext (ordering)
-    body           BLOB NOT NULL        -- sealed
+    body           BLOB NOT NULL,       -- sealed
+    state          INTEGER NOT NULL DEFAULT 0  -- 0 waiting, 1 sent, 2 delivered
 );
+-- Messages that have not reached the peer yet. Without this table a queued
+-- message lived only in memory: closing the app threw it away, which is the
+-- opposite of the promise that it goes out once they are back.
+CREATE TABLE IF NOT EXISTS outbox (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    peer_pubkey BLOB NOT NULL,          -- 32 bytes, plaintext (routing)
+    message_id INTEGER NOT NULL,        -- row in messages / group_messages
+    group_id   BLOB,                    -- 16 bytes for a group message, else NULL
+    payload    BLOB NOT NULL,           -- sealed: the exact frame to send
+    body       BLOB NOT NULL,           -- sealed: the text, for matching receipts
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_outbox_peer ON outbox(peer_pubkey, id);
 CREATE INDEX IF NOT EXISTS idx_messages_contact
     ON messages(contact_pubkey, sent_at);
 CREATE TABLE IF NOT EXISTS groups (
@@ -112,6 +126,53 @@ pub struct Contact {
     pub added_at: u64,
 }
 
+/// How far an outgoing message got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MessageState {
+    /// Still in the outbox: the peer has not been reachable yet.
+    Waiting,
+    /// Handed to the peer's live session.
+    Sent,
+    /// The peer's app confirmed it arrived.
+    Delivered,
+}
+
+impl MessageState {
+    fn to_i64(self) -> i64 {
+        match self {
+            MessageState::Waiting => 0,
+            MessageState::Sent => 1,
+            MessageState::Delivered => 2,
+        }
+    }
+    fn from_i64(v: i64) -> Self {
+        match v {
+            1 => MessageState::Sent,
+            2 => MessageState::Delivered,
+            _ => MessageState::Waiting,
+        }
+    }
+}
+
+/// One queued message waiting for its peer to come online.
+#[derive(Debug, Clone)]
+pub struct OutboxItem {
+    /// Row id in `outbox`.
+    pub id: i64,
+    /// Who it is for.
+    pub peer_pubkey: [u8; 32],
+    /// The row it belongs to in `messages` (or `group_messages`).
+    pub message_id: i64,
+    /// Set when this is a group message.
+    pub group_id: Option<[u8; 16]>,
+    /// The exact frame to put on the wire.
+    pub payload: Vec<u8>,
+    /// The text, so a delivery receipt can be matched to it.
+    pub body: Vec<u8>,
+    /// When it was queued (unix seconds).
+    pub created_at: u64,
+}
+
 /// A message to insert.
 #[derive(Debug, Clone)]
 pub struct NewMessage<'a> {
@@ -170,6 +231,8 @@ pub struct Message {
     pub sent_at: u64,
     /// Decrypted body.
     pub body: Vec<u8>,
+    /// Delivery progress (outgoing messages only).
+    pub state: MessageState,
 }
 
 /// The encrypted local store.
@@ -199,7 +262,23 @@ impl Store {
 
     fn init(conn: Connection, data_key: &[u8; 32]) -> Result<Self, StoreError> {
         conn.execute_batch(SCHEMA)?;
+        Self::migrate(&conn)?;
         Ok(Self { conn, key: Zeroizing::new(*data_key) })
+    }
+
+    /// Bring an older database up to the current shape. `CREATE TABLE IF NOT
+    /// EXISTS` only covers new tables, so columns added later need this.
+    fn migrate(conn: &Connection) -> Result<(), StoreError> {
+        let mut stmt = conn.prepare("PRAGMA table_info(messages)")?;
+        let columns: Vec<String> = stmt
+            .query_map([], |r| r.get::<_, String>(1))?
+            .collect::<Result<_, _>>()?;
+        if !columns.iter().any(|c| c == "state") {
+            conn.execute_batch(
+                "ALTER TABLE messages ADD COLUMN state INTEGER NOT NULL DEFAULT 0",
+            )?;
+        }
+        Ok(())
     }
 
     // --- value encryption (XChaCha20-Poly1305, nonce || ciphertext) ---
@@ -339,7 +418,7 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<Message>, StoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, direction, sent_at, body FROM messages
+            "SELECT id, direction, sent_at, body, state FROM messages
              WHERE contact_pubkey = ?1 ORDER BY sent_at ASC, id ASC LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![contact_pubkey.as_slice(), limit], |r| {
@@ -348,20 +427,144 @@ impl Store {
                 r.get::<_, i64>(1)?,
                 r.get::<_, i64>(2)?,
                 r.get::<_, Vec<u8>>(3)?,
+                r.get::<_, i64>(4)?,
             ))
         })?;
         let mut out = Vec::new();
         for row in rows {
-            let (id, dir, sent_at, body_ct) = row?;
+            let (id, dir, sent_at, body_ct, state) = row?;
             out.push(Message {
                 id,
                 contact_pubkey: *contact_pubkey,
                 direction: Direction::from_i64(dir)?,
                 sent_at: sent_at as u64,
                 body: self.unseal(&body_ct)?.to_vec(),
+                state: MessageState::from_i64(state),
             });
         }
         Ok(out)
+    }
+
+    /// Move an outgoing message along (waiting → sent → delivered).
+    pub fn set_message_state(&self, id: i64, state: MessageState) -> Result<(), StoreError> {
+        self.conn.execute(
+            "UPDATE messages SET state = ?2 WHERE id = ?1",
+            params![id, state.to_i64()],
+        )?;
+        Ok(())
+    }
+
+    // --- outbox ---
+
+    /// Queue a frame for a peer. Returns the outbox row id.
+    pub fn queue_outgoing(
+        &self,
+        peer_pubkey: &[u8; 32],
+        message_id: i64,
+        group_id: Option<[u8; 16]>,
+        payload: &[u8],
+        body: &[u8],
+        created_at: u64,
+    ) -> Result<i64, StoreError> {
+        let payload_ct = self.seal(payload)?;
+        let body_ct = self.seal(body)?;
+        self.conn.execute(
+            "INSERT INTO outbox(peer_pubkey, message_id, group_id, payload, body, created_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                peer_pubkey.as_slice(),
+                message_id,
+                group_id.map(|g| g.to_vec()),
+                payload_ct,
+                body_ct,
+                created_at as i64
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Everything still waiting for `peer`, oldest first.
+    pub fn outbox_for(&self, peer_pubkey: &[u8; 32]) -> Result<Vec<OutboxItem>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, message_id, group_id, payload, body, created_at FROM outbox
+             WHERE peer_pubkey = ?1 ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(params![peer_pubkey.as_slice()], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, Option<Vec<u8>>>(2)?,
+                r.get::<_, Vec<u8>>(3)?,
+                r.get::<_, Vec<u8>>(4)?,
+                r.get::<_, i64>(5)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (id, message_id, group, payload_ct, body_ct, created_at) = row?;
+            out.push(OutboxItem {
+                id,
+                peer_pubkey: *peer_pubkey,
+                message_id,
+                group_id: match group {
+                    Some(g) => Some(g.as_slice().try_into().map_err(|_| StoreError::Corrupt)?),
+                    None => None,
+                },
+                payload: self.unseal(&payload_ct)?.to_vec(),
+                body: self.unseal(&body_ct)?.to_vec(),
+                created_at: created_at as u64,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Every peer with something waiting, and how much.
+    pub fn outbox_summary(&self) -> Result<Vec<([u8; 32], u32)>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT peer_pubkey, COUNT(*) FROM outbox GROUP BY peer_pubkey")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (pk, n) = row?;
+            out.push((to_key32(&pk)?, n as u32));
+        }
+        Ok(out)
+    }
+
+    /// Drop a queued item once it is on its way.
+    pub fn dequeue(&self, outbox_id: i64) -> Result<(), StoreError> {
+        self.conn
+            .execute("DELETE FROM outbox WHERE id = ?1", params![outbox_id])?;
+        Ok(())
+    }
+
+    /// A peer confirmed a text arrived: mark the oldest matching outgoing
+    /// message delivered. Bodies are sealed with a fresh nonce each time, so
+    /// the match is done on the decrypted text, not on the stored bytes.
+    ///
+    /// Returns the message row that was marked, if any.
+    pub fn mark_delivered(
+        &self,
+        contact_pubkey: &[u8; 32],
+        body: &[u8],
+    ) -> Result<Option<i64>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, body FROM messages
+             WHERE contact_pubkey = ?1 AND direction = 1 AND state < 2
+             ORDER BY id ASC LIMIT 500",
+        )?;
+        let rows = stmt.query_map(params![contact_pubkey.as_slice()], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?))
+        })?;
+        for row in rows {
+            let (id, body_ct) = row?;
+            if self.unseal(&body_ct)?.as_slice() == body {
+                self.set_message_state(id, MessageState::Delivered)?;
+                return Ok(Some(id));
+            }
+        }
+        Ok(None)
     }
 
     /// Every identity we have exchanged messages with, contact or not.
@@ -661,6 +864,96 @@ mod tests {
         assert_eq!(s.list_contacts().unwrap().len(), 1);
         let msgs = s.messages_for(&[7u8; 32], 10).unwrap();
         assert_eq!(msgs[0].body, b"persisted");
+    }
+
+    #[test]
+    fn queued_messages_survive_and_can_be_flushed() {
+        let tmp = TempDb::new();
+        let key = [14u8; 32];
+        let peer = [5u8; 32];
+        let msg_id;
+        {
+            let s = Store::open(&tmp.0, &key).unwrap();
+            msg_id = s
+                .insert_message(&NewMessage {
+                    contact_pubkey: peer,
+                    direction: Direction::Outgoing,
+                    sent_at: 100,
+                    body: b"jsi offline, ale precti si to pozdeji",
+                })
+                .unwrap();
+            s.queue_outgoing(&peer, msg_id, None, b"\x00frame", b"jsi offline, ale precti si to pozdeji", 100)
+                .unwrap();
+        }
+        // Closing the app must not lose the queue.
+        let s = Store::open(&tmp.0, &key).unwrap();
+        let queued = s.outbox_for(&peer).unwrap();
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].payload, b"\x00frame");
+        assert_eq!(queued[0].message_id, msg_id);
+        assert_eq!(s.outbox_summary().unwrap(), vec![(peer, 1)]);
+        assert_eq!(s.messages_for(&peer, 10).unwrap()[0].state, MessageState::Waiting);
+
+        // Once it goes out the queue empties and the message counts as sent.
+        s.dequeue(queued[0].id).unwrap();
+        s.set_message_state(msg_id, MessageState::Sent).unwrap();
+        assert!(s.outbox_for(&peer).unwrap().is_empty());
+        assert_eq!(s.messages_for(&peer, 10).unwrap()[0].state, MessageState::Sent);
+    }
+
+    #[test]
+    fn a_receipt_marks_the_matching_message_delivered() {
+        let s = Store::open_in_memory(&[15u8; 32]).unwrap();
+        let peer = [6u8; 32];
+        for body in [&b"prvni"[..], &b"druha"[..], &b"prvni"[..]] {
+            s.insert_message(&NewMessage {
+                contact_pubkey: peer,
+                direction: Direction::Outgoing,
+                sent_at: 1,
+                body,
+            })
+            .unwrap();
+        }
+        // Two messages share a body: the oldest undelivered one wins, so a
+        // second receipt marks the second copy rather than doing nothing.
+        let first = s.mark_delivered(&peer, b"prvni").unwrap().unwrap();
+        let second = s.mark_delivered(&peer, b"prvni").unwrap().unwrap();
+        assert!(second > first);
+        assert!(s.mark_delivered(&peer, b"prvni").unwrap().is_none());
+        assert!(s.mark_delivered(&peer, b"nikdy neposlano").unwrap().is_none());
+
+        let states: Vec<_> = s.messages_for(&peer, 10).unwrap().iter().map(|m| m.state).collect();
+        assert_eq!(
+            states,
+            vec![MessageState::Delivered, MessageState::Waiting, MessageState::Delivered]
+        );
+    }
+
+    /// A database written before message states existed must still open.
+    #[test]
+    fn older_databases_gain_the_state_column() {
+        let tmp = TempDb::new();
+        {
+            let conn = Connection::open(&tmp.0).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    contact_pubkey BLOB NOT NULL,
+                    direction INTEGER NOT NULL,
+                    sent_at INTEGER NOT NULL,
+                    body BLOB NOT NULL);",
+            )
+            .unwrap();
+        }
+        let s = Store::open(&tmp.0, &[16u8; 32]).unwrap();
+        s.insert_message(&NewMessage {
+            contact_pubkey: [7u8; 32],
+            direction: Direction::Outgoing,
+            sent_at: 1,
+            body: b"po migraci",
+        })
+        .unwrap();
+        assert_eq!(s.messages_for(&[7u8; 32], 10).unwrap()[0].state, MessageState::Waiting);
     }
 
     /// The bug this guards against: a peer who wrote to us first had messages

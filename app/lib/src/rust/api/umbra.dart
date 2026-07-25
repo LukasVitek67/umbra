@@ -6,9 +6,16 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `emit`, `flush_pending`, `handle_payload`, `hex`, `identity_pubkey`, `install_dir`, `log_line`, `now_secs`, `queue_message`, `remember_group_routes`, `rt`, `send_or_queue`, `send_profile`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
+// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `emit`, `flush_pending`, `handle_payload`, `hex`, `identity_pubkey`, `install_dir`, `log_line`, `now_secs`, `pending_count`, `remember_group_routes`, `remember_peer`, `rt`, `send_or_queue`, `send_profile`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Inner`, `Pending`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
+
+/// Install the update the user was offered. Progress arrives as
+/// `update_downloading` / `update_installed` / `update_error` events.
+void installUpdate() => RustLib.instance.api.crateApiUmbraInstallUpdate();
+
+/// The version waiting to be installed, empty when there is none.
+String offeredUpdate() => RustLib.instance.api.crateApiUmbraOfferedUpdate();
 
 /// This build's version, for the UI.
 String appVersion() => RustLib.instance.api.crateApiUmbraAppVersion();
@@ -148,6 +155,9 @@ abstract class UmbraApp implements RustOpaqueInterface {
         id: id,
       );
 
+  /// How many messages are still waiting for their peer.
+  int pendingMessages();
+
   /// Send a file to a connected contact: read it, split it into chunks and
   /// push each one through the encrypted session. Progress arrives as events.
   void sendFile({required String contactHex, required String path});
@@ -160,8 +170,14 @@ abstract class UmbraApp implements RustOpaqueInterface {
     required BigInt now,
   });
 
-  /// Send a message to the currently connected peer.
-  void sendOverNetwork({required String contactHex, required String text});
+  /// Store a message and send it. If the contact is not reachable it waits in
+  /// the encrypted outbox and goes out by itself once they appear — closing
+  /// the app does not lose it.
+  void sendOverNetwork({
+    required String contactHex,
+    required String text,
+    required BigInt now,
+  });
 
   /// Turn auto sign-in on (needs the passphrase) or off for this account.
   void setAutologin({required String passphrase, required bool enabled});
@@ -349,14 +365,19 @@ class MessageView {
   final BigInt sentAt;
   final String body;
 
+  /// 0 = still waiting for the peer, 1 = handed over, 2 = confirmed by them.
+  final int state;
+
   const MessageView({
     required this.outgoing,
     required this.sentAt,
     required this.body,
+    required this.state,
   });
 
   @override
-  int get hashCode => outgoing.hashCode ^ sentAt.hashCode ^ body.hashCode;
+  int get hashCode =>
+      outgoing.hashCode ^ sentAt.hashCode ^ body.hashCode ^ state.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -365,7 +386,8 @@ class MessageView {
           runtimeType == other.runtimeType &&
           outgoing == other.outgoing &&
           sentAt == other.sentAt &&
-          body == other.body;
+          body == other.body &&
+          state == other.state;
 }
 
 /// An event from the network layer, pushed to the UI.

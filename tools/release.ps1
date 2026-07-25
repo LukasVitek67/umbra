@@ -34,12 +34,15 @@ if (-not (Test-Path $KeyFile)) { throw "signing key not found: $KeyFile" }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "version must be X.Y.Z, got '$Version'" }
 
 Write-Host "== version -> $Version =="
+# Write UTF-8 *without* a BOM: PowerShell's -Encoding utf8 adds one, and a BOM
+# in pubspec.yaml makes the flutter_rust_bridge codegen refuse to read it.
+$noBom = New-Object System.Text.UTF8Encoding($false)
 $cargo = Join-Path $app 'rust\Cargo.toml'
-(Get-Content $cargo -Raw) -replace '(?m)^version = "\d+\.\d+\.\d+"', "version = `"$Version`"" |
-    Set-Content $cargo -Encoding utf8 -NoNewline
+$text = (Get-Content $cargo -Raw) -replace '(?m)^version = "\d+\.\d+\.\d+"', "version = `"$Version`""
+[System.IO.File]::WriteAllText($cargo, $text, $noBom)
 $pubspec = Join-Path $app 'pubspec.yaml'
-(Get-Content $pubspec -Raw) -replace '(?m)^version: .*$', "version: $Version+1" |
-    Set-Content $pubspec -Encoding utf8 -NoNewline
+$text = (Get-Content $pubspec -Raw) -replace '(?m)^version: .*$', "version: $Version+1"
+[System.IO.File]::WriteAllText($pubspec, $text, $noBom)
 
 Write-Host "== core tests =="
 Push-Location $root

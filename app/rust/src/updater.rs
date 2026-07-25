@@ -22,7 +22,7 @@
 
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -45,9 +45,9 @@ pub fn current_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-/// How often we ask GitHub. Often enough to matter, rarely enough that it is
-/// not a fingerprintable heartbeat.
-const CHECK_EVERY: Duration = Duration::from_secs(30 * 60);
+/// How often we ask GitHub. Short, because a security fix is worth having the
+/// same day it ships — one small request per interval over an existing circuit.
+const CHECK_EVERY: Duration = Duration::from_secs(5 * 60);
 
 /// Refuse absurd downloads outright (a release zip is ~60 MB).
 const MAX_DOWNLOAD: usize = 200 * 1024 * 1024;
@@ -65,50 +65,102 @@ pub enum UpdateState {
     Failed(String),
 }
 
-/// Run the update loop forever. `emit` reports progress to the UI, `socks_port`
-/// is the SOCKS port of the running tor daemon.
+/// The newest release we have seen and not installed yet.
+static OFFERED: Mutex<Option<Release>> = Mutex::new(None);
+
+/// Watch for new versions. `emit` reports to the UI; nothing is downloaded
+/// until the user says yes (see [`install_offered`]) — an update replaces the
+/// program they are running, so it is their call, not ours.
 pub async fn run_loop<F>(socks_port: u16, install_dir: PathBuf, emit: F)
 where
     F: Fn(&str, &str) + Send + Sync + 'static,
 {
-    // A first check shortly after start, then on a slow timer.
-    tokio::time::sleep(Duration::from_secs(90)).await;
+    // Ask early: a fresh start is the moment the user is most willing to
+    // restart, and the check is one request.
+    tokio::time::sleep(Duration::from_secs(20)).await;
+    let mut announced = String::new();
     loop {
-        match check_once(socks_port, &install_dir).await {
-            Ok(UpdateState::Installed(v)) => emit("update_installed", &v),
-            Ok(UpdateState::UpToDate) => emit("update_uptodate", current_version()),
-            Ok(UpdateState::Downloading(v)) => emit("update_downloading", &v),
-            Ok(UpdateState::Failed(e)) | Err(e) => emit("update_error", &e),
+        match check_once(socks_port).await {
+            Ok(Some(release)) => {
+                let version = release.version.clone();
+                *OFFERED.lock().unwrap() = Some(release);
+                // Announce a given version once, so the dialog does not
+                // reappear every five minutes if they said "later".
+                if announced != version {
+                    announced = version.clone();
+                    emit("update_available", &version);
+                }
+            }
+            Ok(None) => emit("update_uptodate", current_version()),
+            Err(e) => emit("update_error", &e),
         }
         tokio::time::sleep(CHECK_EVERY).await;
     }
 }
 
-/// One full cycle: ask, compare, download, verify, install.
-pub async fn check_once(socks_port: u16, install_dir: &Path) -> Result<UpdateState, String> {
+/// Ask GitHub what the newest release is. `Ok(None)` means we are current.
+pub async fn check_once(socks_port: u16) -> Result<Option<Release>, String> {
     let latest = latest_release(socks_port).await?;
     if !is_newer(&latest.version, current_version()) {
-        return Ok(UpdateState::UpToDate);
+        return Ok(None);
     }
-    let Some(zip_url) = latest.zip_url else {
+    if latest.zip_url.is_none() {
         return Err(format!("vydání {} nemá .zip", latest.version));
-    };
-    let Some(sig_url) = latest.sig_url else {
+    }
+    if latest.sig_url.is_none() {
         // An unsigned release is not installed. Silence here would be the
         // dangerous option, so it is reported as an error.
         return Err(format!("vydání {} není podepsané", latest.version));
-    };
+    }
+    Ok(Some(latest))
+}
 
-    let zip = http_get(socks_port, &zip_url).await?;
-    let sig_raw = http_get(socks_port, &sig_url).await?;
-    verify_signature(&zip, &sig_raw)?;
-    install(&zip, install_dir, &latest.version)?;
-    Ok(UpdateState::Installed(latest.version))
+/// The version currently on offer, if any.
+pub fn offered_version() -> Option<String> {
+    OFFERED.lock().unwrap().as_ref().map(|r| r.version.clone())
+}
+
+/// Download, verify and install the offered release. Called after the user
+/// agrees.
+pub async fn install_offered<F>(socks_port: u16, install_dir: PathBuf, emit: F) -> UpdateState
+where
+    F: Fn(&str, &str),
+{
+    let Some(release) = OFFERED.lock().unwrap().clone() else {
+        return UpdateState::Failed("není co instalovat".to_string());
+    };
+    let (Some(zip_url), Some(sig_url)) = (release.zip_url.clone(), release.sig_url.clone()) else {
+        return UpdateState::Failed("vydání nemá potřebné soubory".to_string());
+    };
+    emit("update_downloading", &release.version);
+
+    let result = async {
+        let zip = http_get(socks_port, &zip_url).await?;
+        let sig_raw = http_get(socks_port, &sig_url).await?;
+        verify_signature(&zip, &sig_raw)?;
+        install(&zip, &install_dir, &release.version)?;
+        Ok::<(), String>(())
+    }
+    .await;
+
+    match result {
+        Ok(()) => {
+            *OFFERED.lock().unwrap() = None;
+            emit("update_installed", &release.version);
+            UpdateState::Installed(release.version)
+        }
+        Err(e) => {
+            emit("update_error", &e);
+            UpdateState::Failed(e)
+        }
+    }
 }
 
 /// The interesting bits of a GitHub release.
-struct Release {
-    version: String,
+#[derive(Debug, Clone)]
+pub struct Release {
+    /// Version from the tag, without the leading `v`.
+    pub version: String,
     zip_url: Option<String>,
     sig_url: Option<String>,
 }

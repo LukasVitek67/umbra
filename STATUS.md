@@ -70,6 +70,27 @@ Opravy nalezené během testování (všechny v kódu):
   `reg.exe` (bez admina, uživatel to umí sám zrušit). Přepínač se řídí reálným
   stavem registru — když zápis selže, skočí zpět a řekne to.
 
+## ✉️ 1.1.0 — psaní protějšku, který je offline
+Fronta zpráv byla **jen v paměti**: zavřením appky se čekající zpráva ztratila.
+
+- nová tabulka `outbox` v šifrovaném úložišti — čekající zpráva **přežije restart**
+  a odejde sama, jakmile se protějšek objeví (keep-alive ho zkouší každých 20 s)
+- stavy zprávy: **čeká na protějšek → odesláno → doručeno** (`messages.state`,
+  migrace přidá sloupec i do starých databází)
+- `RECEIPT` (kind 8): příjemce potvrdí text zpět, odesílatel z „odesláno" udělá
+  „doručeno" (dvě fajfky). Starší build potvrzení neposílá, zůstane „odesláno"
+- v chatu s offline protějškem je místo točítka věta „Čeká N zpráv — odejdou,
+  jakmile bude X online."
+- pořád platí: doručení proběhne, až budete **oba online zároveň** (bez serveru
+  to jinak nejde), ale už se o to nemusíš starat ty
+
+## 🔔 1.1.0 — nabídka aktualizace hned
+- kontrola po **20 s od startu** a pak **každých 5 min** (dřív 90 s a 30 min)
+- když vyjde nová verze, **sama vyskočí nabídka** „Aktualizovat / Později";
+  nic se nestahuje bez souhlasu (update mění program, který uživatel spustil)
+- vlevo dole v liště je tlačítko s tečkou, dokud je co instalovat; po instalaci
+  se z něj stane nabídka restartu
+
 ## 🐞 Opraveno 1.0.1 — zmizelý chat s protějškem, který napsal první
 Když spojení navázal **protějšek** (my jsme si ho nepřidali přes pozvánku),
 uložily se zprávy, ale **nevznikl řádek v `contacts`**. Důsledek: po restartu

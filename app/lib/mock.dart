@@ -58,8 +58,11 @@ class Message {
 
   /// Who wrote it, in a group. Null in 1:1 chats, where the header says it.
   final String? senderName;
-  /// Outgoing message that has not reached the peer yet (no session).
+  /// Outgoing message that has not reached the peer yet (no session). It waits
+  /// in the encrypted outbox and goes out on its own once they are back.
   bool pending;
+  /// The peer's app confirmed it arrived.
+  bool delivered = false;
 
   /// Set for file messages: local path once complete, plus name and size.
   String? filePath;
@@ -151,10 +154,35 @@ class AppState extends ChangeNotifier {
   // --- updates (checked through Tor, signature-verified in Rust) ---
   /// The version this build reports.
   String get version => appVersion();
+  /// Messages waiting in the encrypted outbox for their peer to come online.
+  int pendingMessages = 0;
+
   /// Human-readable state of the update check.
   String updateStatus = '';
+  /// A newer version is on GitHub and waiting for the user to say yes.
+  String? updateAvailableVersion;
+  /// True while it is being fetched.
+  bool updateDownloading = false;
   /// A newer version is already installed next to the app; a restart uses it.
   String? updateReadyVersion;
+
+  /// Fetch, verify and install the version the user was offered.
+  void installUpdateNow() {
+    try {
+      installUpdate();
+      updateDownloading = true;
+      notifyListeners();
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
+  }
+
+  /// Dismiss the offer until the next version shows up.
+  void postponeUpdate() {
+    updateAvailableVersion = null;
+    notifyListeners();
+  }
 
   final List<Chat> chats = [];
   final List<GroupChat> groups = [];
@@ -320,9 +348,17 @@ class AppState extends ChangeNotifier {
           break;
         case 'sent':
           _markSent(ev.peerHex, ev.data);
+          pendingMessages = _app?.pendingMessages() ?? 0;
+          break;
+        case 'delivered':
+          _markDelivered(ev.peerHex, ev.data);
           break;
         case 'queued':
+          pendingMessages = int.tryParse(ev.data) ?? pendingMessages;
           netStatus = L.t('net.queued');
+          break;
+        case 'outbox':
+          pendingMessages = int.tryParse(ev.data) ?? 0;
           break;
         case 'message':
           _receive(ev.peerHex, ev.data);
@@ -375,17 +411,25 @@ class AppState extends ChangeNotifier {
           break;
         // The Rust side does the whole update: check over Tor, verify the
         // signature, unpack next to the app. Here we only tell the user.
+        case 'update_available':
+          updateAvailableVersion = ev.data;
+          updateStatus = L.t('update.available').replaceAll('{v}', ev.data);
+          break;
         case 'update_downloading':
+          updateDownloading = true;
           updateStatus = L.t('update.downloading').replaceAll('{v}', ev.data);
           break;
         case 'update_installed':
+          updateDownloading = false;
+          updateAvailableVersion = null;
           updateReadyVersion = ev.data;
           updateStatus = L.t('update.ready').replaceAll('{v}', ev.data);
           break;
         case 'update_uptodate':
-          updateStatus = L.t('update.upToDate');
+          if (updateReadyVersion == null) updateStatus = L.t('update.upToDate');
           break;
         case 'update_error':
+          updateDownloading = false;
           updateStatus = L.t('update.failed').replaceAll('{e}', ev.data);
           break;
         case 'error':
@@ -521,6 +565,20 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// The peer's app confirmed a message arrived.
+  void _markDelivered(String peerHex, String body) {
+    for (final chat in chats) {
+      if (chat.contactHex != peerHex) continue;
+      for (final m in chat.messages) {
+        if (m.outgoing && !m.delivered && m.body == body) {
+          m.pending = false;
+          m.delivered = true;
+          return;
+        }
+      }
+    }
+  }
+
   /// Dial a contact over Tor.
   void connectTo(Chat chat) {
     _app?.connectPeer(contactHex: chat.contactHex);
@@ -544,10 +602,13 @@ class AppState extends ChangeNotifier {
           m.body,
           outgoing: m.outgoing,
           at: DateTime.fromMillisecondsSinceEpoch(m.sentAt.toInt() * 1000),
-        ));
+          // 0 = still in the outbox, 1 = handed over, 2 = confirmed by them.
+          pending: m.outgoing && m.state == 0,
+        )..delivered = m.state == 2);
       }
       chats.add(chat);
     }
+    pendingMessages = app.pendingMessages();
   }
 
   // --- groups ---
@@ -722,19 +783,19 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Send over the live Tor session (and record it in encrypted history).
+  /// Send over the live Tor session. Rust stores the message and, if the peer
+  /// is away, keeps it in the encrypted outbox until they come back — so this
+  /// works the same whether they are online or not.
   void sendMessage(Chat chat, String text) {
     final app = _app;
     final t = text.trim();
     if (app == null || t.isEmpty) return;
     final now = DateTime.now();
     try {
-      app.sendOverNetwork(contactHex: chat.contactHex, text: t);
-      app.addMessage(
+      app.sendOverNetwork(
         contactHex: chat.contactHex,
-        outgoing: true,
-        sentAt: BigInt.from(now.millisecondsSinceEpoch ~/ 1000),
-        body: t,
+        text: t,
+        now: BigInt.from(now.millisecondsSinceEpoch ~/ 1000),
       );
       chat.messages.add(Message(
         t,
