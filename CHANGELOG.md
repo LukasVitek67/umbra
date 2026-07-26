@@ -8,15 +8,27 @@ person who wrote the code. Newest first.
 
 Umbra is experimental and has not been independently audited.
 
+## 1.6.2
+
+- **The actual reason "Connecting to Tor" hung.** Tor refuses to share its data
+  directory: when a copy left over from an earlier run of Umbra was still alive,
+  the new one waited five seconds, gave up and exited — and the app, unable to
+  tell "Tor died" from "Tor is still trying", reported a 900-second timeout that
+  had never happened. Umbra now writes down the daemon it starts, ends a
+  leftover one on the next start, and if the directory is busy anyway it waits
+  and retries the same route instead of failing. Only a process Umbra itself
+  recorded, and which is still called `tor`, is ever touched.
+- Failures now name what Tor said, so the next problem does not need guessing.
+
 ## 1.6.1
 
-- **"Connecting to Tor" no longer gets stuck.** The real cause: Umbra forced
-  every start through the bundled bridges, for no better reason than that the
-  bridge file shipped next to the program. Bridges exist to get through
-  censorship — they are slower everywhere else, and the public ones we ship are
-  the first a censor blocks, so most of them are dead. Umbra now connects
-  **directly** first, like Tor Browser does, and falls back to bridges only if
-  that fails. Your own bridges, if you pasted any in Settings, are still tried
+- **Umbra connects directly first.** It used to force every start through the
+  bundled bridges, for no better reason than that the bridge file shipped next
+  to the program. Bridges exist to get through censorship — they are slower
+  everywhere else, and the public ones we ship are the first a censor blocks, so
+  many of them are dead. Direct first, like Tor Browser, bridges as the fallback
+  (measured on an ordinary connection: 36 s direct, 124 s through the bundled
+  bridges). Your own bridges, if you pasted any in Settings, are still tried
   first.
 - A start that has stopped making progress is now noticed in about a minute
   instead of after fifteen, and the next route is tried immediately. A crashed

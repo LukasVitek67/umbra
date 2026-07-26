@@ -47,6 +47,13 @@ const DIRECT_TIMEOUT: Duration = Duration::from_secs(150);
 /// slower to come up, so they get more room than a direct attempt.
 const BRIDGE_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// What we say when Tor refuses to share its data directory.
+///
+/// Matched on by [`TorService::start`], which waits and tries the same route
+/// again rather than moving on: a daemon on its way out frees the directory
+/// within seconds, and changing routes would not have helped anyway.
+const DATA_DIR_BUSY: &str = "datový adresář Toru drží jiný běžící Tor";
+
 /// A bootstrap that has not gained a single percent for this long is stuck.
 ///
 /// Without this the app sat on a dead attempt until the full timeout expired —
@@ -80,6 +87,87 @@ fn beside_exe(name: &str) -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let p = exe.parent()?.join(name);
     p.exists().then_some(p)
+}
+
+/// Where we remember the daemon we started ourselves.
+fn pid_file(tor_data: &Path) -> PathBuf {
+    tor_data.join("umbra-tor.pid")
+}
+
+/// Is the process with this id still a running `tor`?
+///
+/// The gate in front of everything that kills: a "no" here means we keep our
+/// hands off, so a recycled id belonging to someone else's program is safe.
+fn process_is_tor(pid: u32) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map(|o| {
+                let out = String::from_utf8_lossy(&o.stdout).to_lowercase();
+                // tasklist answers with a friendly "no tasks" line rather than
+                // an error when nothing matches, so look for the name itself.
+                out.contains("\"tor.exe\"")
+            })
+            .unwrap_or(false)
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::read_to_string(format!("/proc/{pid}/comm"))
+            .map(|name| name.trim() == "tor")
+            .unwrap_or(false)
+    }
+}
+
+/// End a `tor` that a previous run of Umbra left behind.
+///
+/// This is the single most common way the app got stuck: Tor refuses to share
+/// its data directory, waits five seconds for the other one to go away, and
+/// then exits. The leftover is *our own* child from a crashed or force-killed
+/// run — `__OwningControllerProcess` normally takes it down with us, but that
+/// does not survive every kind of death.
+///
+/// Only a process whose id we wrote down ourselves and which is still called
+/// `tor` is touched. That matters: process ids get recycled, and killing a
+/// stranger's program because it inherited a number would be inexcusable.
+fn kill_orphan_tor(tor_data: &Path, progress: &impl Fn(&str)) {
+    let path = pid_file(tor_data);
+    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    let Ok(pid) = text.trim().parse::<u32>() else {
+        let _ = std::fs::remove_file(&path);
+        return;
+    };
+    let _ = std::fs::remove_file(&path);
+    if pid == std::process::id() {
+        return;
+    }
+
+    if !process_is_tor(pid) {
+        return;
+    }
+
+    progress("ukončuji Tor, který zůstal po předchozím spuštění");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
+    }
+    // Windows releases the file handles a moment after the process dies.
+    std::thread::sleep(Duration::from_millis(800));
 }
 
 /// Delete the data-directory lock if no live daemon holds it.
@@ -231,6 +319,7 @@ impl TorProcess {
         // the file by hand — which is exactly the "Connecting to Tor" screen
         // that never finishes. Deleting it is safe precisely because Windows
         // refuses while a live daemon still holds it.
+        kill_orphan_tor(&tor_data, &progress);
         clear_stale_lock(&tor_data, &progress);
         let socks_port = free_port()?;
 
@@ -285,6 +374,9 @@ impl TorProcess {
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
         let mut child = cmd.spawn().context("nepodařilo se spustit tor.exe")?;
+        // Write the id down before anything else can fail: if this run dies
+        // badly, the next one needs to know which process to clean up.
+        let _ = std::fs::write(pid_file(&tor_data), child.id().to_string());
 
         // Tor's pipes block when nobody reads them, so both are drained on their
         // own thread for the whole life of the daemon. stderr is where a refused
@@ -316,12 +408,18 @@ impl TorProcess {
         let mut pct: u32 = 0;
         let mut done = false;
         let mut fault = String::new();
+        // Tor announces this on its way out, and it is worth telling apart from
+        // every other failure: nothing about the network is wrong.
+        let mut data_dir_busy = false;
         loop {
             // Wake either at the overall deadline or once the percentage has sat
             // still long enough to call the attempt dead, whichever comes first.
             let wake = std::cmp::min(deadline, last_move + STALL_TIMEOUT);
             match tokio::time::timeout_at(wake, rx.recv()).await {
                 Ok(Some(line)) => {
+                    if line.contains("same data directory") {
+                        data_dir_busy = true;
+                    }
                     let Some(pos) = line.find("Bootstrapped ") else { continue };
                     let msg = line[pos..].trim().to_string();
                     let reached = line[pos + "Bootstrapped ".len()..]
@@ -340,7 +438,11 @@ impl TorProcess {
                     }
                 }
                 Ok(None) => {
-                    fault = format!("Tor skončil hned po spuštění{}", log_tail(data_dir));
+                    fault = if data_dir_busy {
+                        DATA_DIR_BUSY.to_string()
+                    } else {
+                        format!("Tor skončil hned po spuštění{}", log_tail(data_dir))
+                    };
                     break;
                 }
                 Err(_) => {
@@ -555,13 +657,36 @@ impl TorService {
                 progress(&format!("nepovedlo se, opravuji a zkouším {label}"));
                 let _ = clear_tor_cache(data_dir);
             }
-            let p = progress.clone();
-            match TorProcess::start(data_dir, local_port, bridges, *limit, move |m| p(m)).await {
-                Ok(tor) => {
-                    started = Some(tor);
-                    break;
+            // A daemon left over from a previous run is on its way out, not a
+            // reason to change route: wait for it and try the same one again.
+            // This is the failure that used to be reported as a 900 s timeout
+            // even though Tor had given up after five seconds.
+            let mut last: Option<anyhow::Error> = None;
+            for wait in [0u64, 6, 12] {
+                if wait > 0 {
+                    progress("čekám, až se uvolní datový adresář po předchozím Toru");
+                    tokio::time::sleep(Duration::from_secs(wait)).await;
                 }
-                Err(e) => failures.push(format!("{label} — {e}")),
+                let p = progress.clone();
+                match TorProcess::start(data_dir, local_port, bridges, *limit, move |m| p(m)).await {
+                    Ok(tor) => {
+                        started = Some(tor);
+                        break;
+                    }
+                    Err(e) => {
+                        let busy = e.to_string().contains(DATA_DIR_BUSY);
+                        last = Some(e);
+                        if !busy {
+                            break;
+                        }
+                    }
+                }
+            }
+            if started.is_some() {
+                break;
+            }
+            if let Some(e) = last {
+                failures.push(format!("{label} — {e}"));
             }
         }
         let Some(tor) = started else {
@@ -738,4 +863,57 @@ async fn install_peer(
 /// The SOCKS port of a running service — used by diagnostics.
 pub fn socks_port_of(svc: &TorService) -> u16 {
     svc._tor.socks_port
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The cleanup must never touch a process that merely inherited the id we
+    /// wrote down. This test *is* the proof: it feeds in its own pid, and the
+    /// test process surviving to the assertion is the result.
+    #[test]
+    fn a_pid_that_is_not_tor_is_left_alone() {
+        let dir = std::env::temp_dir().join(format!("umbra-pid-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(pid_file(&dir), std::process::id().to_string()).unwrap();
+
+        assert!(!process_is_tor(std::process::id()), "the test runner is not tor");
+        kill_orphan_tor(&dir, &|_: &str| {});
+
+        // Still here, and the note about a daemon that no longer exists is gone
+        // so the next start does not look at it again.
+        assert!(!pid_file(&dir).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_damaged_pid_file_is_not_a_crash() {
+        let dir = std::env::temp_dir().join(format!("umbra-pidjunk-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(pid_file(&dir), "not a number").unwrap();
+        kill_orphan_tor(&dir, &|_: &str| {});
+        assert!(!pid_file(&dir).exists());
+
+        // No file at all is the normal first run.
+        kill_orphan_tor(&dir, &|_: &str| {});
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_bridge_file_keeps_only_real_lines() {
+        let dir = std::env::temp_dir().join(format!("umbra-bridges-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bridges.txt");
+        std::fs::write(&path, "# a comment\n\n  obfs4 1.2.3.4:9001 CERT\n\n").unwrap();
+        assert_eq!(read_bridges(&path), vec!["obfs4 1.2.3.4:9001 CERT".to_string()]);
+
+        // A file that is not there means "connect directly", not an error.
+        assert!(read_bridges(&dir.join("nothing.txt")).is_empty());
+        // So does a file with nothing but comments — the bug that forced every
+        // start through bridges came from treating "present" as "use these".
+        std::fs::write(&path, "# only comments\n").unwrap();
+        assert!(read_bridges(&path).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
