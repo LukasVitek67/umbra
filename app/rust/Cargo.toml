@@ -2,7 +2,7 @@
 name = "rust_lib_umbra"
 # The app version the updater compares against GitHub releases. Bumped by
 # tools/release.ps1 together with app/pubspec.yaml.
-version = "1.6.2"
+version = "1.7.0"
 edition = "2021"
 
 [lib]

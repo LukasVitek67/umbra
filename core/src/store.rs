@@ -443,6 +443,11 @@ impl Store {
         if !self.key_opens_existing_data()? {
             return Err(StoreError::Corrupt);
         }
+        // A copy of the file as it was, kept beside it. The conversion is a
+        // transaction and should never leave a half-changed database — but this
+        // rewrites every routing column in someone's whole history, and a
+        // one-off backup is a cheap answer to "what if I am wrong".
+        self.backup_before_conversion();
         self.conn.execute_batch("BEGIN IMMEDIATE")?;
         let converted = (|| -> Result<(), StoreError> {
             for (table, column, len) in [
@@ -471,6 +476,24 @@ impl Store {
                 Err(e)
             }
         }
+    }
+
+    /// Copy the database next to itself before converting it.
+    ///
+    /// Best effort on purpose: an in-memory store has no path, and a full disk
+    /// is not a reason to refuse an upgrade that is transactional anyway. The
+    /// copy keeps the same protection as the original — it *is* the original,
+    /// with its sealed columns.
+    fn backup_before_conversion(&self) {
+        let Some(path) = self.conn.path().map(std::path::PathBuf::from) else { return };
+        if !path.exists() {
+            return; // in-memory
+        }
+        let backup = path.with_extension("db.pre-blind-index.bak");
+        if backup.exists() {
+            return; // a previous attempt already made one; do not overwrite it
+        }
+        let _ = std::fs::copy(&path, &backup);
     }
 
     /// Does our key actually open what is already in this file?
@@ -1870,6 +1893,16 @@ mod tests {
         // The raw values are gone from the file, and a second open is a no-op.
         let raw = std::fs::read(&tmp.0).unwrap();
         assert!(!raw.windows(peer.len()).any(|w| w == peer));
+
+        // The pre-conversion copy is there, so a botched upgrade is survivable.
+        let backup = tmp.0.with_extension("db.pre-blind-index.bak");
+        assert!(backup.exists(), "no backup was taken before converting");
+        let old = std::fs::read(&backup).unwrap();
+        assert!(
+            old.windows(peer.len()).any(|w| w == peer),
+            "the backup should still be the old, unconverted file"
+        );
+        let _ = std::fs::remove_file(&backup);
         let s = Store::open(&tmp.0, &key).unwrap();
         assert_eq!(s.get_contact(&peer).unwrap().unwrap().display_name, "Bob");
     }

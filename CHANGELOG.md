@@ -31,9 +31,12 @@ Umbra is experimental and has not been independently audited.
 
 - **Your existing history is converted automatically** the first time 1.7.0
   opens it — in one transaction, so it either completes or leaves the file
-  untouched. Nothing is lost and nothing needs to be re-added. A conversion is
-  refused outright if the key is wrong, because converting with the wrong key
-  would leave the data in place and permanently unreachable.
+  untouched. Nothing is lost and nothing needs to be re-added. A copy of the
+  database as it was is kept beside it as `umbra.db.pre-blind-index.bak` (still
+  encrypted, exactly as before), so even a conversion that goes wrong in some
+  way nobody anticipated is survivable. A conversion is refused outright if the
+  key is wrong, because converting with the wrong key would leave the data in
+  place and permanently unreachable.
 
 - **What is still readable from a stolen file**, stated plainly rather than
   glossed over: how many distinct people you talk to, how many messages went to

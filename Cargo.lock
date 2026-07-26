@@ -2124,7 +2124,7 @@ dependencies = [
 
 [[package]]
 name = "rust_lib_umbra"
-version = "1.6.2"
+version = "1.7.0"
 dependencies = [
  "base64",
  "flutter_rust_bridge",
