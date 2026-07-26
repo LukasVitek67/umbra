@@ -70,6 +70,22 @@ Opravy nalezené během testování (všechny v kódu):
   `reg.exe` (bez admina, uživatel to umí sám zrušit). Přepínač se řídí reálným
   stavem registru — když zápis selže, skočí zpět a řekne to.
 
+## 🔄 1.5.1 — aktualizace je konečně vidět
+Kliknutí na „Aktualizovat" nedávalo žádnou zpětnou vazbu: stahování přes Tor
+trvá minuty, dialog se zavřel a tlačítko dál nabízelo stažení, takže to vypadalo
+jako rozbité. (U verzí starších než 1.1.1 navíc stahování opravdu selhávalo —
+ptaly se GitHub API, které přes Tor vrací 403.)
+
+- v nabídce je **popis změn** — release script publikuje `NOTES-<verze>.md`
+  jako soubor vydání a updater si ho stáhne stejnou cestou jako archiv
+  (žádné API, tedy žádný limit)
+- během instalace zůstává dialog otevřený a ukazuje **pruh s procenty**
+  (`Content-Length` z odpovědi) a fázi: stahuji → ověřuji podpis → restart
+- chyba se zobrazí červeně přímo v dialogu a tlačítko se změní na
+  „Zkusit znovu" místo tichého opakování
+- banner v README je nakreslený jako SVG v repu (`docs/big-sister.svg`), takže
+  se zobrazí i bez ručně přidaného obrázku
+
 ## 🔎 1.5.0 — hledání, kontakt v detailu, notifikace podle účtu
 - **Hledání v chatech**: jedno pole hledá naráz **lidi, skupiny i jednotlivé
   zprávy**; nalezený text je v ukázce zvýrazněný a kliknutím se otevře rozhovor.

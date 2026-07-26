@@ -595,56 +595,120 @@ class UpdateRailButton extends StatelessWidget {
 
 /// Offer the update (or the restart, once it is installed).
 void showUpdateDialog(BuildContext context) {
-  final offered = appState.updateAvailableVersion;
-  final ready = appState.updateReadyVersion;
   showDialog<void>(
     context: context,
-    builder: (ctx) => AlertDialog(
-      backgroundColor: UmbraColors.surfaceHigh,
-      title: Text(ready != null
-          ? L.t('update.ready').replaceAll('{v}', ready)
-          : offered != null
-              ? L.t('update.dialogTitle').replaceAll('{v}', offered)
-              : L.t('update.upToDate')),
-      content: Text(
-        ready != null
-            ? L.t('update.dialogBody')
-            : offered != null
-                ? L.t('update.dialogBody')
-                : appState.updateStatus.isEmpty
-                    ? L.t('update.checking')
-                    : appState.updateStatus,
-        style: TextStyle(color: UmbraColors.textMuted, fontSize: 13, height: 1.4),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () {
-            if (ready == null && offered != null) appState.postponeUpdate();
-            Navigator.pop(ctx);
-          },
-          child: Text(offered != null || ready != null
-              ? L.t('update.later')
-              : L.t('common.cancel')),
-        ),
-        if (ready != null)
-          FilledButton.icon(
-            onPressed: () {
-              Navigator.pop(ctx);
-              appState.restartForUpdate();
-            },
-            icon: const Icon(Icons.restart_alt, size: 18),
-            label: Text(L.t('update.restart')),
-          )
-        else if (offered != null)
-          FilledButton.icon(
-            onPressed: () {
-              Navigator.pop(ctx);
-              appState.installUpdateNow();
-            },
-            icon: const Icon(Icons.download, size: 18),
-            label: Text(L.t('update.install')),
+    // The dialog stays open through the download: it is where the progress is
+    // shown, and where the restart is offered when the update lands. Closing it
+    // mid-download used to look like nothing had happened.
+    builder: (ctx) => ListenableBuilder(
+      listenable: appState,
+      builder: (ctx, _) {
+        final offered = appState.updateAvailableVersion;
+        final ready = appState.updateReadyVersion;
+        final busy = appState.updateDownloading;
+        final error = appState.updateError;
+        return AlertDialog(
+          backgroundColor: UmbraColors.surfaceHigh,
+          title: Text(ready != null
+              ? L.t('update.ready').replaceAll('{v}', ready)
+              : busy
+                  ? L.t('update.workingTitle')
+                  : offered != null
+                      ? L.t('update.dialogTitle').replaceAll('{v}', offered)
+                      : L.t('update.upToDate')),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (busy) ...[
+                  LinearProgressIndicator(
+                    value: appState.updateProgress,
+                    minHeight: 6,
+                    backgroundColor: UmbraColors.surface,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(appState.updateStatus,
+                      style: TextStyle(color: UmbraColors.textMuted, fontSize: 13)),
+                ] else ...[
+                  Text(
+                    ready != null || offered != null
+                        ? L.t('update.dialogBody')
+                        : appState.updateStatus.isEmpty
+                            ? L.t('update.checking')
+                            : appState.updateStatus,
+                    style: TextStyle(color: UmbraColors.textMuted, fontSize: 13, height: 1.4),
+                  ),
+                  if (offered != null && appState.updateNotes.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Text(L.t('update.whatsNew'),
+                        style: TextStyle(
+                            color: UmbraColors.accent,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 220),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: UmbraColors.surface,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: UmbraColors.border),
+                      ),
+                      child: SingleChildScrollView(
+                        child: Text(appState.updateNotes,
+                            style: TextStyle(
+                                color: UmbraColors.textPrimary, fontSize: 12, height: 1.45)),
+                      ),
+                    ),
+                  ],
+                  if (error != null) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.error_outline, size: 16, color: UmbraColors.danger),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(error,
+                              style: TextStyle(color: UmbraColors.danger, fontSize: 12, height: 1.35)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ],
+            ),
           ),
-      ],
+          actions: [
+            TextButton(
+              onPressed: () {
+                if (ready == null && offered != null && !busy) appState.postponeUpdate();
+                Navigator.pop(ctx);
+              },
+              child: Text(offered != null || ready != null || busy
+                  ? L.t('update.later')
+                  : L.t('common.cancel')),
+            ),
+            if (ready != null)
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  appState.restartForUpdate();
+                },
+                icon: const Icon(Icons.restart_alt, size: 18),
+                label: Text(L.t('update.restart')),
+              )
+            else if (offered != null && !busy)
+              FilledButton.icon(
+                onPressed: appState.installUpdateNow,
+                icon: Icon(error == null ? Icons.download : Icons.refresh, size: 18),
+                label: Text(error == null ? L.t('update.install') : L.t('update.retry')),
+              ),
+          ],
+        );
+      },
     ),
   );
 }

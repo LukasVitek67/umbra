@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <div align="center">
 
-<img src="docs/big-sister.png" alt="BIG SISTER IS WATCHING YOU" width="320">
+<img src="docs/big-sister.gif" alt="BIG SISTER IS WATCHING YOU" width="320">
 
 ### She is always watching. Umbra is what she cannot read.
 

@@ -86,12 +86,25 @@ if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'building the signer failed' }
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'signing failed' }
 Pop-Location
 
+# What changed, published as a plain file so the in-app updater can show it
+# before the user agrees to anything. It reads the newest section of STATUS.md
+# that mentions this version, and falls back to a single honest line.
+$notesPath = Join-Path $dist "NOTES-$Version.md"
+$status = Get-Content (Join-Path $root 'STATUS.md') -Raw
+$section = [regex]::Match($status, "(?ms)^##[^\r\n]*$([regex]::Escape($Version))[^\r\n]*\r?\n(.*?)(?=^## |\z)")
+if ($section.Success) {
+    $notes = ($section.Groups[0].Value).Trim()
+} else {
+    $notes = "Umbra $Version"
+}
+Set-Content -Path $notesPath -Value $notes -Encoding utf8
+
 if ($SkipPublish) {
     Write-Host "done (not published): $zip"
     return
 }
 
 Write-Host "== GitHub release =="
-gh release create "v$Version" $zip "$zip.sig" --title "Umbra $Version" --generate-notes
+gh release create "v$Version" $zip "$zip.sig" $notesPath --title "Umbra $Version" --notes-file $notesPath
 if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
 Write-Host "released: v$Version"

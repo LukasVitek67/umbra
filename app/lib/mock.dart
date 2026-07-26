@@ -182,16 +182,25 @@ class AppState extends ChangeNotifier {
   String updateStatus = '';
   /// A newer version is on GitHub and waiting for the user to say yes.
   String? updateAvailableVersion;
+  /// What changed in it, as published with the release.
+  String updateNotes = '';
   /// True while it is being fetched.
   bool updateDownloading = false;
+  /// 0..1 while downloading, null when the size is unknown.
+  double? updateProgress;
+  /// Why the last attempt failed, if it did.
+  String? updateError;
   /// A newer version is already installed next to the app; a restart uses it.
   String? updateReadyVersion;
 
   /// Fetch, verify and install the version the user was offered.
   void installUpdateNow() {
     try {
+      updateError = null;
       installUpdate();
       updateDownloading = true;
+      updateProgress = null;
+      updateStatus = L.t('update.starting');
       notifyListeners();
     } catch (e) {
       lastError = _clean(e);
@@ -447,15 +456,37 @@ class AppState extends ChangeNotifier {
         // The Rust side does the whole update: check over Tor, verify the
         // signature, unpack next to the app. Here we only tell the user.
         case 'update_available':
-          updateAvailableVersion = ev.data;
-          updateStatus = L.t('update.available').replaceAll('{v}', ev.data);
+          // "version|notes", where the notes are what the release published.
+          final split = ev.data.indexOf('|');
+          updateAvailableVersion = split < 0 ? ev.data : ev.data.substring(0, split);
+          updateNotes = split < 0 ? '' : ev.data.substring(split + 1).trim();
+          updateStatus =
+              L.t('update.available').replaceAll('{v}', updateAvailableVersion ?? '');
           break;
         case 'update_downloading':
           updateDownloading = true;
+          updateProgress = null;
           updateStatus = L.t('update.downloading').replaceAll('{v}', ev.data);
+          break;
+        case 'update_progress':
+          final parts = ev.data.split('|');
+          final got = int.tryParse(parts.first) ?? 0;
+          final total = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
+          updateDownloading = true;
+          updateProgress = total > 0 ? (got / total).clamp(0.0, 1.0) : null;
+          updateStatus = total > 0
+              ? L
+                  .t('update.downloadingPct')
+                  .replaceAll('{pct}', ((got / total) * 100).round().toString())
+              : L.t('update.downloading').replaceAll('{v}', updateAvailableVersion ?? '');
+          break;
+        case 'update_verifying':
+          updateProgress = 1;
+          updateStatus = L.t('update.verifying');
           break;
         case 'update_installed':
           updateDownloading = false;
+          updateProgress = null;
           updateAvailableVersion = null;
           updateReadyVersion = ev.data;
           updateStatus = L.t('update.ready').replaceAll('{v}', ev.data);
@@ -465,6 +496,10 @@ class AppState extends ChangeNotifier {
           break;
         case 'update_error':
           updateDownloading = false;
+          updateProgress = null;
+          // Kept separately from the status line so the dialog can show it in
+          // red instead of the user clicking a button that quietly does nothing.
+          updateError = ev.data;
           updateStatus = L.t('update.failed').replaceAll('{e}', ev.data);
           break;
         case 'error':

@@ -81,14 +81,24 @@ where
     let mut announced = String::new();
     loop {
         match check_once(socks_port).await {
-            Ok(Some(release)) => {
+            Ok(Some(mut release)) => {
                 let version = release.version.clone();
+                // Fetch what changed, so the offer can say what it is for.
+                // Missing notes are not a reason to hide the update.
+                if release.notes.is_empty() {
+                    if let Some(url) = release.notes_url.clone() {
+                        if let Ok(body) = http_get(socks_port, &url).await {
+                            release.notes = String::from_utf8_lossy(&body).trim().to_string();
+                        }
+                    }
+                }
+                let notes = release.notes.clone();
                 *OFFERED.lock().unwrap() = Some(release);
                 // Announce a given version once, so the dialog does not
                 // reappear every five minutes if they said "later".
                 if announced != version {
                     announced = version.clone();
-                    emit("update_available", &version);
+                    emit("update_available", &format!("{version}|{notes}"));
                 }
             }
             Ok(None) => emit("update_uptodate", current_version()),
@@ -124,7 +134,7 @@ pub fn offered_version() -> Option<String> {
 /// agrees.
 pub async fn install_offered<F>(socks_port: u16, install_dir: PathBuf, emit: F) -> UpdateState
 where
-    F: Fn(&str, &str),
+    F: Fn(&str, &str) + Sync,
 {
     let Some(release) = OFFERED.lock().unwrap().clone() else {
         return UpdateState::Failed("není co instalovat".to_string());
@@ -135,8 +145,15 @@ where
     emit("update_downloading", &release.version);
 
     let result = async {
-        let zip = http_get(socks_port, &zip_url).await?;
+        // Report progress: an update is tens of megabytes over Tor, and a
+        // silent minute looks exactly like a broken button.
+        let zip = http_get_with_progress(socks_port, &zip_url, &|got, total| {
+            emit("update_progress", &format!("{got}|{total}"));
+        })
+        .await?;
+        emit("update_progress", &format!("{}|{}", zip.len(), zip.len()));
         let sig_raw = http_get(socks_port, &sig_url).await?;
+        emit("update_verifying", &release.version);
         verify_signature(&zip, &sig_raw)?;
         install(&zip, &install_dir, &release.version)?;
         Ok::<(), String>(())
@@ -161,8 +178,12 @@ where
 pub struct Release {
     /// Version from the tag, without the leading `v`.
     pub version: String,
+    /// What changed, as published with the release. Empty when the release has
+    /// no notes file.
+    pub notes: String,
     zip_url: Option<String>,
     sig_url: Option<String>,
+    notes_url: Option<String>,
 }
 
 /// What the newest release is.
@@ -198,6 +219,10 @@ async fn latest_via_redirect(socks_port: u16) -> Result<Release, String> {
         sig_url: Some(format!(
             "https://github.com/{REPO}/releases/download/{tag}/Umbra-{version}.zip.sig"
         )),
+        notes_url: Some(format!(
+            "https://github.com/{REPO}/releases/download/{tag}/NOTES-{version}.md"
+        )),
+        notes: String::new(),
         version,
     })
 }
@@ -244,7 +269,7 @@ async fn latest_via_api(socks_port: u16) -> Result<Release, String> {
             }
         }
     }
-    Ok(Release { version, zip_url, sig_url })
+    Ok(Release { version, zip_url, sig_url, notes_url: None, notes: String::new() })
 }
 
 /// Compare dotted numeric versions ("1.10.0" > "1.9.9"), ignoring anything
@@ -409,10 +434,20 @@ pub fn clean_leftovers(install_dir: &Path) {
 
 /// GET a URL through Tor, following redirects (GitHub sends assets to a CDN).
 async fn http_get(socks_port: u16, url: &str) -> Result<Vec<u8>, String> {
+    http_get_with_progress(socks_port, url, &|_, _| {}).await
+}
+
+/// The same, reporting `(bytes so far, total)` as the body arrives. `total` is
+/// 0 while the server has not said how big it is.
+async fn http_get_with_progress(
+    socks_port: u16,
+    url: &str,
+    on_progress: &(dyn Fn(u64, u64) + Sync),
+) -> Result<Vec<u8>, String> {
     let mut url = url.to_string();
     for _ in 0..5 {
         let (host, path) = split_url(&url)?;
-        let (status, body, location) = request(socks_port, &host, &path).await?;
+        let (status, body, location) = request_progress(socks_port, &host, &path, on_progress).await?;
         match status {
             200 => return Ok(body),
             301 | 302 | 303 | 307 | 308 => {
@@ -449,12 +484,21 @@ async fn request(
     host: &str,
     path: &str,
 ) -> Result<(u16, Vec<u8>, Option<String>), String> {
-    let first = request_on_circuit(socks_port, host, path, "").await;
+    request_progress(socks_port, host, path, &|_, _| {}).await
+}
+
+async fn request_progress(
+    socks_port: u16,
+    host: &str,
+    path: &str,
+    on_progress: &(dyn Fn(u64, u64) + Sync),
+) -> Result<(u16, Vec<u8>, Option<String>), String> {
+    let first = request_on_circuit(socks_port, host, path, "", on_progress).await;
     match &first {
         Ok((403, _, _)) | Ok((429, _, _)) | Err(_) => {
             // A label Tor has not seen before means a fresh exit.
             let tag = format!("umbra-{}", now_tag());
-            match request_on_circuit(socks_port, host, path, &tag).await {
+            match request_on_circuit(socks_port, host, path, &tag, on_progress).await {
                 Ok(second) => Ok(second),
                 Err(_) => first,
             }
@@ -476,6 +520,7 @@ async fn request_on_circuit(
     host: &str,
     path: &str,
     isolation: &str,
+    on_progress: &(dyn Fn(u64, u64) + Sync),
 ) -> Result<(u16, Vec<u8>, Option<String>), String> {
     // rustls needs a crypto provider chosen once per process.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -507,6 +552,11 @@ async fn request_on_circuit(
 
     let mut raw = Vec::new();
     let mut buf = [0u8; 16 * 1024];
+    // Learned from the headers as soon as they arrive, so progress can be a
+    // percentage rather than a growing number.
+    let mut total: u64 = 0;
+    let mut header_end: Option<usize> = None;
+    let mut last_report = 0u64;
     loop {
         let n = tls.read(&mut buf).await.map_err(|e| format!("čtení selhalo: {e}"))?;
         if n == 0 {
@@ -516,8 +566,33 @@ async fn request_on_circuit(
         if raw.len() > MAX_DOWNLOAD {
             return Err("odpověď je nesmyslně velká".to_string());
         }
+        if header_end.is_none() {
+            if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                header_end = Some(pos + 4);
+                total = content_length(&raw[..pos]).unwrap_or(0);
+            }
+        }
+        if let Some(start) = header_end {
+            let got = (raw.len() - start) as u64;
+            // Report every 256 KiB: often enough to look alive, rarely enough
+            // not to flood the UI.
+            if got >= last_report + 256 * 1024 {
+                last_report = got;
+                on_progress(got, total);
+            }
+        }
     }
     parse_response(&raw)
+}
+
+fn content_length(head: &[u8]) -> Option<u64> {
+    for line in String::from_utf8_lossy(head).lines() {
+        let (k, v) = line.split_once(':')?;
+        if k.trim().eq_ignore_ascii_case("content-length") {
+            return v.trim().parse().ok();
+        }
+    }
+    None
 }
 
 /// Split an HTTP/1.1 response into status, body and `Location`, decoding
