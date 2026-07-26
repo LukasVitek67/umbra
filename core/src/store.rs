@@ -8,11 +8,33 @@
 //! isn't available, so instead we use a plain bundled SQLite and encrypt the
 //! **values** ourselves with XChaCha20-Poly1305 under a 32-byte data key.
 //!
-//! Consequence, stated plainly (see `docs/THREAT_MODEL.md`): message *bodies*,
-//! contact names, onion addresses and all secrets are ciphertext at rest, but
-//! **routing columns are plaintext** — a disk image reveals which contact keys
-//! exist, how many messages, and their timestamps. Closing that needs whole-DB
-//! encryption, tracked as future hardening.
+//! Message *bodies*, contact names, onion addresses and all secrets are
+//! ciphertext at rest.
+//!
+//! # Routing columns: blind index
+//!
+//! Columns SQL has to match and sort on cannot be sealed — a query cannot look
+//! inside ciphertext. They used to hold the raw values, which meant a stolen
+//! file handed over the whole social graph without the passphrase: every
+//! contact's identity key, who is in which group, who wrote what.
+//!
+//! They now hold a **blind index**: `HMAC-SHA256(key derived from the data key,
+//! value)`. Lookups still work, because a lookup is always *by a value we
+//! already hold* — we compute the same index and match on it. The real value
+//! lives once, sealed, in [`blind_index`](SCHEMA), and is only recovered when
+//! something needs to be shown.
+//!
+//! What this does and does not buy, stated plainly:
+//!
+//! * Without the passphrase, the identity keys are unrecoverable — the index is
+//!   a MAC, not an encoding, and the key is per-account. Two seized devices
+//!   cannot be shown to share a contact or a group either, because their index
+//!   keys differ.
+//! * Inside one file, rows for the same person still carry the same index, so a
+//!   thief learns *how many* distinct parties there are and how often each was
+//!   active. Timestamps, direction and delivery state stay plaintext because
+//!   ordering needs them. Whole-file encryption (SQLCipher) is still the better
+//!   answer where its build toolchain is available.
 //!
 //! The data key itself is expected to be a random key sealed under the user
 //! passphrase via [`crate::crypto::keystore`]; this module just consumes the
@@ -22,11 +44,22 @@ use crate::error::StoreError;
 use crate::group::{Group, GroupMember};
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
+use hmac::{Hmac, Mac};
 use rusqlite::{params, Connection, OptionalExtension};
+use sha2::Sha256;
 use std::path::Path;
 use zeroize::Zeroizing;
 
 const NONCE_LEN: usize = 24;
+
+/// Marks a database whose routing columns have been converted to blind indexes.
+/// Both a raw key and its index are 32 bytes, so nothing in the data itself
+/// tells the two apart — this note is what makes the migration run exactly once.
+const BLIND_INDEX_MARK: &str = "schema.blind_index.v1";
+
+/// Domain separator, so the index key cannot coincide with any other use of
+/// the data key.
+const INDEX_KEY_INFO: &[u8] = b"umbra blind index v1";
 
 const SCHEMA: &str = "
 PRAGMA secure_delete = ON;
@@ -34,8 +67,14 @@ CREATE TABLE IF NOT EXISTS secrets (
     name  TEXT PRIMARY KEY,
     value BLOB NOT NULL
 );
+-- Resolves a blind index back to the value it stands for. This is the only
+-- place a contact key or a group id exists in readable form, and it is sealed.
+CREATE TABLE IF NOT EXISTS blind_index (
+    bi     BLOB PRIMARY KEY,            -- HMAC-SHA256(index key, value)
+    sealed BLOB NOT NULL                -- sealed: the value itself
+);
 CREATE TABLE IF NOT EXISTS contacts (
-    identity_pubkey BLOB PRIMARY KEY,   -- 32 bytes, plaintext (lookup key)
+    identity_pubkey BLOB PRIMARY KEY,   -- blind index of the identity key
     display_name    BLOB NOT NULL,      -- sealed
     onion_addr      BLOB NOT NULL,      -- sealed
     added_at        INTEGER NOT NULL,
@@ -44,7 +83,7 @@ CREATE TABLE IF NOT EXISTS contacts (
 );
 CREATE TABLE IF NOT EXISTS messages (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    contact_pubkey BLOB NOT NULL,       -- 32 bytes, plaintext (query/order)
+    contact_pubkey BLOB NOT NULL,       -- blind index (query/order)
     direction      INTEGER NOT NULL,    -- 0 = incoming, 1 = outgoing
     sent_at        INTEGER NOT NULL,    -- plaintext (ordering)
     body           BLOB NOT NULL,       -- sealed
@@ -55,9 +94,9 @@ CREATE TABLE IF NOT EXISTS messages (
 -- opposite of the promise that it goes out once they are back.
 CREATE TABLE IF NOT EXISTS outbox (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    peer_pubkey BLOB NOT NULL,          -- 32 bytes, plaintext (routing)
+    peer_pubkey BLOB NOT NULL,          -- blind index (routing)
     message_id INTEGER NOT NULL,        -- row in messages / group_messages
-    group_id   BLOB,                    -- 16 bytes for a group message, else NULL
+    group_id   BLOB,                    -- blind index of a group id, else NULL
     payload    BLOB NOT NULL,           -- sealed: the exact frame to send
     body       BLOB NOT NULL,           -- sealed: the text, for matching receipts
     created_at INTEGER NOT NULL
@@ -66,22 +105,22 @@ CREATE INDEX IF NOT EXISTS idx_outbox_peer ON outbox(peer_pubkey, id);
 CREATE INDEX IF NOT EXISTS idx_messages_contact
     ON messages(contact_pubkey, sent_at);
 CREATE TABLE IF NOT EXISTS groups (
-    group_id   BLOB PRIMARY KEY,        -- 16 bytes, plaintext (lookup key)
+    group_id   BLOB PRIMARY KEY,        -- blind index of the group id
     name       BLOB NOT NULL,           -- sealed
     version    INTEGER NOT NULL,        -- roster version (plaintext, ordering)
     created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS group_members (
-    group_id      BLOB NOT NULL,        -- 16 bytes, plaintext
-    member_pubkey BLOB NOT NULL,        -- 32 bytes, plaintext (routing)
+    group_id      BLOB NOT NULL,        -- blind index
+    member_pubkey BLOB NOT NULL,        -- blind index (who is in the group)
     display_name  BLOB NOT NULL,        -- sealed
     onion_addr    BLOB NOT NULL,        -- sealed
     PRIMARY KEY (group_id, member_pubkey)
 );
 CREATE TABLE IF NOT EXISTS group_messages (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    group_id      BLOB NOT NULL,        -- 16 bytes, plaintext (query/order)
-    sender_pubkey BLOB NOT NULL,        -- 32 bytes, plaintext (who wrote it)
+    group_id      BLOB NOT NULL,        -- blind index (query/order)
+    sender_pubkey BLOB NOT NULL,        -- blind index (who wrote it)
     direction     INTEGER NOT NULL,     -- 0 = incoming, 1 = outgoing
     sent_at       INTEGER NOT NULL,     -- plaintext (ordering)
     body          BLOB NOT NULL         -- sealed
@@ -292,6 +331,8 @@ pub struct Message {
 pub struct Store {
     conn: Connection,
     key: Zeroizing<[u8; 32]>,
+    /// Derived from `key`; keys the blind index over the routing columns.
+    index_key: Zeroizing<[u8; 32]>,
 }
 
 impl From<rusqlite::Error> for StoreError {
@@ -316,7 +357,166 @@ impl Store {
     fn init(conn: Connection, data_key: &[u8; 32]) -> Result<Self, StoreError> {
         conn.execute_batch(SCHEMA)?;
         Self::migrate(&conn)?;
-        Ok(Self { conn, key: Zeroizing::new(*data_key) })
+        let store = Self {
+            conn,
+            key: Zeroizing::new(*data_key),
+            index_key: Zeroizing::new(derive_index_key(data_key)),
+        };
+        // Needs the key, so it cannot live in `migrate` with the schema changes.
+        store.migrate_blind_index()?;
+        Ok(store)
+    }
+
+    // --- blind index over the routing columns ---
+
+    /// The index a value is stored under. Deterministic, so lookups match.
+    fn bi(&self, value: &[u8]) -> Vec<u8> {
+        // Fully qualified: the AEAD in scope has a `new_from_slice` of its own.
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&*self.index_key)
+            .expect("HMAC accepts a key of any length");
+        mac.update(value);
+        mac.finalize().into_bytes().to_vec()
+    }
+
+    /// The index, *and* a note of what it stands for so it can be read back.
+    ///
+    /// Called on every write path. Writing the mapping is idempotent: the same
+    /// value always lands on the same index.
+    fn indexed(&self, value: &[u8]) -> Result<Vec<u8>, StoreError> {
+        let bi = self.bi(value);
+        let exists: Option<i64> = self
+            .conn
+            .query_row("SELECT 1 FROM blind_index WHERE bi = ?1", params![bi], |r| r.get(0))
+            .optional()?;
+        if exists.is_none() {
+            let sealed = self.seal(value)?;
+            self.conn.execute(
+                "INSERT INTO blind_index(bi, sealed) VALUES(?1, ?2)
+                 ON CONFLICT(bi) DO NOTHING",
+                params![bi, sealed],
+            )?;
+        }
+        Ok(bi)
+    }
+
+    /// Recover what an index stands for.
+    fn value_of(&self, bi: &[u8]) -> Result<Zeroizing<Vec<u8>>, StoreError> {
+        let blob: Option<Vec<u8>> = self
+            .conn
+            .query_row("SELECT sealed FROM blind_index WHERE bi = ?1", params![bi], |r| r.get(0))
+            .optional()?;
+        // A routing column pointing at nothing means the file was edited or
+        // truncated outside Umbra; refusing to guess is the only safe answer.
+        self.unseal(&blob.ok_or(StoreError::Corrupt)?)
+    }
+
+    fn key32_of(&self, bi: &[u8]) -> Result<[u8; 32], StoreError> {
+        to_key32(&self.value_of(bi)?)
+    }
+
+    fn id16_of(&self, bi: &[u8]) -> Result<[u8; 16], StoreError> {
+        self.value_of(bi)?.as_slice().try_into().map_err(|_| StoreError::Corrupt)
+    }
+
+    /// Convert a database written before the blind index existed.
+    ///
+    /// Runs once, inside a transaction: either every routing column is an index
+    /// afterwards or the file is untouched. Nothing is lost — the raw values
+    /// move into `blind_index`, sealed.
+    fn migrate_blind_index(&self) -> Result<(), StoreError> {
+        // Checked *without* decrypting: opening with the wrong key must fail the
+        // way it always did — when something is read — not here.
+        let marked: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM secrets WHERE name = ?1",
+                params![BLIND_INDEX_MARK],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if marked.is_some() {
+            return Ok(());
+        }
+        // Converting with the wrong key would compute indexes nobody can ever
+        // match again — the data would still be there and permanently
+        // unreachable. So before touching anything, prove the key is right.
+        if !self.key_opens_existing_data()? {
+            return Err(StoreError::Corrupt);
+        }
+        self.conn.execute_batch("BEGIN IMMEDIATE")?;
+        let converted = (|| -> Result<(), StoreError> {
+            for (table, column, len) in [
+                ("contacts", "identity_pubkey", 32usize),
+                ("messages", "contact_pubkey", 32),
+                ("outbox", "peer_pubkey", 32),
+                ("outbox", "group_id", 16),
+                ("groups", "group_id", 16),
+                ("group_members", "group_id", 16),
+                ("group_members", "member_pubkey", 32),
+                ("group_messages", "group_id", 16),
+                ("group_messages", "sender_pubkey", 32),
+            ] {
+                self.reindex_column(table, column, len)?;
+            }
+            Ok(())
+        })();
+        match converted {
+            Ok(()) => {
+                self.conn.execute_batch("COMMIT")?;
+                self.put_secret(BLIND_INDEX_MARK, b"1")?;
+                Ok(())
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
+    }
+
+    /// Does our key actually open what is already in this file?
+    ///
+    /// `true` also when there is nothing sealed yet — a database with no data
+    /// cannot be damaged by converting it.
+    fn key_opens_existing_data(&self) -> Result<bool, StoreError> {
+        for (table, column) in [
+            ("secrets", "value"),
+            ("contacts", "display_name"),
+            ("messages", "body"),
+            ("groups", "name"),
+        ] {
+            let sealed: Option<Vec<u8>> = self
+                .conn
+                .query_row(&format!("SELECT {column} FROM {table} LIMIT 1"), [], |r| r.get(0))
+                .optional()?;
+            let Some(sealed) = sealed else { continue };
+            return Ok(self.unseal(&sealed).is_ok());
+        }
+        Ok(true)
+    }
+
+    /// Replace every raw value in one column with its blind index.
+    fn reindex_column(&self, table: &str, column: &str, len: usize) -> Result<(), StoreError> {
+        let values: Vec<Vec<u8>> = {
+            let mut stmt = self.conn.prepare(&format!(
+                "SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL"
+            ))?;
+            let rows = stmt.query_map([], |r| r.get::<_, Vec<u8>>(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        for value in values {
+            // A 16-byte group id becomes a 32-byte index, so a second run finds
+            // nothing left to do. Identity keys are 32 bytes either way, which
+            // is what BLIND_INDEX_MARK is for.
+            if value.len() != len {
+                continue;
+            }
+            let bi = self.indexed(&value)?;
+            self.conn.execute(
+                &format!("UPDATE {table} SET {column} = ?2 WHERE {column} = ?1"),
+                params![value, bi],
+            )?;
+        }
+        Ok(())
     }
 
     /// Bring an older database up to the current shape. `CREATE TABLE IF NOT
@@ -412,6 +612,7 @@ impl Store {
     pub fn upsert_contact(&self, c: &Contact) -> Result<(), StoreError> {
         let name = self.seal(c.display_name.as_bytes())?;
         let onion = self.seal(c.onion_addr.as_bytes())?;
+        let bi = self.indexed(&c.identity_pubkey)?;
         self.conn.execute(
             "INSERT INTO contacts(identity_pubkey, display_name, onion_addr, added_at, status, saved)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6)
@@ -419,7 +620,7 @@ impl Store {
                  display_name = excluded.display_name,
                  onion_addr   = excluded.onion_addr",
             params![
-                c.identity_pubkey.as_slice(),
+                bi,
                 name,
                 onion,
                 c.added_at as i64,
@@ -437,7 +638,7 @@ impl Store {
             .query_row(
                 "SELECT display_name, onion_addr, added_at, status, saved
                  FROM contacts WHERE identity_pubkey = ?1",
-                params![identity_pubkey.as_slice()],
+                params![self.bi(identity_pubkey)],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
             )
             .optional()?;
@@ -474,7 +675,7 @@ impl Store {
         for row in rows {
             let (pk, name_ct, onion_ct, added, status, saved) = row?;
             out.push(Contact {
-                identity_pubkey: to_key32(&pk)?,
+                identity_pubkey: self.key32_of(&pk)?,
                 display_name: self.decrypt_string(&name_ct)?,
                 onion_addr: self.decrypt_string(&onion_ct)?,
                 added_at: added as u64,
@@ -490,7 +691,7 @@ impl Store {
         let sealed = self.seal(name.trim().as_bytes())?;
         self.conn.execute(
             "UPDATE contacts SET display_name = ?2 WHERE identity_pubkey = ?1",
-            params![identity_pubkey.as_slice(), sealed],
+            params![self.bi(identity_pubkey), sealed],
         )?;
         Ok(())
     }
@@ -503,7 +704,7 @@ impl Store {
     ) -> Result<(), StoreError> {
         self.conn.execute(
             "UPDATE contacts SET status = ?2 WHERE identity_pubkey = ?1",
-            params![identity_pubkey.as_slice(), status.to_i64()],
+            params![self.bi(identity_pubkey), status.to_i64()],
         )?;
         Ok(())
     }
@@ -516,7 +717,7 @@ impl Store {
     ) -> Result<(), StoreError> {
         self.conn.execute(
             "UPDATE contacts SET saved = ?2 WHERE identity_pubkey = ?1",
-            params![identity_pubkey.as_slice(), saved as i64],
+            params![self.bi(identity_pubkey), saved as i64],
         )?;
         Ok(())
     }
@@ -528,7 +729,7 @@ impl Store {
             .conn
             .query_row(
                 "SELECT status FROM contacts WHERE identity_pubkey = ?1",
-                params![identity_pubkey.as_slice()],
+                params![self.bi(identity_pubkey)],
                 |r| r.get(0),
             )
             .optional()?;
@@ -540,10 +741,11 @@ impl Store {
     /// Append a message, returning its row id.
     pub fn insert_message(&self, m: &NewMessage) -> Result<i64, StoreError> {
         let body = self.seal(m.body)?;
+        let bi = self.indexed(&m.contact_pubkey)?;
         self.conn.execute(
             "INSERT INTO messages(contact_pubkey, direction, sent_at, body)
              VALUES(?1, ?2, ?3, ?4)",
-            params![m.contact_pubkey.as_slice(), m.direction.to_i64(), m.sent_at as i64, body],
+            params![bi, m.direction.to_i64(), m.sent_at as i64, body],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
@@ -558,7 +760,7 @@ impl Store {
             "SELECT id, direction, sent_at, body, state FROM messages
              WHERE contact_pubkey = ?1 ORDER BY sent_at ASC, id ASC LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![contact_pubkey.as_slice(), limit], |r| {
+        let rows = stmt.query_map(params![self.bi(contact_pubkey), limit], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, i64>(1)?,
@@ -605,13 +807,18 @@ impl Store {
     ) -> Result<i64, StoreError> {
         let payload_ct = self.seal(payload)?;
         let body_ct = self.seal(body)?;
+        let peer_bi = self.indexed(peer_pubkey)?;
+        let group_bi = match group_id {
+            Some(g) => Some(self.indexed(&g)?),
+            None => None,
+        };
         self.conn.execute(
             "INSERT INTO outbox(peer_pubkey, message_id, group_id, payload, body, created_at)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
             params![
-                peer_pubkey.as_slice(),
+                peer_bi,
                 message_id,
-                group_id.map(|g| g.to_vec()),
+                group_bi,
                 payload_ct,
                 body_ct,
                 created_at as i64
@@ -626,7 +833,7 @@ impl Store {
             "SELECT id, message_id, group_id, payload, body, created_at FROM outbox
              WHERE peer_pubkey = ?1 ORDER BY id ASC",
         )?;
-        let rows = stmt.query_map(params![peer_pubkey.as_slice()], |r| {
+        let rows = stmt.query_map(params![self.bi(peer_pubkey)], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, i64>(1)?,
@@ -644,7 +851,7 @@ impl Store {
                 peer_pubkey: *peer_pubkey,
                 message_id,
                 group_id: match group {
-                    Some(g) => Some(g.as_slice().try_into().map_err(|_| StoreError::Corrupt)?),
+                    Some(g) => Some(self.id16_of(&g)?),
                     None => None,
                 },
                 payload: self.unseal(&payload_ct)?.to_vec(),
@@ -664,7 +871,7 @@ impl Store {
         let mut out = Vec::new();
         for row in rows {
             let (pk, n) = row?;
-            out.push((to_key32(&pk)?, n as u32));
+            out.push((self.key32_of(&pk)?, n as u32));
         }
         Ok(out)
     }
@@ -691,7 +898,7 @@ impl Store {
              WHERE contact_pubkey = ?1 AND direction = 1 AND state < 2
              ORDER BY id ASC LIMIT 500",
         )?;
-        let rows = stmt.query_map(params![contact_pubkey.as_slice()], |r| {
+        let rows = stmt.query_map(params![self.bi(contact_pubkey)], |r| {
             Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?))
         })?;
         for row in rows {
@@ -740,7 +947,7 @@ impl Store {
             if text.to_lowercase().contains(&needle) {
                 hits.push(SearchHit {
                     id,
-                    peer_pubkey: to_key32(&peer)?,
+                    peer_pubkey: self.key32_of(&peer)?,
                     group_id: None,
                     outgoing: Direction::from_i64(dir)? == Direction::Outgoing,
                     sent_at: sent_at as u64,
@@ -773,8 +980,8 @@ impl Store {
             if text.to_lowercase().contains(&needle) {
                 hits.push(SearchHit {
                     id,
-                    peer_pubkey: to_key32(&sender)?,
-                    group_id: Some(gid.as_slice().try_into().map_err(|_| StoreError::Corrupt)?),
+                    peer_pubkey: self.key32_of(&sender)?,
+                    group_id: Some(self.id16_of(&gid)?),
                     outgoing: Direction::from_i64(dir)? == Direction::Outgoing,
                     sent_at: sent_at as u64,
                     body: text,
@@ -802,7 +1009,8 @@ impl Store {
              WHERE contact_pubkey = ?1 AND direction = 0
              ORDER BY sent_at DESC, id DESC LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![sender.as_slice(), limit], |r| {
+        let sender_bi = self.bi(sender);
+        let rows = stmt.query_map(params![sender_bi, limit], |r| {
             Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, Vec<u8>>(2)?))
         })?;
         for row in rows {
@@ -822,7 +1030,7 @@ impl Store {
              WHERE sender_pubkey = ?1 AND direction = 0
              ORDER BY sent_at DESC, id DESC LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![sender.as_slice(), limit], |r| {
+        let rows = stmt.query_map(params![sender_bi, limit], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, Vec<u8>>(1)?,
@@ -835,7 +1043,7 @@ impl Store {
             hits.push(SearchHit {
                 id,
                 peer_pubkey: *sender,
-                group_id: Some(gid.as_slice().try_into().map_err(|_| StoreError::Corrupt)?),
+                group_id: Some(self.id16_of(&gid)?),
                 outgoing: false,
                 sent_at: sent_at as u64,
                 body: String::from_utf8_lossy(&self.unseal(&body_ct)?).to_string(),
@@ -853,9 +1061,10 @@ impl Store {
             .conn
             .prepare("SELECT DISTINCT contact_pubkey FROM messages")?;
         let rows = stmt.query_map([], |r| r.get::<_, Vec<u8>>(0))?;
+        let indexes: Vec<Vec<u8>> = rows.collect::<Result<_, _>>()?;
         let mut out = Vec::new();
-        for row in rows {
-            out.push(to_key32(&row?)?);
+        for bi in indexes {
+            out.push(self.key32_of(&bi)?);
         }
         Ok(out)
     }
@@ -898,23 +1107,25 @@ impl Store {
     /// [`crate::group::Group::merge`]), never patched member by member.
     pub fn upsert_group(&self, g: &Group) -> Result<(), StoreError> {
         let name = self.seal(g.name.as_bytes())?;
+        let group_bi = self.indexed(&g.id)?;
         self.conn.execute(
             "INSERT INTO groups(group_id, name, version, created_at)
              VALUES(?1, ?2, ?3, ?4)
              ON CONFLICT(group_id) DO UPDATE SET
                  name    = excluded.name,
                  version = excluded.version",
-            params![g.id.as_slice(), name, g.version as i64, g.created_at as i64],
+            params![group_bi, name, g.version as i64, g.created_at as i64],
         )?;
         self.conn
-            .execute("DELETE FROM group_members WHERE group_id = ?1", params![g.id.as_slice()])?;
+            .execute("DELETE FROM group_members WHERE group_id = ?1", params![group_bi])?;
         for m in &g.members {
             let member_name = self.seal(m.display_name.as_bytes())?;
             let onion = self.seal(m.onion.as_bytes())?;
+            let member_bi = self.indexed(&m.identity)?;
             self.conn.execute(
                 "INSERT INTO group_members(group_id, member_pubkey, display_name, onion_addr)
                  VALUES(?1, ?2, ?3, ?4)",
-                params![g.id.as_slice(), m.identity.as_slice(), member_name, onion],
+                params![group_bi, member_bi, member_name, onion],
             )?;
         }
         Ok(())
@@ -926,7 +1137,7 @@ impl Store {
             .conn
             .query_row(
                 "SELECT name, version, created_at FROM groups WHERE group_id = ?1",
-                params![group_id.as_slice()],
+                params![self.bi(group_id)],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .optional()?;
@@ -946,18 +1157,18 @@ impl Store {
             "SELECT member_pubkey, display_name, onion_addr FROM group_members
              WHERE group_id = ?1 ORDER BY rowid ASC",
         )?;
-        let rows = stmt.query_map(params![group_id.as_slice()], |r| {
+        let rows = stmt.query_map(params![self.bi(group_id)], |r| {
             Ok((
                 r.get::<_, Vec<u8>>(0)?,
                 r.get::<_, Vec<u8>>(1)?,
                 r.get::<_, Vec<u8>>(2)?,
             ))
         })?;
+        let members: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = rows.collect::<Result<_, _>>()?;
         let mut out = Vec::new();
-        for row in rows {
-            let (pk, name_ct, onion_ct) = row?;
+        for (pk, name_ct, onion_ct) in members {
             out.push(GroupMember {
-                identity: to_key32(&pk)?,
+                identity: self.key32_of(&pk)?,
                 display_name: self.decrypt_string(&name_ct)?,
                 onion: self.decrypt_string(&onion_ct)?,
             });
@@ -976,7 +1187,7 @@ impl Store {
         };
         let mut out = Vec::with_capacity(ids.len());
         for id in ids {
-            let gid: [u8; 16] = id.as_slice().try_into().map_err(|_| StoreError::Corrupt)?;
+            let gid = self.id16_of(&id)?;
             if let Some(g) = self.get_group(&gid)? {
                 out.push(g);
             }
@@ -986,24 +1197,29 @@ impl Store {
 
     /// Forget a group: its roster and its whole history.
     pub fn delete_group(&self, group_id: &[u8; 16]) -> Result<(), StoreError> {
+        let bi = self.bi(group_id);
         self.conn
-            .execute("DELETE FROM group_messages WHERE group_id = ?1", params![group_id.as_slice()])?;
+            .execute("DELETE FROM group_messages WHERE group_id = ?1", params![bi])?;
         self.conn
-            .execute("DELETE FROM group_members WHERE group_id = ?1", params![group_id.as_slice()])?;
+            .execute("DELETE FROM group_members WHERE group_id = ?1", params![bi])?;
         self.conn
-            .execute("DELETE FROM groups WHERE group_id = ?1", params![group_id.as_slice()])?;
+            .execute("DELETE FROM groups WHERE group_id = ?1", params![bi])?;
+        // The mapping stays: outbox rows and old messages may still point at it,
+        // and it is sealed anyway.
         Ok(())
     }
 
     /// Append a group message, returning its row id.
     pub fn insert_group_message(&self, m: &NewGroupMessage) -> Result<i64, StoreError> {
         let body = self.seal(m.body)?;
+        let group_bi = self.indexed(&m.group_id)?;
+        let sender_bi = self.indexed(&m.sender_pubkey)?;
         self.conn.execute(
             "INSERT INTO group_messages(group_id, sender_pubkey, direction, sent_at, body)
              VALUES(?1, ?2, ?3, ?4, ?5)",
             params![
-                m.group_id.as_slice(),
-                m.sender_pubkey.as_slice(),
+                group_bi,
+                sender_bi,
                 m.direction.to_i64(),
                 m.sent_at as i64,
                 body
@@ -1022,7 +1238,7 @@ impl Store {
             "SELECT id, sender_pubkey, direction, sent_at, body FROM group_messages
              WHERE group_id = ?1 ORDER BY sent_at ASC, id ASC LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![group_id.as_slice(), limit], |r| {
+        let rows = stmt.query_map(params![self.bi(group_id), limit], |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 r.get::<_, Vec<u8>>(1)?,
@@ -1031,13 +1247,13 @@ impl Store {
                 r.get::<_, Vec<u8>>(4)?,
             ))
         })?;
+        let found: Vec<(i64, Vec<u8>, i64, i64, Vec<u8>)> = rows.collect::<Result<_, _>>()?;
         let mut out = Vec::new();
-        for row in rows {
-            let (id, sender, dir, sent_at, body_ct) = row?;
+        for (id, sender, dir, sent_at, body_ct) in found {
             out.push(GroupMessage {
                 id,
                 group_id: *group_id,
-                sender_pubkey: to_key32(&sender)?,
+                sender_pubkey: self.key32_of(&sender)?,
                 direction: Direction::from_i64(dir)?,
                 sent_at: sent_at as u64,
                 body: self.unseal(&body_ct)?.to_vec(),
@@ -1054,6 +1270,15 @@ impl Store {
 
 fn to_key32(bytes: &[u8]) -> Result<[u8; 32], StoreError> {
     bytes.try_into().map_err(|_| StoreError::Corrupt)
+}
+
+/// Separate key for the blind index, so that indexing a value can never reveal
+/// anything about the key that seals the values themselves.
+fn derive_index_key(data_key: &[u8; 32]) -> [u8; 32] {
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(data_key)
+        .expect("HMAC accepts a key of any length");
+    mac.update(INDEX_KEY_INFO);
+    mac.finalize().into_bytes().into()
 }
 
 #[cfg(test)]
@@ -1515,9 +1740,165 @@ mod tests {
             let s = Store::open(&tmp.0, &[5u8; 32]).unwrap();
             s.upsert_contact(&sample_contact()).unwrap();
         }
-        // Reopen with a different data key: the row exists but won't decrypt.
+        // Reopen with a different data key. Reading everything fails, because
+        // the sealed values do not open.
         let s = Store::open(&tmp.0, &[6u8; 32]).unwrap();
         assert_eq!(s.list_contacts(), Err(StoreError::Corrupt));
-        assert_eq!(s.get_contact(&[7u8; 32]), Err(StoreError::Corrupt));
+        // Asking about one specific person now answers "nobody like that here"
+        // rather than "yes, but you cannot read it": the routing column holds a
+        // blind index, and the wrong key computes a different one. Whoever takes
+        // the file cannot even confirm a guess about who is in it.
+        assert_eq!(s.get_contact(&[7u8; 32]), Ok(None));
+        assert!(!s.is_blocked(&[7u8; 32]).unwrap());
+    }
+
+    #[test]
+    fn routing_columns_hold_no_identity_key() {
+        let tmp = TempDb::new();
+        let key = [9u8; 32];
+        let peer = [0xABu8; 32];
+        let gid = [0xCDu8; 16];
+        {
+            let s = Store::open(&tmp.0, &key).unwrap();
+            s.upsert_contact(&Contact {
+                identity_pubkey: peer,
+                display_name: "Alice".into(),
+                onion_addr: "abc.onion".into(),
+                added_at: 1,
+                status: ContactStatus::Accepted,
+                saved: true,
+            })
+            .unwrap();
+            s.insert_message(&NewMessage {
+                contact_pubkey: peer,
+                direction: Direction::Outgoing,
+                sent_at: 2,
+                body: b"ahoj",
+            })
+            .unwrap();
+            s.upsert_group(&Group {
+                id: gid,
+                name: "Parta".into(),
+                version: 1,
+                created_at: 3,
+                members: vec![GroupMember {
+                    identity: peer,
+                    display_name: "Alice".into(),
+                    onion: "abc.onion".into(),
+                }],
+            })
+            .unwrap();
+            s.queue_outgoing(&peer, 1, Some(gid), b"frame", b"ahoj", 4).unwrap();
+        }
+
+        // The file on disk must not contain the identity key or the group id
+        // anywhere — not in a routing column, not in an index.
+        let raw = std::fs::read(&tmp.0).unwrap();
+        assert!(
+            !raw.windows(peer.len()).any(|w| w == peer),
+            "the identity key is still somewhere in the database file"
+        );
+        assert!(
+            !raw.windows(gid.len()).any(|w| w == gid),
+            "the group id is still somewhere in the database file"
+        );
+
+        // And with the right key everything still reads back.
+        let s = Store::open(&tmp.0, &key).unwrap();
+        assert_eq!(s.list_contacts().unwrap()[0].identity_pubkey, peer);
+        assert_eq!(s.messages_for(&peer, 10).unwrap().len(), 1);
+        assert_eq!(s.group_members(&gid).unwrap()[0].identity, peer);
+        assert_eq!(s.outbox_summary().unwrap(), vec![(peer, 1)]);
+        assert_eq!(s.outbox_for(&peer).unwrap()[0].group_id, Some(gid));
+        assert_eq!(s.message_peers().unwrap(), vec![peer]);
+    }
+
+    /// A database written by an older Umbra opens, converts itself, and keeps
+    /// every row reachable by the same lookups as before.
+    #[test]
+    fn an_old_database_is_converted_on_open() {
+        let tmp = TempDb::new();
+        let key = [3u8; 32];
+        let peer = [0x11u8; 32];
+        let gid = [0x22u8; 16];
+        {
+            // Write the pre-blind-index shape by hand: raw values in the
+            // routing columns, no marker.
+            let conn = rusqlite::Connection::open(&tmp.0).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            let helper = Store {
+                conn: rusqlite::Connection::open(&tmp.0).unwrap(),
+                key: Zeroizing::new(key),
+                index_key: Zeroizing::new(derive_index_key(&key)),
+            };
+            let name = helper.seal(b"Bob").unwrap();
+            let onion = helper.seal(b"xyz.onion").unwrap();
+            let body = helper.seal(b"stara zprava").unwrap();
+            let gname = helper.seal(b"Stara parta").unwrap();
+            conn.execute(
+                "INSERT INTO contacts(identity_pubkey, display_name, onion_addr, added_at, status, saved)
+                 VALUES(?1, ?2, ?3, 1, 1, 1)",
+                params![peer.as_slice(), name, onion],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO messages(contact_pubkey, direction, sent_at, body)
+                 VALUES(?1, 0, 5, ?2)",
+                params![peer.as_slice(), body],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO groups(group_id, name, version, created_at) VALUES(?1, ?2, 1, 6)",
+                params![gid.as_slice(), gname],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO group_members(group_id, member_pubkey, display_name, onion_addr)
+                 VALUES(?1, ?2, ?3, ?4)",
+                params![gid.as_slice(), peer.as_slice(), helper.seal(b"Bob").unwrap(), helper.seal(b"xyz.onion").unwrap()],
+            )
+            .unwrap();
+        }
+
+        let s = Store::open(&tmp.0, &key).unwrap();
+        assert_eq!(s.get_contact(&peer).unwrap().unwrap().display_name, "Bob");
+        assert_eq!(s.messages_for(&peer, 10).unwrap().len(), 1);
+        assert_eq!(s.get_group(&gid).unwrap().unwrap().name, "Stara parta");
+        assert_eq!(s.group_members(&gid).unwrap()[0].identity, peer);
+        drop(s);
+
+        // The raw values are gone from the file, and a second open is a no-op.
+        let raw = std::fs::read(&tmp.0).unwrap();
+        assert!(!raw.windows(peer.len()).any(|w| w == peer));
+        let s = Store::open(&tmp.0, &key).unwrap();
+        assert_eq!(s.get_contact(&peer).unwrap().unwrap().display_name, "Bob");
+    }
+
+    /// Converting with the wrong key would compute indexes that can never be
+    /// matched again, so it must refuse rather than damage the file.
+    #[test]
+    fn an_old_database_is_not_converted_with_the_wrong_key() {
+        let tmp = TempDb::new();
+        let peer = [0x44u8; 32];
+        {
+            let conn = rusqlite::Connection::open(&tmp.0).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            let helper = Store {
+                conn: rusqlite::Connection::open(&tmp.0).unwrap(),
+                key: Zeroizing::new([1u8; 32]),
+                index_key: Zeroizing::new(derive_index_key(&[1u8; 32])),
+            };
+            conn.execute(
+                "INSERT INTO contacts(identity_pubkey, display_name, onion_addr, added_at, status, saved)
+                 VALUES(?1, ?2, ?3, 1, 1, 1)",
+                params![peer.as_slice(), helper.seal(b"Bob").unwrap(), helper.seal(b"o.onion").unwrap()],
+            )
+            .unwrap();
+        }
+
+        assert_eq!(Store::open(&tmp.0, &[2u8; 32]).err(), Some(StoreError::Corrupt));
+        // Untouched: the right key still converts it later.
+        let s = Store::open(&tmp.0, &[1u8; 32]).unwrap();
+        assert_eq!(s.get_contact(&peer).unwrap().unwrap().display_name, "Bob");
     }
 }

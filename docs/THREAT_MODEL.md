@@ -32,7 +32,9 @@
 - **Forward secrecy & post-compromise security** — from the Double Ratchet:
   stealing one message key doesn't retro-decrypt history or all future messages.
 - **Data at rest** — identity keys and the local database are encrypted with a
-  key derived from the user's passphrase (Argon2id).
+  key derived from the user's passphrase (Argon2id). The columns SQL must match
+  on cannot be encrypted, so they hold a blind index instead; see the limitation
+  on activity metadata below for exactly what that does and does not hide.
 
 ## What we do NOT protect (limitations)
 
@@ -42,22 +44,26 @@
 - **Global passive adversary / traffic-confirmation.** An adversary who watches a
   large fraction of the network can attempt end-to-end timing/volume correlation
   against Tor. Cover traffic (Fáze 2) raises the cost but does not eliminate it.
-- **Local database metadata at rest — the weakest point in Umbra today.** The
-  store encrypts message bodies, contact and group names, onion addresses and
-  all secret material. It does **not** encrypt the routing columns: contact and
-  sender identity keys, group membership, timestamps, direction and delivery
-  state are plaintext, and unlike the sealed columns they need no passphrase to
-  read. Anyone who obtains the file — a seized machine, a backup, malware
-  running as the user — recovers the full social graph and activity timing
-  without knowing the passphrase. Content stays sealed; "who, when, how often"
-  does not.
+- **Local database activity metadata at rest (partly).** Since 1.7.0 the routing
+  columns hold a **blind index** — `HMAC-SHA256(key derived from the data key,
+  value)` — instead of the raw value, and the value itself lives once, sealed,
+  in the `blind_index` table. So identity keys and group ids are no longer
+  readable from a seized file, and two seized devices cannot be shown to share a
+  contact or a group, because each account's index key differs.
 
-  This is the finding to fix next, and the fix is decided: store a *blind
-  index* (`HMAC-SHA256(key derived from the passphrase, identity)`) in the
-  routing columns and keep the real key only in a sealed column. Lookups still
-  work — they are always by a key we already hold — while a stolen file shows
-  unlinkable random-looking values. Whole-file encryption (SQLCipher) remains
-  the better answer where its build toolchain is available.
+  What still leaks from the file without the passphrase, stated plainly:
+
+  - **How many distinct parties** there are, and **how many messages** went to
+    each. Rows for the same person carry the same index — that is what makes a
+    lookup possible at all.
+  - **Timestamps, direction and delivery state**, because ordering and filtering
+    need them in the clear.
+
+  So "who" is now protected and "how much, when" is not. An adversary who
+  already suspects a specific contact still cannot confirm it: without the key
+  they cannot compute that person's index. Whole-file encryption (SQLCipher)
+  remains the better answer where its build toolchain is available, and would
+  close the counting and timing leak as well.
 - **Coarse size class.** Padding quantises length; it does not equalise a 2 MB
   file with a text. Size *class* still leaks; very large transfers leak coarse
   magnitude. Constant-rate cover traffic is the mitigation (Fáze 2).

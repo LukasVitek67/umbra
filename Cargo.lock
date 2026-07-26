@@ -2124,7 +2124,7 @@ dependencies = [
 
 [[package]]
 name = "rust_lib_umbra"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "base64",
  "flutter_rust_bridge",
@@ -2607,6 +2607,7 @@ dependencies = [
  "ed25519-dalek",
  "futures",
  "getrandom 0.2.17",
+ "hmac 0.12.1",
  "libsignal-protocol",
  "rand 0.9.5",
  "rusqlite",

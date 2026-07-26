@@ -28,6 +28,7 @@ rand = "0.9"                # the CSPRNG type libsignal's API takes
 rusqlite = { version = "0.37", features = ["bundled"] } # local SQLite (store); 0.37 aligns with Arti's tor-dirmgr (shared sqlite3 link)
 base64 = "0.22"             # invite-code encoding (invite module)
 sha2 = "0.10"               # invite checksum (invite module)
+hmac = "0.12"               # blind index over routing columns (store module)
 
 # No dev-dependencies either: the property-style tests use a tiny in-file
 # SplitMix64 PRNG instead of `proptest`, so the whole crate pulls ZERO crates.

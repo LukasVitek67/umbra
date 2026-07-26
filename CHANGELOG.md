@@ -8,6 +8,39 @@ person who wrote the code. Newest first.
 
 Umbra is experimental and has not been independently audited.
 
+## 1.7.0
+
+- **The local database no longer reveals who you talk to.** Until now the
+  columns the database has to search and sort on — contact and sender identity
+  keys, group ids, who is in which group — held those values in the clear.
+  Message content was sealed, but anyone who got hold of the file (a seized or
+  stolen machine, a backup, malware running as you) could read the whole social
+  graph **without knowing your passphrase**. This was the most serious finding
+  of the outside review of 1.5.1.
+
+  Those columns now hold a *blind index*: `HMAC-SHA256` of the value under a key
+  derived from your passphrase. Searching still works, because a search is
+  always for something you already have — Umbra computes the same index and
+  matches it. The real value is stored once, encrypted. Without the passphrase
+  the identity keys cannot be recovered, and an adversary who already suspects a
+  particular contact cannot confirm the guess either, because computing that
+  person's index needs the key.
+
+  Two devices no longer betray each other: each account has its own index key,
+  so the same person or group looks completely different in two seized files.
+
+- **Your existing history is converted automatically** the first time 1.7.0
+  opens it — in one transaction, so it either completes or leaves the file
+  untouched. Nothing is lost and nothing needs to be re-added. A conversion is
+  refused outright if the key is wrong, because converting with the wrong key
+  would leave the data in place and permanently unreachable.
+
+- **What is still readable from a stolen file**, stated plainly rather than
+  glossed over: how many distinct people you talk to, how many messages went to
+  each, and when. Ordering and filtering need timestamps in the clear. Full
+  file-level encryption would close that too, and remains the better answer
+  where its build toolchain is available. See `docs/THREAT_MODEL.md`.
+
 ## 1.6.2
 
 - **The actual reason "Connecting to Tor" hung.** Tor refuses to share its data
