@@ -82,8 +82,20 @@ Remove-Item $staging -Recurse -Force
 
 cargo build -p umbra-cli --bin umbra-sign --release
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'building the signer failed' }
-& (Join-Path $root 'target\release\umbra-sign.exe') sign $KeyFile $zip
+$signer = Join-Path $root 'target\release\umbra-sign.exe'
+& $signer sign $KeyFile $zip
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'signing failed' }
+
+# A signature alone says only "the author built this", and every past release
+# keeps a valid one — so it cannot stop an old, fixed-since version from being
+# replayed at users. The manifest binds version and archive together, and is
+# signed as well.
+$manifestPath = Join-Path $dist "MANIFEST-$Version.txt"
+$sha = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower()
+$manifest = "version=$Version`nsha256=$sha`n"
+[System.IO.File]::WriteAllText($manifestPath, $manifest, (New-Object System.Text.UTF8Encoding($false)))
+& $signer sign $KeyFile $manifestPath
+if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'signing the manifest failed' }
 Pop-Location
 
 # What changed, published as a plain file so the in-app updater can show it
@@ -113,6 +125,7 @@ if ($SkipPublish) {
 }
 
 Write-Host "== GitHub release =="
-gh release create "v$Version" $zip "$zip.sig" $notesPath --title "Umbra $Version" --notes-file $notesPath
+gh release create "v$Version" $zip "$zip.sig" $notesPath $manifestPath "$manifestPath.sig" `
+    --title "Umbra $Version" --notes-file $notesPath
 if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
 Write-Host "released: v$Version"

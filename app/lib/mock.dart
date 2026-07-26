@@ -542,6 +542,21 @@ class AppState extends ChangeNotifier {
 
   List<Chat> get blockedContacts => chats.where((c) => c.isBlocked).toList();
 
+  /// Bridge lines the user pasted, empty when Umbra's own list is in use.
+  String get customBridges => _app?.customBridges() ?? '';
+
+  /// Save (or, with empty text, drop) the user's own bridges. Tor picks them up
+  /// the next time it starts.
+  void setCustomBridges(String text) {
+    try {
+      _app?.setCustomBridges(text: text);
+      notifyListeners();
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
+  }
+
   /// Let a screen outside this class announce a change it made to the shared
   /// state (which conversation is open, which section is showing).
   void notify() => notifyListeners();

@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `emit`, `flush_pending`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `log_line`, `now_secs`, `pending_count`, `remember_group_routes`, `remember_peer`, `rt`, `send_or_queue`, `send_profile`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
+// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `emit`, `flush_pending`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `pending_count`, `read_kdf`, `remember_group_routes`, `remember_peer`, `rt`, `send_or_queue`, `send_profile`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Inner`, `Pending`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 
@@ -87,6 +87,10 @@ abstract class UmbraApp implements RustOpaqueInterface {
     required List<String> memberHexes,
     required BigInt now,
   });
+
+  /// Bridges the user pasted themselves, or empty when Umbra's own list is in
+  /// use. Stored next to the account's Tor data, where the daemon reads it.
+  String customBridges();
 
   /// Whether an identity already exists at `dir`.
   static bool exists({required String dir}) =>
@@ -216,6 +220,10 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// Accept a waiting conversation (1), or block the contact (2). Blocking
   /// also drops whatever they still have queued with us.
   void setContactStatus({required String contactHex, required int status});
+
+  /// Replace (or, with empty text, drop) the user's own bridge lines. Takes
+  /// effect the next time Tor starts.
+  void setCustomBridges({required String text});
 
   /// Set our profile picture (raw image bytes, stored encrypted) and push it
   /// to everyone we are connected to.

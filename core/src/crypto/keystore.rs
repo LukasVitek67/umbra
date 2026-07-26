@@ -40,9 +40,18 @@ const MAX_M_COST: u32 = 2 * 1024 * 1024; // 2 GiB of KDF memory, hard ceiling
 const MAX_T_COST: u32 = 64;
 const MAX_P_COST: u32 = 16;
 
-/// OWASP-flavoured Argon2id defaults: 19 MiB memory, 2 passes, 1 lane.
+/// Argon2id defaults: **256 MiB**, 3 passes, 4 lanes.
+///
+/// The OWASP minimum (19 MiB) is aimed at a server hashing many logins per
+/// second. Umbra derives this key once, when a person unlocks their own
+/// messages, and the thing it defends against is someone with the database file
+/// and unlimited time. Memory is what makes that expensive on GPUs, so we spend
+/// a quarter of a gigabyte for the second it costs the user.
+///
+/// Older keystores keep working: the parameters that made a blob are stored in
+/// its header and used when opening it.
 fn default_params() -> Result<Params, KeystoreError> {
-    Params::new(19 * 1024, 2, 1, Some(KEY_LEN)).map_err(|_| KeystoreError::Params)
+    Params::new(256 * 1024, 3, 4, Some(KEY_LEN)).map_err(|_| KeystoreError::Params)
 }
 
 fn derive_key(
@@ -65,7 +74,36 @@ pub fn derive_store_key(
     passphrase: &[u8],
     salt: &[u8],
 ) -> Result<Zeroizing<[u8; KEY_LEN]>, KeystoreError> {
-    let params = default_params()?;
+    derive_store_key_with(passphrase, salt, LEGACY_M_COST, LEGACY_T_COST, LEGACY_P_COST)
+}
+
+/// Parameters used by databases created before the defaults were raised. They
+/// are not a recommendation — they are what those files were built with, and
+/// the only way to open them.
+pub const LEGACY_M_COST: u32 = 19 * 1024;
+pub const LEGACY_T_COST: u32 = 2;
+pub const LEGACY_P_COST: u32 = 1;
+
+/// What a new database should use: see [`default_params`].
+pub const STORE_M_COST: u32 = 256 * 1024;
+pub const STORE_T_COST: u32 = 3;
+pub const STORE_P_COST: u32 = 4;
+
+/// Derive a database key with explicit parameters.
+///
+/// The database key has no header to describe itself (unlike a sealed blob), so
+/// the caller keeps the parameters next to the salt and passes them back here.
+/// That is what lets the defaults rise without locking anyone out of the
+/// messages they already have.
+pub fn derive_store_key_with(
+    passphrase: &[u8],
+    salt: &[u8],
+    m_cost: u32,
+    t_cost: u32,
+    p_cost: u32,
+) -> Result<Zeroizing<[u8; KEY_LEN]>, KeystoreError> {
+    let params =
+        Params::new(m_cost, t_cost, p_cost, Some(KEY_LEN)).map_err(|_| KeystoreError::Params)?;
     derive_key(passphrase, salt, &params)
 }
 

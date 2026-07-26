@@ -2,7 +2,7 @@
 name = "rust_lib_umbra"
 # The app version the updater compares against GitHub releases. Bumped by
 # tools/release.ps1 together with app/pubspec.yaml.
-version = "1.5.1"
+version = "1.6.0"
 edition = "2021"
 
 [lib]
@@ -24,6 +24,7 @@ rustls = { version = "0.23", default-features = false, features = ["std", "ring"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
 webpki-roots = "0.26"          # CA roots, so we do not trust the system store
 zip = { version = "2", default-features = false, features = ["deflate"] }
+sha2 = "0.10"                  # archive hash in the signed update manifest
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }

@@ -138,9 +138,31 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
+  /// How hard the passphrase would be to guess, roughly: 0 (hopeless) to 4.
+  ///
+  /// This is the only thing standing between a stolen database file and the
+  /// messages in it, and an attacker with the file has unlimited attempts, so
+  /// the bar is length first — a long ordinary sentence beats a short clever
+  /// password.
+  int get _strength {
+    final p = _pass.text;
+    if (p.length < 12) return 0;
+    var score = 1;
+    if (p.length >= 16) score++;
+    if (p.length >= 24) score++;
+    final classes = [
+      RegExp(r'[a-z]'),
+      RegExp(r'[A-Z]'),
+      RegExp(r'[0-9]'),
+      RegExp(r'[^a-zA-Z0-9]'),
+    ].where((r) => r.hasMatch(p)).length;
+    if (classes >= 3) score++;
+    return score.clamp(0, 4);
+  }
+
   bool get _valid =>
       _username.text.trim().isNotEmpty &&
-      _pass.text.length >= 8 &&
+      _pass.text.length >= 12 &&
       _pass.text == _confirm.text;
 
   Future<void> _submit() async {
@@ -220,6 +242,44 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                 ),
                 ...[
+                  const SizedBox(height: 10),
+                  // Strength, plainly: the passphrase is the whole defence for
+                  // the database on this disk.
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: _pass.text.isEmpty ? 0 : (_strength / 4).clamp(0.08, 1.0),
+                            minHeight: 5,
+                            backgroundColor: UmbraColors.surfaceHigh,
+                            color: _strength >= 3
+                                ? UmbraColors.accent
+                                : _strength >= 1
+                                    ? UmbraColors.textMuted
+                                    : UmbraColors.danger,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        [
+                          L.t('onboard.strength0'),
+                          L.t('onboard.strength1'),
+                          L.t('onboard.strength2'),
+                          L.t('onboard.strength3'),
+                          L.t('onboard.strength4'),
+                        ][_strength],
+                        style: TextStyle(
+                            color: _strength >= 3 ? UmbraColors.accent : UmbraColors.textMuted,
+                            fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(L.t('onboard.passHelp'),
+                      style: TextStyle(color: UmbraColors.textMuted, fontSize: 11, height: 1.35)),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _confirm,

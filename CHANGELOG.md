@@ -8,6 +8,31 @@ person who wrote the code. Newest first.
 
 Umbra is experimental and has not been independently audited.
 
+## 1.6.0
+
+Changes from an outside security review of 1.5.1 (thanks, PORT).
+
+- **Much stronger passphrase protection.** The key that unlocks the local
+  database is now derived with Argon2id at 256 MiB, 3 passes, 4 lanes (was
+  19 MiB, 2, 1) — the setting that makes guessing a stolen file expensive.
+  Existing accounts keep opening: every database records the settings it was
+  made with.
+- Passphrases must now be at least 12 characters, with a strength meter and an
+  explanation of why length wins.
+- **Updates cannot be rolled back on you.** Each release now carries a signed
+  manifest naming the version and the archive's SHA-256, and the app refuses
+  anything that is not both correctly signed and newer than what is installed.
+  Previously a signature alone did not stop an old release being replayed.
+- **Your own Tor bridges** can be pasted in Settings. The bundled ones are
+  public and therefore the first to be blocked on a censored network.
+- Released binaries are stripped: no more developer paths and module names
+  inside the executable.
+
+Still open, and named plainly: the local database keeps routing data (contact
+keys, group membership, timestamps) in plaintext, so someone who takes the file
+learns who you talk to and when, without the passphrase. The next release
+replaces those columns with a blind index. See `docs/THREAT_MODEL.md`.
+
 ## 1.5.1
 
 - The update offer now shows what changed before you agree to anything.

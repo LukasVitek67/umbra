@@ -2124,7 +2124,7 @@ dependencies = [
 
 [[package]]
 name = "rust_lib_umbra"
-version = "1.5.1"
+version = "1.6.0"
 dependencies = [
  "base64",
  "flutter_rust_bridge",
@@ -2132,6 +2132,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
  "tokio-rustls",
  "umbra-core",

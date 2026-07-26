@@ -131,7 +131,12 @@ impl TorProcess {
             .or_else(|| bundled("tor"))
             .ok_or_else(|| anyhow!("tor nenalezen — chybí binárka vedle aplikace"))?;
         let pt_exe = bundled("lyrebird.exe").or_else(|| bundled("lyrebird"));
-        let bridges = bundled("bridges.txt")
+        // The user's own bridges win over the ones we ship. The shipped list is
+        // public, so on a censored network it is the first thing to be blocked;
+        // a line from bridges.torproject.org is what actually gets through.
+        let bridges = Some(data_dir.join("bridges.txt"))
+            .filter(|p| p.exists())
+            .or_else(|| bundled("bridges.txt"))
             .and_then(|p| std::fs::read_to_string(p).ok())
             .map(|t| {
                 t.lines()

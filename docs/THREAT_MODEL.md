@@ -42,12 +42,22 @@
 - **Global passive adversary / traffic-confirmation.** An adversary who watches a
   large fraction of the network can attempt end-to-end timing/volume correlation
   against Tor. Cover traffic (Fáze 2) raises the cost but does not eliminate it.
-- **Local database metadata at rest.** The current store encrypts message
-  bodies, contact names, onion addresses and all secret material, but keeps
-  *routing columns* (contact identity keys, message timestamps, message counts)
-  in plaintext so the database can be queried. A disk image therefore reveals
-  the shape of the contact graph and activity timing, though not content. Whole-
-  database encryption (SQLCipher-style) is tracked as future hardening.
+- **Local database metadata at rest — the weakest point in Umbra today.** The
+  store encrypts message bodies, contact and group names, onion addresses and
+  all secret material. It does **not** encrypt the routing columns: contact and
+  sender identity keys, group membership, timestamps, direction and delivery
+  state are plaintext, and unlike the sealed columns they need no passphrase to
+  read. Anyone who obtains the file — a seized machine, a backup, malware
+  running as the user — recovers the full social graph and activity timing
+  without knowing the passphrase. Content stays sealed; "who, when, how often"
+  does not.
+
+  This is the finding to fix next, and the fix is decided: store a *blind
+  index* (`HMAC-SHA256(key derived from the passphrase, identity)`) in the
+  routing columns and keep the real key only in a sealed column. Lookups still
+  work — they are always by a key we already hold — while a stolen file shows
+  unlinkable random-looking values. Whole-file encryption (SQLCipher) remains
+  the better answer where its build toolchain is available.
 - **Coarse size class.** Padding quantises length; it does not equalise a 2 MB
   file with a text. Size *class* still leaks; very large transfers leak coarse
   magnitude. Constant-rate cover traffic is the mitigation (Fáze 2).

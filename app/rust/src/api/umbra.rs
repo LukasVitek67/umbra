@@ -7,7 +7,7 @@
 //! and persisted (encrypted at rest).
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -446,8 +446,18 @@ impl UmbraApp {
         let mut salt = [0u8; 16];
         getrandom::getrandom(&mut salt).map_err(|_| "RNG failed".to_string())?;
         std::fs::write(dir.join("umbra.salt"), salt).map_err(|e| e.to_string())?;
+        // The KDF settings live next to the salt, so raising them for new
+        // accounts never locks anyone out of an existing one.
+        std::fs::write(dir.join("umbra.kdf"), kdf_line()).map_err(|e| e.to_string())?;
 
-        let key = keystore::derive_store_key(passphrase.as_bytes(), &salt).map_err(|e| e.to_string())?;
+        let key = keystore::derive_store_key_with(
+            passphrase.as_bytes(),
+            &salt,
+            keystore::STORE_M_COST,
+            keystore::STORE_T_COST,
+            keystore::STORE_P_COST,
+        )
+        .map_err(|e| e.to_string())?;
         let store = Store::open(&dir.join("umbra.db"), &key).map_err(|e| e.to_string())?;
 
         let account = Keypair::generate().map_err(|e| e.to_string())?;
@@ -481,7 +491,9 @@ impl UmbraApp {
             return Err("Na tomto počítači není žádná identita.".to_string());
         }
         let salt = std::fs::read(dir.join("umbra.salt")).map_err(|e| e.to_string())?;
-        let key = keystore::derive_store_key(passphrase.as_bytes(), &salt).map_err(|e| e.to_string())?;
+        let (m, t, p) = read_kdf(&dir);
+        let key = keystore::derive_store_key_with(passphrase.as_bytes(), &salt, m, t, p)
+            .map_err(|e| e.to_string())?;
         let store = Store::open(&dir.join("umbra.db"), &key).map_err(|e| e.to_string())?;
 
         // A wrong passphrase derives a wrong key, so the stored secret fails to
@@ -996,6 +1008,27 @@ impl UmbraApp {
             .await;
         });
         Ok(())
+    }
+
+    /// Bridges the user pasted themselves, or empty when Umbra's own list is in
+    /// use. Stored next to the account's Tor data, where the daemon reads it.
+    #[frb(sync)]
+    pub fn custom_bridges(&self) -> String {
+        let g = self.inner.lock().unwrap();
+        std::fs::read_to_string(g.dir.join("bridges.txt")).unwrap_or_default()
+    }
+
+    /// Replace (or, with empty text, drop) the user's own bridge lines. Takes
+    /// effect the next time Tor starts.
+    #[frb(sync)]
+    pub fn set_custom_bridges(&self, text: String) -> Result<(), String> {
+        let g = self.inner.lock().unwrap();
+        let path = g.dir.join("bridges.txt");
+        if text.trim().is_empty() {
+            let _ = std::fs::remove_file(&path);
+            return Ok(());
+        }
+        std::fs::write(&path, text.trim()).map_err(|e| e.to_string())
     }
 
     /// How many messages are still waiting for their peer.
@@ -1698,6 +1731,36 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
 
 fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// How a new account records the KDF settings it was created with.
+fn kdf_line() -> String {
+    format!(
+        "argon2id {} {} {}",
+        keystore::STORE_M_COST,
+        keystore::STORE_T_COST,
+        keystore::STORE_P_COST
+    )
+}
+
+/// The settings an account's database was built with. Accounts made before this
+/// file existed used the old, weaker defaults — and must keep using them, or
+/// their key would come out different and nothing would decrypt.
+fn read_kdf(dir: &Path) -> (u32, u32, u32) {
+    let legacy = (
+        keystore::LEGACY_M_COST,
+        keystore::LEGACY_T_COST,
+        keystore::LEGACY_P_COST,
+    );
+    let Ok(text) = std::fs::read_to_string(dir.join("umbra.kdf")) else { return legacy };
+    let parts: Vec<&str> = text.split_whitespace().collect();
+    if parts.len() != 4 || parts[0] != "argon2id" {
+        return legacy;
+    }
+    match (parts[1].parse(), parts[2].parse(), parts[3].parse()) {
+        (Ok(m), Ok(t), Ok(p)) => (m, t, p),
+        _ => legacy,
+    }
 }
 
 /// Wall-clock seconds; only used for stamping what we store ourselves.

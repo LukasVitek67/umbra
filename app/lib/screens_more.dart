@@ -360,6 +360,10 @@ class SettingsScreen extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
               child: _DevicesEntry(),
             ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: _BridgesPanel(),
+            ),
             if (Autostart.supported)
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
@@ -469,6 +473,104 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
+
+/// Your own Tor bridges.
+///
+/// The bridges Umbra ships are public, which means a censor can — and usually
+/// does — have them on a list. Anyone actually behind such a censor needs lines
+/// from bridges.torproject.org, and those are personal, so they belong here
+/// rather than in the build.
+class _BridgesPanel extends StatefulWidget {
+  const _BridgesPanel();
+
+  @override
+  State<_BridgesPanel> createState() => _BridgesPanelState();
+}
+
+class _BridgesPanelState extends State<_BridgesPanel> {
+  final _controller = TextEditingController();
+  bool _open = false;
+  bool _saved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.text = appState.customBridges;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final using = _controller.text.trim().isNotEmpty;
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _open = !_open),
+            child: Row(
+              children: [
+                Icon(Icons.alt_route, color: using ? UmbraColors.accent : UmbraColors.textMuted),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(L.t('bridges.title'),
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 3),
+                      Text(using ? L.t('bridges.usingCustom') : L.t('bridges.usingDefault'),
+                          style: TextStyle(color: UmbraColors.textMuted, fontSize: 13)),
+                    ],
+                  ),
+                ),
+                Icon(_open ? Icons.expand_less : Icons.expand_more, color: UmbraColors.textMuted),
+              ],
+            ),
+          ),
+          if (_open) ...[
+            const SizedBox(height: 12),
+            Text(L.t('bridges.help'),
+                style: TextStyle(color: UmbraColors.textMuted, fontSize: 12, height: 1.4)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _controller,
+              minLines: 3,
+              maxLines: 8,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              decoration: InputDecoration(hintText: L.t('bridges.hint')),
+              onChanged: (_) => setState(() => _saved = false),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                FilledButton.icon(
+                  onPressed: () {
+                    appState.setCustomBridges(_controller.text);
+                    setState(() => _saved = true);
+                  },
+                  icon: const Icon(Icons.save_outlined, size: 18),
+                  label: Text(L.t('common.save')),
+                ),
+                const SizedBox(width: 12),
+                if (_saved)
+                  Expanded(
+                    child: Text(L.t('bridges.saved'),
+                        style: TextStyle(color: UmbraColors.accent, fontSize: 12)),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
 
 /// How much a notification is allowed to say.
 ///

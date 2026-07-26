@@ -155,6 +155,19 @@ where
         let sig_raw = http_get(socks_port, &sig_url).await?;
         emit("update_verifying", &release.version);
         verify_signature(&zip, &sig_raw)?;
+
+        // A valid signature only says "the author built this" — every past
+        // release stays valid forever, so on its own it would not stop someone
+        // from serving an old, fixed-since version. The manifest is signed too
+        // and names the version and the archive's hash, which ties the three
+        // together: this signature, this version, these bytes.
+        if let Some(url) = release.manifest_url.clone() {
+            let manifest = http_get(socks_port, &url).await?;
+            let manifest_sig = http_get(socks_port, &format!("{url}.sig")).await?;
+            verify_signature(&manifest, &manifest_sig)?;
+            check_manifest(&manifest, &release.version, &zip)?;
+        }
+
         install(&zip, &install_dir, &release.version)?;
         Ok::<(), String>(())
     }
@@ -184,6 +197,9 @@ pub struct Release {
     zip_url: Option<String>,
     sig_url: Option<String>,
     notes_url: Option<String>,
+    /// Signed statement of "this version has this archive"; absent on releases
+    /// published before manifests existed.
+    manifest_url: Option<String>,
 }
 
 /// What the newest release is.
@@ -221,6 +237,9 @@ async fn latest_via_redirect(socks_port: u16) -> Result<Release, String> {
         )),
         notes_url: Some(format!(
             "https://github.com/{REPO}/releases/download/{tag}/NOTES-{version}.md"
+        )),
+        manifest_url: Some(format!(
+            "https://github.com/{REPO}/releases/download/{tag}/MANIFEST-{version}.txt"
         )),
         notes: String::new(),
         version,
@@ -269,7 +288,14 @@ async fn latest_via_api(socks_port: u16) -> Result<Release, String> {
             }
         }
     }
-    Ok(Release { version, zip_url, sig_url, notes_url: None, notes: String::new() })
+    Ok(Release {
+        version,
+        zip_url,
+        sig_url,
+        notes_url: None,
+        manifest_url: None,
+        notes: String::new(),
+    })
 }
 
 /// Compare dotted numeric versions ("1.10.0" > "1.9.9"), ignoring anything
@@ -312,6 +338,51 @@ fn verify_signature(zip: &[u8], sig_raw: &[u8]) -> Result<(), String> {
         return Err("podpis aktualizace nesedí — NEinstaluji".to_string());
     }
     Ok(())
+}
+
+/// Check a signed manifest against what we are about to install.
+///
+/// Format (one `key=value` per line):
+/// ```text
+/// version=1.6.0
+/// sha256=<hex of the zip>
+/// ```
+fn check_manifest(manifest: &[u8], expected_version: &str, zip: &[u8]) -> Result<(), String> {
+    let text = String::from_utf8_lossy(manifest);
+    let mut version = None;
+    let mut sha = None;
+    for line in text.lines() {
+        let Some((k, v)) = line.split_once('=') else { continue };
+        match k.trim() {
+            "version" => version = Some(v.trim().to_string()),
+            "sha256" => sha = Some(v.trim().to_lowercase()),
+            _ => {}
+        }
+    }
+    let version = version.ok_or_else(|| "manifest bez verze".to_string())?;
+    if version != expected_version {
+        return Err(format!(
+            "podepsaný manifest mluví o verzi {version}, ale nabízí se {expected_version} — NEinstaluji"
+        ));
+    }
+    if !is_newer(&version, current_version()) {
+        return Err(format!(
+            "nabízená verze {version} není novější než {} — NEinstaluji",
+            current_version()
+        ));
+    }
+    let sha = sha.ok_or_else(|| "manifest bez otisku archivu".to_string())?;
+    let actual = sha256_hex(zip);
+    if actual != sha {
+        return Err("otisk archivu nesedí s podepsaným manifestem — NEinstaluji".to_string());
+    }
+    Ok(())
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(data);
+    digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn unhex(s: &str) -> Option<Vec<u8>> {
@@ -682,6 +753,24 @@ mod tests {
         let (status, body, _) = parse_response(raw).unwrap();
         assert_eq!(status, 200);
         assert_eq!(body, b"hello!");
+    }
+
+    #[test]
+    fn a_manifest_ties_the_signature_to_a_version_and_the_bytes() {
+        let zip = b"pretend release archive";
+        let good = format!("version=99.0.0\nsha256={}\n", sha256_hex(zip));
+        assert!(check_manifest(good.as_bytes(), "99.0.0", zip).is_ok());
+
+        // A manifest for a different version than the one on offer: refuse.
+        assert!(check_manifest(good.as_bytes(), "98.0.0", zip).is_err());
+        // Right version, wrong bytes (someone swapped the archive): refuse.
+        assert!(check_manifest(good.as_bytes(), "99.0.0", b"other bytes").is_err());
+        // A correctly signed *older* release replayed at us: refuse.
+        let old = format!("version=0.0.1\nsha256={}\n", sha256_hex(zip));
+        assert!(check_manifest(old.as_bytes(), "0.0.1", zip).is_err());
+        // Missing fields: refuse.
+        assert!(check_manifest(b"version=99.0.0", "99.0.0", zip).is_err());
+        assert!(check_manifest(b"", "99.0.0", zip).is_err());
     }
 
     #[test]

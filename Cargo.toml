@@ -16,3 +16,7 @@ overflow-checks = true
 panic = "abort"
 lto = true
 codegen-units = 1
+# Ship without symbols and source paths. It is not a security control — the code
+# is public — but a released binary has no reason to carry the author's home
+# directory and every module name around with it.
+strip = "symbols"
