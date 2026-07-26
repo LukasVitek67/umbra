@@ -125,7 +125,19 @@ if ($SkipPublish) {
 }
 
 Write-Host "== GitHub release =="
-gh release create "v$Version" $zip "$zip.sig" $notesPath $manifestPath "$manifestPath.sig" `
-    --title "Umbra $Version" --notes-file $notesPath
-if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
+# Uploading tens of megabytes over a slow link fails often enough to be normal,
+# and a half-uploaded release is worse than none: it sits there as a draft with
+# assets the updater cannot use. Retry, and only then give up loudly.
+$assets = @($zip, "$zip.sig", $notesPath, $manifestPath, "$manifestPath.sig")
+$published = $false
+foreach ($attempt in 1..3) {
+    if ($attempt -gt 1) {
+        Write-Host "upload attempt $attempt (cleaning up the previous one)"
+        gh release delete "v$Version" --yes --cleanup-tag 2>&1 | Out-Null
+        Start-Sleep -Seconds 5
+    }
+    gh release create "v$Version" @assets --title "Umbra $Version" --notes-file $notesPath
+    if ($LASTEXITCODE -eq 0) { $published = $true; break }
+}
+if (-not $published) { throw "gh release create failed after 3 attempts - assets are in $dist" }
 Write-Host "released: v$Version"

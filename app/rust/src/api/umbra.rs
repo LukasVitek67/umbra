@@ -1010,6 +1010,24 @@ impl UmbraApp {
         Ok(())
     }
 
+    /// Throw away Tor's cached directory data and start the network again.
+    ///
+    /// The identity and the onion address are kept — only what Tor can fetch
+    /// again is deleted. This is the manual version of the repair the app
+    /// already tries by itself when a bootstrap stalls.
+    #[frb(sync)]
+    pub fn repair_tor(&self, sink: StreamSink<NetEvent>) -> Result<(), String> {
+        {
+            let g = self.inner.lock().unwrap();
+            umbra_transport::ctor::clear_tor_cache(&g.dir).map_err(|e| e.to_string())?;
+        }
+        // Drop the old service so its daemon exits and releases the lock.
+        *SERVICE.lock().unwrap() = None;
+        *ONION.lock().unwrap() = None;
+        self.start_network(sink);
+        Ok(())
+    }
+
     /// Bridges the user pasted themselves, or empty when Umbra's own list is in
     /// use. Stored next to the account's Tor data, where the daemon reads it.
     #[frb(sync)]

@@ -77,6 +77,22 @@ class ConnectingScreen extends StatelessWidget {
                         height: 1.4,
                       ),
                     ),
+                    if (failed) ...[
+                      const SizedBox(height: 18),
+                      // The app already repairs and retries by itself once; this
+                      // is for the case where that was not enough, so the user
+                      // is not left with a screen that only says "no".
+                      FilledButton.icon(
+                        onPressed: appState.repairTor,
+                        icon: const Icon(Icons.healing, size: 18),
+                        label: Text(L.t('connecting.repair')),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(L.t('connecting.repairHelp'),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              color: UmbraColors.textMuted, fontSize: 11, height: 1.4)),
+                    ],
                     const SizedBox(height: 26),
                     Panel(
                       child: Row(

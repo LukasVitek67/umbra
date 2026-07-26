@@ -8,6 +8,19 @@ person who wrote the code. Newest first.
 
 Umbra is experimental and has not been independently audited.
 
+## 1.6.1
+
+- **"Connecting to Tor" no longer gets stuck.** A crash or a second copy of the
+  app could leave Tor's data directory locked, or its downloaded network
+  directory half-written — and Tor then never finished starting, with nothing
+  the user could do about it. Umbra now clears a stale lock before starting,
+  and if the first attempt stalls it clears the cached network data and tries
+  again by itself. Your identity, onion address and messages are never touched
+  by the repair.
+- The wait before that repair kicks in is 6 minutes instead of 15.
+- If even the automatic repair fails, the connecting screen offers a
+  **"Repair and try again"** button instead of just reporting failure.
+
 ## 1.6.0
 
 Changes from an outside security review of 1.5.1 (thanks, PORT).

@@ -183,6 +183,13 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// it (a group has no owner — see `docs/THREAT_MODEL.md`).
   GroupView renameGroup({required String groupIdHex, required String name});
 
+  /// Throw away Tor's cached directory data and start the network again.
+  ///
+  /// The identity and the onion address are kept — only what Tor can fetch
+  /// again is deleted. This is the manual version of the repair the app
+  /// already tries by itself when a bootstrap stalls.
+  Stream<NetEvent> repairTor();
+
   /// Search every conversation for text. Both kinds of message are covered;
   /// newest first.
   List<SearchHitView> searchMessages({

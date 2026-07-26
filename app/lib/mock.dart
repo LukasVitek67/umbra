@@ -371,7 +371,16 @@ class AppState extends ChangeNotifier {
   /// peer connect/disconnect, and incoming messages.
   void _startNetwork(UmbraApp app) {
     netStatus = L.t('net.starting');
-    app.startNetwork().listen((ev) {
+    app.startNetwork().listen(_onNetEvent, onError: (Object e) {
+      lastError = _clean(e);
+      netStatus = L.t('net.error');
+      notifyListeners();
+    });
+  }
+
+  /// One event from the Rust network layer.
+  void _onNetEvent(NetEvent ev) {
+    {
       switch (ev.kind) {
         case 'status':
           netStatus = _render(ev.data);
@@ -508,11 +517,7 @@ class AppState extends ChangeNotifier {
           break;
       }
       notifyListeners();
-    }, onError: (Object e) {
-      lastError = _clean(e);
-      netStatus = L.t('net.error');
-      notifyListeners();
-    });
+    }
   }
 
   /// Make sure a chat row exists for a peer that contacted us.
@@ -541,6 +546,25 @@ class AppState extends ChangeNotifier {
         ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
   List<Chat> get blockedContacts => chats.where((c) => c.isBlocked).toList();
+
+  /// Clear Tor's cached directory data and start the network again. The
+  /// identity and onion address survive; only what Tor can re-download goes.
+  void repairTor() {
+    final app = _app;
+    if (app == null) return;
+    netStatus = L.t('connecting.repairing');
+    notifyListeners();
+    try {
+      app.repairTor().listen(_onNetEvent, onError: (Object e) {
+        lastError = _clean(e);
+        netStatus = L.t('net.error');
+        notifyListeners();
+      });
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
+  }
 
   /// Bridge lines the user pasted, empty when Umbra's own list is in use.
   String get customBridges => _app?.customBridges() ?? '';

@@ -38,7 +38,11 @@ use crate::{accept, initiate, read_frame, write_frame, LocalNode, Session};
 pub const ONION_PORT: u16 = 9735;
 
 /// How long we allow Tor to reach "Bootstrapped 100%".
-const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(900);
+///
+/// Shorter than it used to be (900 s): the first attempt is now followed by an
+/// automatic repair and a second try, so waiting a quarter of an hour before
+/// doing anything about it only makes a stuck start feel like a broken app.
+const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(360);
 
 /// An event surfaced to the app.
 /// `kind`: `"status"`, `"onion"`, `"connected"`, `"disconnected"`, `"message"`, `"error"`.
@@ -66,6 +70,39 @@ fn beside_exe(name: &str) -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let p = exe.parent()?.join(name);
     p.exists().then_some(p)
+}
+
+/// Delete the data-directory lock if no live daemon holds it.
+///
+/// Windows keeps the file open while Tor runs, so a failed delete means "still
+/// in use" and a successful one means the previous run died without cleaning
+/// up. Either way this cannot break a running daemon.
+fn clear_stale_lock(tor_data: &Path, progress: &impl Fn(&str)) {
+    let lock = tor_data.join("lock");
+    if !lock.exists() {
+        return;
+    }
+    if std::fs::remove_file(&lock).is_ok() {
+        progress("uklízím zámek po předchozím běhu");
+    }
+}
+
+/// Throw away Tor's cached directory information, keeping the identity.
+///
+/// A half-downloaded or stale consensus is the usual reason a bootstrap stops
+/// partway and never finishes. The onion service keys (`hs/`) and the torrc are
+/// untouched, so the address — the thing contacts have — survives the repair.
+pub fn clear_tor_cache(data_dir: &Path) -> Result<()> {
+    let tor_data = data_dir.join("tor-data");
+    let Ok(entries) = std::fs::read_dir(&tor_data) else { return Ok(()) };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        // Keep the daemon's own keys; everything cached can be fetched again.
+        if name.starts_with("cached-") || name == "state" || name == "lock" {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    Ok(())
 }
 
 /// Where the platform keeps the binaries we ship.
@@ -151,6 +188,12 @@ impl TorProcess {
         let tor_data = data_dir.join("tor-data");
         let hs_dir = data_dir.join("hs");
         std::fs::create_dir_all(&tor_data)?;
+        // A crash (or a second copy of the app killed off) can leave the data
+        // directory locked, and Tor then refuses to start until someone deletes
+        // the file by hand — which is exactly the "Connecting to Tor" screen
+        // that never finishes. Deleting it is safe precisely because Windows
+        // refuses while a live daemon still holds it.
+        clear_stale_lock(&tor_data, &progress);
         let socks_port = free_port()?;
 
         let mut torrc = String::new();
@@ -373,13 +416,33 @@ impl TorService {
     pub async fn start(
         seed: [u8; 32],
         data_dir: &Path,
-        progress: impl Fn(&str) + Send + 'static,
+        progress: impl Fn(&str) + Send + Sync + 'static,
     ) -> Result<(TorService, mpsc::UnboundedReceiver<Incoming>)> {
         // Bind the local listener first so Tor can forward straight to it.
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let local_port = listener.local_addr()?.port();
 
-        let tor = TorProcess::start(data_dir, local_port, progress).await?;
+        // One retry, and not a blind one: a bootstrap that stalls is almost
+        // always a half-written consensus or a leftover lock in the data
+        // directory, and both are ours to clean. The identity keys stay, so the
+        // repair costs the user nothing but the wait — and it beats a dead
+        // "Connecting to Tor" screen they can only fix by deleting files.
+        let progress = Arc::new(progress);
+        let first = {
+            let p = progress.clone();
+            TorProcess::start(data_dir, local_port, move |m| p(m)).await
+        };
+        let tor = match first {
+            Ok(tor) => tor,
+            Err(e) => {
+                progress(&format!("první pokus selhal ({e}) — opravuji Tor a zkouším znovu"));
+                clear_tor_cache(data_dir)?;
+                let p = progress.clone();
+                TorProcess::start(data_dir, local_port, move |m| p(m))
+                    .await
+                    .with_context(|| format!("ani po opravě se Tor nepřipojil (první chyba: {e})"))?
+            }
+        };
         let onion = tor.onion.clone();
         let socks_port = tor.socks_port;
 

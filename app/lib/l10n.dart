@@ -279,6 +279,10 @@ class L {
       'notif.example': 'A notification will look like: {example}',
       'notif.exampleFrom': 'Eva',
       'notif.exampleBody': 'see you at six',
+      'connecting.repair': 'Repair and try again',
+      'connecting.repairHelp':
+          'Deletes what Tor downloaded about the network and starts over. Your identity, address and messages are untouched.',
+      'connecting.repairing': 'Repairing Tor and reconnecting…',
       'bridges.title': 'Tor bridges',
       'bridges.usingDefault': 'Using the bridges Umbra ships with.',
       'bridges.usingCustom': 'Using your own bridges.',
@@ -527,6 +531,10 @@ class L {
       'notif.example': 'Notifikace bude vypadat takto: {example}',
       'notif.exampleFrom': 'Eva',
       'notif.exampleBody': 'sejdeme se v šest',
+      'connecting.repair': 'Opravit a zkusit znovu',
+      'connecting.repairHelp':
+          'Smaže, co si Tor stáhl o síti, a začne znovu. Identita, adresa ani zprávy se nedotknou.',
+      'connecting.repairing': 'Opravuji Tor a připojuji znovu…',
       'bridges.title': 'Mosty do Toru',
       'bridges.usingDefault': 'Používají se mosty přibalené k Umbře.',
       'bridges.usingCustom': 'Používají se tvoje vlastní mosty.',

@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 2025840930;
+  int get rustContentHash => 1014381508;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -209,6 +209,8 @@ abstract class RustLibApi extends BaseApi {
     required String groupIdHex,
     required String name,
   });
+
+  Stream<NetEvent> crateApiUmbraUmbraAppRepairTor({required UmbraApp that});
 
   List<SearchHitView> crateApiUmbraUmbraAppSearchMessages({
     required UmbraApp that,
@@ -1243,6 +1245,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Stream<NetEvent> crateApiUmbraUmbraAppRepairTor({required UmbraApp that}) {
+    final sink = RustStreamSink<NetEvent>();
+    handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerUmbraApp(
+            that,
+            serializer,
+          );
+          sse_encode_StreamSink_net_event_Sse(sink, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 31)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_unit,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiUmbraUmbraAppRepairTorConstMeta,
+        argValues: [that, sink],
+        apiImpl: this,
+      ),
+    );
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiUmbraUmbraAppRepairTorConstMeta =>
+      const TaskConstMeta(
+        debugName: "UmbraApp_repair_tor",
+        argNames: ["that", "sink"],
+      );
+
+  @override
   List<SearchHitView> crateApiUmbraUmbraAppSearchMessages({
     required UmbraApp that,
     required String query,
@@ -1258,7 +1292,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_String(query, serializer);
           sse_encode_u_32(limit, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 31)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 32)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_list_search_hit_view,
@@ -1293,7 +1327,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_String(contactHex, serializer);
           sse_encode_String(path, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 32)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 33)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1330,7 +1364,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(groupIdHex, serializer);
           sse_encode_String(text, serializer);
           sse_encode_u_64(now, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 33)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 34)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1367,7 +1401,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_String(contactHex, serializer);
           sse_encode_String(text, serializer);
           sse_encode_u_64(now, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 34)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 35)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1402,7 +1436,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_String(passphrase, serializer);
           sse_encode_bool(enabled, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 35)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 36)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1437,7 +1471,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_String(contactHex, serializer);
           sse_encode_bool(saved, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 36)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 37)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1472,7 +1506,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
           sse_encode_String(contactHex, serializer);
           sse_encode_u_8(status, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 37)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 38)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1505,7 +1539,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             serializer,
           );
           sse_encode_String(text, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 38)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 39)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1538,7 +1572,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             serializer,
           );
           sse_encode_list_prim_u_8_loose(bytes, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 39)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 40)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1573,7 +1607,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             pdeCallFfi(
               generalizedFrbRustBinding,
               serializer,
-              funcId: 40,
+              funcId: 41,
               port: port_,
             );
           },
@@ -1606,7 +1640,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 41)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 42)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -1632,7 +1666,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             that,
             serializer,
           );
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 42)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 43)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -1654,7 +1688,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 43)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 44)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -1677,7 +1711,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(name, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 44)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 45)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -1702,7 +1736,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 45,
+            funcId: 46,
             port: port_,
           );
         },
@@ -1726,7 +1760,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 46)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 47)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -1748,7 +1782,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SyncTask(
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 47)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 48)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -1771,7 +1805,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(path, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 48)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 49)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_unit,
@@ -2858,6 +2892,14 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
         groupIdHex: groupIdHex,
         name: name,
       );
+
+  /// Throw away Tor's cached directory data and start the network again.
+  ///
+  /// The identity and the onion address are kept — only what Tor can fetch
+  /// again is deleted. This is the manual version of the repair the app
+  /// already tries by itself when a bootstrap stalls.
+  Stream<NetEvent> repairTor() =>
+      RustLib.instance.api.crateApiUmbraUmbraAppRepairTor(that: this);
 
   /// Search every conversation for text. Both kinds of message are covered;
   /// newest first.
