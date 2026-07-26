@@ -120,6 +120,8 @@ fn demo() {
             display_name: "Bob".to_string(),
             onion_addr: "exampleonionaddress.onion".to_string(),
             added_at: DEMO_EPOCH,
+            status: umbra_core::store::ContactStatus::Accepted,
+            saved: true,
         }).unwrap();
         store.insert_message(&NewMessage {
             contact_pubkey: phone.public(),

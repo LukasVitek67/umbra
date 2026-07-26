@@ -1,8 +1,21 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<div align="center">
+
+<img src="docs/big-sister.png" alt="BIG SISTER IS WATCHING YOU" width="320">
+
+### She is always watching. Umbra is what she cannot read.
+
+</div>
+
 # Umbra
 
 **Fully open-source, end-to-end encrypted, peer-to-peer messenger** for text and
 files. Native on **Android, Windows, Linux** — no web, no central server.
+
+Messages are sealed with the **Signal protocol** (PQXDH + Double Ratchet, from
+Signal's own `libsignal`) and carried over **Tor onion services**, so there is
+no server to subpoena, no directory of users, and nothing in the middle that
+could hand anything over — because it never had it.
 
 > ⚠️ **Experimental. Unaudited. Do not rely on Umbra to protect anyone whose
 > safety depends on it until it has passed an independent security audit

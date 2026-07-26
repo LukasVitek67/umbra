@@ -96,10 +96,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<SearchHitView> dco_decode_list_search_hit_view(dynamic raw);
+
+  @protected
   MessageView dco_decode_message_view(dynamic raw);
 
   @protected
   NetEvent dco_decode_net_event(dynamic raw);
+
+  @protected
+  SearchHitView dco_decode_search_hit_view(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -195,10 +201,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<SearchHitView> sse_decode_list_search_hit_view(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   MessageView sse_decode_message_view(SseDeserializer deserializer);
 
   @protected
   NetEvent sse_decode_net_event(SseDeserializer deserializer);
+
+  @protected
+  SearchHitView sse_decode_search_hit_view(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -327,10 +341,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_search_hit_view(
+    List<SearchHitView> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_message_view(MessageView self, SseSerializer serializer);
 
   @protected
   void sse_encode_net_event(NetEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_search_hit_view(SearchHitView self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);

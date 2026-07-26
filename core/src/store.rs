@@ -237,6 +237,23 @@ pub struct NewGroupMessage<'a> {
     pub body: &'a [u8],
 }
 
+/// A message matched by a search or a contact lookup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchHit {
+    /// Row id in its own table.
+    pub id: i64,
+    /// The other party (or, in a group, the sender).
+    pub peer_pubkey: [u8; 32],
+    /// Set when the message came from a group.
+    pub group_id: Option<[u8; 16]>,
+    /// True when we wrote it.
+    pub outgoing: bool,
+    /// Timestamp (unix seconds).
+    pub sent_at: u64,
+    /// Decrypted text.
+    pub body: String,
+}
+
 /// A stored group message (decrypted).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GroupMessage {
@@ -687,6 +704,149 @@ impl Store {
         Ok(None)
     }
 
+    /// One message found by a search, from either kind of conversation.
+    ///
+    /// Bodies are encrypted at rest, so there is nothing for SQL to match on:
+    /// searching means decrypting and comparing here. That is fine for a
+    /// personal history and keeps the promise that the database says nothing
+    /// about content — a searchable plaintext index would quietly break it.
+    pub fn search_messages(&self, query: &str, limit: u32) -> Result<Vec<SearchHit>, StoreError> {
+        let needle = query.trim().to_lowercase();
+        if needle.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut hits = Vec::new();
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, contact_pubkey, direction, sent_at, body FROM messages
+             ORDER BY sent_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Vec<u8>>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, Vec<u8>>(4)?,
+            ))
+        })?;
+        for row in rows {
+            if hits.len() as u32 >= limit {
+                break;
+            }
+            let (id, peer, dir, sent_at, body_ct) = row?;
+            let body = self.unseal(&body_ct)?;
+            let text = String::from_utf8_lossy(&body).to_string();
+            if text.to_lowercase().contains(&needle) {
+                hits.push(SearchHit {
+                    id,
+                    peer_pubkey: to_key32(&peer)?,
+                    group_id: None,
+                    outgoing: Direction::from_i64(dir)? == Direction::Outgoing,
+                    sent_at: sent_at as u64,
+                    body: text,
+                });
+            }
+        }
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, group_id, sender_pubkey, direction, sent_at, body FROM group_messages
+             ORDER BY sent_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Vec<u8>>(1)?,
+                r.get::<_, Vec<u8>>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, Vec<u8>>(5)?,
+            ))
+        })?;
+        for row in rows {
+            if hits.len() as u32 >= limit * 2 {
+                break;
+            }
+            let (id, gid, sender, dir, sent_at, body_ct) = row?;
+            let body = self.unseal(&body_ct)?;
+            let text = String::from_utf8_lossy(&body).to_string();
+            if text.to_lowercase().contains(&needle) {
+                hits.push(SearchHit {
+                    id,
+                    peer_pubkey: to_key32(&sender)?,
+                    group_id: Some(gid.as_slice().try_into().map_err(|_| StoreError::Corrupt)?),
+                    outgoing: Direction::from_i64(dir)? == Direction::Outgoing,
+                    sent_at: sent_at as u64,
+                    body: text,
+                });
+            }
+        }
+
+        hits.sort_by(|a, b| b.sent_at.cmp(&a.sent_at));
+        hits.truncate(limit as usize);
+        Ok(hits)
+    }
+
+    /// Everything a given person ever sent us — in the 1:1 thread and in any
+    /// group. Used by the contact view, where "what did they write" is the
+    /// question, not "where was it written".
+    pub fn messages_from(
+        &self,
+        sender: &[u8; 32],
+        limit: u32,
+    ) -> Result<Vec<SearchHit>, StoreError> {
+        let mut hits = Vec::new();
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, sent_at, body FROM messages
+             WHERE contact_pubkey = ?1 AND direction = 0
+             ORDER BY sent_at DESC, id DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![sender.as_slice(), limit], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, Vec<u8>>(2)?))
+        })?;
+        for row in rows {
+            let (id, sent_at, body_ct) = row?;
+            hits.push(SearchHit {
+                id,
+                peer_pubkey: *sender,
+                group_id: None,
+                outgoing: false,
+                sent_at: sent_at as u64,
+                body: String::from_utf8_lossy(&self.unseal(&body_ct)?).to_string(),
+            });
+        }
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, group_id, sent_at, body FROM group_messages
+             WHERE sender_pubkey = ?1 AND direction = 0
+             ORDER BY sent_at DESC, id DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![sender.as_slice(), limit], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Vec<u8>>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, Vec<u8>>(3)?,
+            ))
+        })?;
+        for row in rows {
+            let (id, gid, sent_at, body_ct) = row?;
+            hits.push(SearchHit {
+                id,
+                peer_pubkey: *sender,
+                group_id: Some(gid.as_slice().try_into().map_err(|_| StoreError::Corrupt)?),
+                outgoing: false,
+                sent_at: sent_at as u64,
+                body: String::from_utf8_lossy(&self.unseal(&body_ct)?).to_string(),
+            });
+        }
+
+        hits.sort_by(|a, b| b.sent_at.cmp(&a.sent_at));
+        hits.truncate(limit as usize);
+        Ok(hits)
+    }
+
     /// Every identity we have exchanged messages with, contact or not.
     pub fn message_peers(&self) -> Result<Vec<[u8; 32]>, StoreError> {
         let mut stmt = self
@@ -1127,6 +1287,91 @@ mod tests {
 
     /// The bug this guards against: a peer who wrote to us first had messages
     /// but no contact row, so the whole thread vanished on restart.
+    #[test]
+    fn search_finds_text_in_both_kinds_of_conversation() {
+        let s = Store::open_in_memory(&[19u8; 32]).unwrap();
+        let peer = [3u8; 32];
+        let gid = [4u8; 16];
+        s.insert_message(&NewMessage {
+            contact_pubkey: peer,
+            direction: Direction::Incoming,
+            sent_at: 100,
+            body: "sraz v pondeli".as_bytes(),
+        })
+        .unwrap();
+        s.insert_group_message(&NewGroupMessage {
+            group_id: gid,
+            sender_pubkey: peer,
+            direction: Direction::Incoming,
+            sent_at: 200,
+            body: "Sraz az v utery".as_bytes(),
+        })
+        .unwrap();
+        s.insert_message(&NewMessage {
+            contact_pubkey: peer,
+            direction: Direction::Outgoing,
+            sent_at: 300,
+            body: "necо jineho".as_bytes(),
+        })
+        .unwrap();
+
+        // Case-insensitive, both tables, newest first.
+        let hits = s.search_messages("SRAZ", 10).unwrap();
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].sent_at, 200);
+        assert_eq!(hits[0].group_id, Some(gid));
+        assert_eq!(hits[1].group_id, None);
+
+        assert!(s.search_messages("nikde", 10).unwrap().is_empty());
+        assert!(s.search_messages("   ", 10).unwrap().is_empty());
+        assert_eq!(s.search_messages("sraz", 1).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_contact_view_shows_only_what_they_sent() {
+        let s = Store::open_in_memory(&[20u8; 32]).unwrap();
+        let them = [5u8; 32];
+        let someone_else = [6u8; 32];
+        s.insert_message(&NewMessage {
+            contact_pubkey: them,
+            direction: Direction::Incoming,
+            sent_at: 10,
+            body: b"od nich primo",
+        })
+        .unwrap();
+        // Our own reply must not show up as something they sent.
+        s.insert_message(&NewMessage {
+            contact_pubkey: them,
+            direction: Direction::Outgoing,
+            sent_at: 11,
+            body: b"moje odpoved",
+        })
+        .unwrap();
+        s.insert_group_message(&NewGroupMessage {
+            group_id: [7u8; 16],
+            sender_pubkey: them,
+            direction: Direction::Incoming,
+            sent_at: 12,
+            body: b"od nich ve skupine",
+        })
+        .unwrap();
+        s.insert_group_message(&NewGroupMessage {
+            group_id: [7u8; 16],
+            sender_pubkey: someone_else,
+            direction: Direction::Incoming,
+            sent_at: 13,
+            body: b"od nekoho jineho",
+        })
+        .unwrap();
+
+        let hits = s.messages_from(&them, 50).unwrap();
+        assert_eq!(hits.len(), 2);
+        assert!(hits.iter().all(|h| !h.outgoing));
+        assert_eq!(hits[0].body, "od nich ve skupine");
+        assert_eq!(hits[0].group_id, Some([7u8; 16]));
+        assert_eq!(hits[1].group_id, None);
+    }
+
     #[test]
     fn history_without_a_contact_row_gets_one() {
         let s = Store::open_in_memory(&[13u8; 32]).unwrap();

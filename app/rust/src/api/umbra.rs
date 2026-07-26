@@ -364,6 +364,27 @@ pub struct MessageView {
     pub state: u8,
 }
 
+/// A message found by search, or one a contact sent us.
+pub struct SearchHitView {
+    /// Who wrote it (or, in a 1:1 thread, the other party).
+    pub peer_hex: String,
+    /// Empty for a direct message, otherwise the group it was written in.
+    pub group_hex: String,
+    pub outgoing: bool,
+    pub sent_at: u64,
+    pub body: String,
+}
+
+fn hit_view(h: umbra_core::store::SearchHit) -> SearchHitView {
+    SearchHitView {
+        peer_hex: hex(&h.peer_pubkey),
+        group_hex: h.group_id.map(|g| hex(&g)).unwrap_or_default(),
+        outgoing: h.outgoing,
+        sent_at: h.sent_at,
+        body: h.body,
+    }
+}
+
 /// One member of a group, flattened for the UI.
 pub struct GroupMemberView {
     pub identity_hex: String,
@@ -1041,6 +1062,38 @@ impl UmbraApp {
                 },
                 saved: c.saved,
             })
+            .collect())
+    }
+
+    /// Search every conversation for text. Both kinds of message are covered;
+    /// newest first.
+    #[frb(sync)]
+    pub fn search_messages(&self, query: String, limit: u32) -> Result<Vec<SearchHitView>, String> {
+        let g = self.inner.lock().unwrap();
+        Ok(g
+            .store
+            .search_messages(&query, limit)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(hit_view)
+            .collect())
+    }
+
+    /// Everything one person has sent us, in the 1:1 thread and in groups.
+    #[frb(sync)]
+    pub fn messages_from_contact(
+        &self,
+        contact_hex: String,
+        limit: u32,
+    ) -> Result<Vec<SearchHitView>, String> {
+        let pk = unhex(&contact_hex).ok_or_else(|| "bad contact id".to_string())?;
+        let g = self.inner.lock().unwrap();
+        Ok(g
+            .store
+            .messages_from(&pk, limit)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(hit_view)
             .collect())
     }
 

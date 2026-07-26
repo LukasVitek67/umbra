@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `emit`, `flush_pending`, `handle_payload`, `hex`, `identity_pubkey`, `install_dir`, `log_line`, `now_secs`, `pending_count`, `remember_group_routes`, `remember_peer`, `rt`, `send_or_queue`, `send_profile`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
+// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `emit`, `flush_pending`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `log_line`, `now_secs`, `pending_count`, `remember_group_routes`, `remember_peer`, `rt`, `send_or_queue`, `send_profile`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Inner`, `Pending`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 
@@ -126,6 +126,12 @@ abstract class UmbraApp implements RustOpaqueInterface {
     required int limit,
   });
 
+  /// Everything one person has sent us, in the 1:1 thread and in groups.
+  List<SearchHitView> messagesFromContact({
+    required String contactHex,
+    required int limit,
+  });
+
   /// A shareable `umbra1:` invite carrying our identity, username and live
   /// onion address. Empty until the onion service is up.
   String myInvite();
@@ -172,6 +178,13 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// Rename a group. The new name travels with the roster, so everyone sees
   /// it (a group has no owner — see `docs/THREAT_MODEL.md`).
   GroupView renameGroup({required String groupIdHex, required String name});
+
+  /// Search every conversation for text. Both kinds of message are covered;
+  /// newest first.
+  List<SearchHitView> searchMessages({
+    required String query,
+    required int limit,
+  });
 
   /// Send a file to a connected contact: read it, split it into chunks and
   /// push each one through the encrypted session. Progress arrives as events.
@@ -452,4 +465,43 @@ class NetEvent {
           kind == other.kind &&
           data == other.data &&
           peerHex == other.peerHex;
+}
+
+/// A message found by search, or one a contact sent us.
+class SearchHitView {
+  /// Who wrote it (or, in a 1:1 thread, the other party).
+  final String peerHex;
+
+  /// Empty for a direct message, otherwise the group it was written in.
+  final String groupHex;
+  final bool outgoing;
+  final BigInt sentAt;
+  final String body;
+
+  const SearchHitView({
+    required this.peerHex,
+    required this.groupHex,
+    required this.outgoing,
+    required this.sentAt,
+    required this.body,
+  });
+
+  @override
+  int get hashCode =>
+      peerHex.hashCode ^
+      groupHex.hashCode ^
+      outgoing.hashCode ^
+      sentAt.hashCode ^
+      body.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SearchHitView &&
+          runtimeType == other.runtimeType &&
+          peerHex == other.peerHex &&
+          groupHex == other.groupHex &&
+          outgoing == other.outgoing &&
+          sentAt == other.sentAt &&
+          body == other.body;
 }

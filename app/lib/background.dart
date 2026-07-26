@@ -17,6 +17,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'l10n.dart';
 import 'notifications.dart';
+import 'single_instance.dart';
 
 /// The flag the auto-start entry passes, so a launch at sign-in does not throw
 /// a window in the user's face.
@@ -114,6 +115,7 @@ class BackgroundMode with WindowListener, TrayListener {
 
   /// Really quit — after this nothing can reach the user.
   Future<void> quit() async {
+    await SingleInstance.release();
     await trayManager.destroy();
     await windowManager.setPreventClose(false);
     await windowManager.destroy();

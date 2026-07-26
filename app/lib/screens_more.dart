@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 
 import 'autostart.dart';
 import 'l10n.dart';
+import 'licenses.dart';
+import 'notifications.dart';
 import 'mock.dart';
 import 'screens_chats.dart' show ScreenHeader;
 import 'theme.dart';
@@ -406,7 +408,15 @@ class SettingsScreen extends StatelessWidget {
             ),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: _NotificationsPanel(),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
               child: _UpdatePanel(),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: _LicensesEntry(),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
@@ -459,6 +469,200 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
+
+/// How much a notification is allowed to say.
+///
+/// The detailed form is tied to auto sign-in on purpose: it is the same
+/// decision, stated twice. If this computer may open the account unattended,
+/// showing the message on it changes nothing; if it may not, the notification
+/// must not become the back door.
+class _NotificationsPanel extends StatefulWidget {
+  const _NotificationsPanel();
+
+  @override
+  State<_NotificationsPanel> createState() => _NotificationsPanelState();
+}
+
+class _NotificationsPanelState extends State<_NotificationsPanel> {
+  @override
+  Widget build(BuildContext context) {
+    final allowed = appState.autologinEnabled;
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.notifications_none, color: UmbraColors.textMuted),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(L.t('notif.detail'),
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: allowed ? UmbraColors.textPrimary : UmbraColors.textMuted)),
+                    const SizedBox(height: 3),
+                    Text(
+                      allowed ? L.t('notif.detailHelp') : L.t('notif.detailLocked'),
+                      style: TextStyle(color: UmbraColors.textMuted, fontSize: 13, height: 1.35),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: allowed && Notifications.showContent,
+                onChanged: allowed
+                    ? (v) async {
+                        await Notifications.setShowContent(v);
+                        if (mounted) setState(() {});
+                      }
+                    : null,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            L
+                .t('notif.example')
+                .replaceAll('{account}', appState.username)
+                .replaceAll(
+                  '{example}',
+                  allowed && Notifications.showContent
+                      ? '${L.t('notif.exampleFrom')} → @${appState.username}: ${L.t('notif.exampleBody')}'
+                      : L.t('notif.newFor').replaceAll('{account}', appState.username),
+                ),
+            style: TextStyle(color: UmbraColors.textMuted, fontSize: 12, fontStyle: FontStyle.italic),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// What Umbra is built from, and under what licence.
+class _LicensesEntry extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (ctx) => Scaffold(
+            body: SafeArea(child: LicensesScreen(onBack: () => Navigator.of(ctx).pop())),
+          ),
+        ),
+      ),
+      child: Panel(
+        child: Row(
+          children: [
+            Icon(Icons.balance, color: UmbraColors.textMuted),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(L.t('licenses.title'),
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 3),
+                  Text(L.t('licenses.subtitle'),
+                      style: TextStyle(color: UmbraColors.textMuted, fontSize: 13)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: UmbraColors.textMuted),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The full list: what we ship, what we link against, and the terms.
+class LicensesScreen extends StatelessWidget {
+  const LicensesScreen({super.key, this.onBack});
+  final VoidCallback? onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ScreenHeader(L.t('licenses.title'),
+            subtitle: L.t('licenses.header'), onBack: onBack),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+            children: [
+              for (final section in kLicenses) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 14, 4, 8),
+                  child: Text(section.title,
+                      style: TextStyle(
+                          color: UmbraColors.accent,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.4)),
+                ),
+                for (final e in section.entries)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Panel(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(e.name,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600, fontSize: 14)),
+                              ),
+                              const SizedBox(width: 10),
+                              Pill(e.license),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(e.what,
+                              style: TextStyle(
+                                  color: UmbraColors.textMuted, fontSize: 13, height: 1.35)),
+                          if (e.url != null) ...[
+                            const SizedBox(height: 6),
+                            SelectableText(e.url!,
+                                style: TextStyle(
+                                    color: UmbraColors.textMuted,
+                                    fontSize: 11,
+                                    fontFamily: 'monospace')),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+              const SizedBox(height: 8),
+              Text(L.t('licenses.full'),
+                  style: TextStyle(color: UmbraColors.textMuted, fontSize: 12, height: 1.4)),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => showLicensePage(
+                  context: context,
+                  applicationName: 'Umbra',
+                  applicationVersion: appState.version,
+                  applicationLegalese: 'AGPL-3.0-or-later',
+                ),
+                icon: const Icon(Icons.article_outlined, size: 18),
+                label: Text(L.t('licenses.packages')),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 /// Devices used to be its own rail section; it is rare enough to live in
 /// Settings and open on demand.

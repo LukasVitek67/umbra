@@ -60,6 +60,20 @@ async fn main() -> Result<()> {
     println!();
     println!("↑ Zkopíruj řádek INVITE (i s 'umbra1:') do aplikace: Chaty → Přidat");
 
+    fn frame_name(p: &envelope::Payload) -> &'static str {
+        match p {
+            envelope::Payload::Text(_) => "text",
+            envelope::Payload::Profile { .. } => "profil",
+            envelope::Payload::FileOffer { .. } => "nabídka souboru",
+            envelope::Payload::FileChunk { .. } => "kus souboru",
+            envelope::Payload::FileEnd { .. } => "konec souboru",
+            envelope::Payload::GroupText { .. } => "skupinová zpráva",
+            envelope::Payload::GroupInfo { .. } => "roster skupiny",
+            envelope::Payload::Address { .. } => "adresa protějšku",
+            envelope::Payload::Receipt { .. } => "potvrzení doručení",
+        }
+    }
+
     match mode.as_str() {
         "listen" => {
             eprintln!("[*] Čekám na spojení… (Ctrl+C ukončí)");
@@ -87,6 +101,9 @@ async fn main() -> Result<()> {
                         Some(envelope::Payload::FileEnd { .. }) => {
                             eprintln!("[*] ✓ soubor kompletní");
                         }
+                        // The probe only reports the app-level frames; groups,
+                        // addresses and receipts are the app's business.
+                        Some(other) => eprintln!("[*] rámec typu {}", frame_name(&other)),
                         None => eprintln!("[*] neznámý formát zprávy"),
                     }
                 } else {

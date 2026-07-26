@@ -132,6 +132,17 @@ class GroupChat {
   Message? get last => messages.isEmpty ? null : messages.last;
 }
 
+/// What a search turned up, kept apart so the UI can label each kind.
+class SearchResults {
+  const SearchResults(this.people, this.groups, this.messages);
+  final List<Chat> people;
+  final List<GroupChat> groups;
+  final List<SearchHitView> messages;
+
+  bool get isEmpty => people.isEmpty && groups.isEmpty && messages.isEmpty;
+  int get total => people.length + groups.length + messages.length;
+}
+
 int _nowSecs() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
 /// Global app state, backed by the real core.
@@ -197,6 +208,19 @@ class AppState extends ChangeNotifier {
   final List<Chat> chats = [];
   final List<GroupChat> groups = [];
   final List<Device> devices = [];
+
+  // --- what the user is looking at ---
+  //
+  // Kept here, not in the shell's State: switching a colour theme rebuilds the
+  // whole widget tree (that is what makes every screen take the new palette),
+  // and a section or an open conversation stored in a State would be thrown
+  // away with it — you would land back in Chats after picking a colour.
+  /// Which rail section is open: 0 chats, 1 contacts, 2 settings.
+  int railSection = 0;
+  /// The open 1:1 conversation, if any.
+  Chat? selectedChat;
+  /// The open group conversation, if any.
+  GroupChat? selectedGroup;
 
   Future<String> _dir() async => (await getApplicationSupportDirectory()).path;
 
@@ -483,6 +507,50 @@ class AppState extends ChangeNotifier {
 
   List<Chat> get blockedContacts => chats.where((c) => c.isBlocked).toList();
 
+  /// Let a screen outside this class announce a change it made to the shared
+  /// state (which conversation is open, which section is showing).
+  void notify() => notifyListeners();
+
+  // --- search ---
+
+  /// Find people, groups and individual messages in one pass.
+  ///
+  /// Names are matched here (they are already in memory); message text is
+  /// matched in Rust, which has to decrypt each body to do it — that is the
+  /// price of a database that keeps nothing readable at rest.
+  SearchResults search(String rawQuery) {
+    final q = rawQuery.trim().toLowerCase();
+    if (q.isEmpty) return const SearchResults([], [], []);
+    final people = chats
+        .where((c) =>
+            !c.isBlocked &&
+            (c.name.toLowerCase().contains(q) || c.userCode.toLowerCase().contains(q)))
+        .toList();
+    final matchedGroups =
+        groups.where((g) => g.name.toLowerCase().contains(q)).toList();
+    var hits = <SearchHitView>[];
+    try {
+      hits = _app?.searchMessages(query: rawQuery.trim(), limit: 60) ?? [];
+    } catch (e) {
+      lastError = _clean(e);
+    }
+    return SearchResults(people, matchedGroups, hits);
+  }
+
+  /// Everything one person has sent us, across the 1:1 thread and every group.
+  List<SearchHitView> messagesFrom(Chat chat) {
+    try {
+      return _app?.messagesFromContact(contactHex: chat.contactHex, limit: 300) ?? [];
+    } catch (e) {
+      lastError = _clean(e);
+      return [];
+    }
+  }
+
+  /// The groups a contact is a member of.
+  List<GroupChat> groupsWith(Chat chat) =>
+      groups.where((g) => g.members.any((m) => m.identityHex == chat.contactHex)).toList();
+
   /// Give a contact your own name for them.
   void renameChat(Chat chat, String name) {
     final n = name.trim();
@@ -547,8 +615,10 @@ class AppState extends ChangeNotifier {
     chat.messages.add(Message(body, outgoing: false, at: now));
     Notifications.message(
       conversationId: peerHex,
+      account: username,
       from: chat.isWaiting ? L.t('waiting.title') : chat.name,
       body: body,
+      detailed: Notifications.showContent && autologinEnabled,
       // Someone still waiting for approval does not get to put their text on
       // the user's screen.
       preview: !chat.isWaiting,
@@ -837,8 +907,10 @@ class AppState extends ChangeNotifier {
     ));
     Notifications.message(
       conversationId: group.idHex,
-      from: '${group.name} • $senderName',
+      account: username,
+      from: '$senderName (${group.name})',
       body: body,
+      detailed: Notifications.showContent && autologinEnabled,
     );
   }
 

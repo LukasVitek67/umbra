@@ -12,3 +12,4 @@
 pub mod keystore;
 pub mod padding;
 pub mod ratchet;
+pub mod signal;

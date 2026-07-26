@@ -24,6 +24,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# libsignal generates code from protobufs at build time, and the JDK's internal
+# pipes fail under an 8.3-shortened TEMP path, which breaks the Android build.
+if (-not $env:PROTOC -and (Test-Path 'C:\protoc\bin\protoc.exe')) { $env:PROTOC = 'C:\protoc\bin\protoc.exe' }
+if ($env:TEMP -match '~') { New-Item -ItemType Directory -Force -Path 'C:\Temp' | Out-Null; $env:TMP = 'C:\Temp'; $env:TEMP = 'C:\Temp' }
 $root = Split-Path -Parent $PSScriptRoot
 $app = Join-Path $root 'app'
 $release = Join-Path $app 'build\windows\x64\runner\Release'

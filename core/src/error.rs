@@ -107,6 +107,8 @@ pub enum RatchetError {
     SessionCreation,
     /// A message failed to decrypt (bad key, tampering, or replay).
     Decryption,
+    /// A prekey bundle from a peer was malformed.
+    InvalidBundle,
 }
 
 impl fmt::Display for RatchetError {
@@ -116,6 +118,7 @@ impl fmt::Display for RatchetError {
             RatchetError::ExpectedPreKey => "expected a pre-key message",
             RatchetError::SessionCreation => "could not create inbound session",
             RatchetError::Decryption => "message failed to decrypt",
+            RatchetError::InvalidBundle => "malformed prekey bundle",
         };
         write!(f, "{s}")
     }

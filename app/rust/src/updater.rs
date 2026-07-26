@@ -355,14 +355,20 @@ fn swap_in(staging: &Path, install_dir: &Path) -> Result<(), String> {
         }
         if target.exists() {
             // A file that is currently in use (our own .exe/.dll) cannot be
-            // overwritten, but it can be moved out of the way.
+            // overwritten, but it can be moved out of the way — unless *another*
+            // copy of Umbra is running and holding it, which is worth saying
+            // plainly instead of failing with a bare OS error.
             let old = target.with_extension(format!(
                 "{}.old",
                 target.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default()
             ));
             let _ = std::fs::remove_file(&old);
-            std::fs::rename(&target, &old)
-                .map_err(|e| format!("nelze nahradit {target:?}: {e}"))?;
+            std::fs::rename(&target, &old).map_err(|e| {
+                format!(
+                    "nelze nahradit {}: {e} — běží ještě jiná Umbra? Zavři ji a zkus to znovu.",
+                    target.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+                )
+            })?;
         }
         std::fs::copy(&entry, &target).map_err(|e| format!("nelze zapsat {target:?}: {e}"))?;
     }

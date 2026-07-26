@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import 'l10n.dart';
 import 'mock.dart';
+import 'src/rust/api/umbra.dart' show SearchHitView;
 import 'theme.dart';
 
 String _hhmm(DateTime t) =>
@@ -168,7 +169,7 @@ class ScreenHeader extends StatelessWidget {
   }
 }
 
-class ChatsScreen extends StatelessWidget {
+class ChatsScreen extends StatefulWidget {
   const ChatsScreen({
     super.key,
     this.onSelect,
@@ -186,6 +187,25 @@ class ChatsScreen extends StatelessWidget {
   final String? selectedGroupHex;
 
   @override
+  State<ChatsScreen> createState() => _ChatsScreenState();
+}
+
+class _ChatsScreenState extends State<ChatsScreen> {
+  final _search = TextEditingController();
+  String _query = '';
+
+  void Function(Chat chat)? get onSelect => widget.onSelect;
+  String? get selectedHex => widget.selectedHex;
+  void Function(GroupChat group)? get onSelectGroup => widget.onSelectGroup;
+  String? get selectedGroupHex => widget.selectedGroupHex;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: appState,
@@ -201,30 +221,81 @@ class ChatsScreen extends StatelessWidget {
             ScreenHeader(
               L.t('chats.title'),
               subtitle: L.t('chats.subtitle'),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: L.t('contacts.title'),
-                    onPressed: () => showContacts(context),
-                    icon: const Icon(Icons.contacts_outlined),
-                    color: UmbraColors.textMuted,
+              // One button, two ways to start something: a group, or a person
+              // from their invite.
+              trailing: PopupMenuButton<String>(
+                tooltip: L.t('chats.new'),
+                position: PopupMenuPosition.under,
+                onSelected: (value) {
+                  if (value == 'group') {
+                    showCreateGroup(context);
+                  } else {
+                    showAddContact(context);
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'contact',
+                    child: Row(children: [
+                      Icon(Icons.person_add_alt_1, size: 18, color: UmbraColors.textMuted),
+                      const SizedBox(width: 10),
+                      Text(L.t('chats.add')),
+                    ]),
                   ),
-                  IconButton(
-                    tooltip: L.t('groups.create'),
-                    onPressed: () => showCreateGroup(context),
-                    icon: const Icon(Icons.group_add_outlined),
-                    color: UmbraColors.textMuted,
-                  ),
-                  const SizedBox(width: 4),
-                  FilledButton.icon(
-                    onPressed: () => showAddContact(context),
-                    icon: const Icon(Icons.person_add_alt_1, size: 18),
-                    label: Text(L.t('chats.add')),
+                  PopupMenuItem(
+                    value: 'group',
+                    child: Row(children: [
+                      Icon(Icons.group_add_outlined, size: 18, color: UmbraColors.textMuted),
+                      const SizedBox(width: 10),
+                      Text(L.t('groups.create')),
+                    ]),
                   ),
                 ],
+                child: FilledButton.icon(
+                  // The menu is on the parent; the button only has to look like
+                  // one, hence the null callback.
+                  onPressed: null,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: Text(L.t('chats.new')),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: UmbraColors.accent,
+                    disabledBackgroundColor: UmbraColors.accent,
+                    foregroundColor: UmbraColors.accentInk,
+                    disabledForegroundColor: UmbraColors.accentInk,
+                  ),
+                ),
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+              child: TextField(
+                controller: _search,
+                onChanged: (v) => setState(() => _query = v),
+                decoration: InputDecoration(
+                  hintText: L.t('search.hint'),
+                  prefixIcon: Icon(Icons.search, size: 20, color: UmbraColors.textMuted),
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: Icon(Icons.close, size: 18, color: UmbraColors.textMuted),
+                          onPressed: () => setState(() {
+                            _search.clear();
+                            _query = '';
+                          }),
+                        ),
+                  isDense: true,
+                ),
+              ),
+            ),
+            if (_query.trim().isNotEmpty)
+              Expanded(
+                child: _SearchResults(
+                  query: _query,
+                  onSelect: (chat) => onSelect?.call(chat),
+                  onSelectGroup: (group) => onSelectGroup?.call(group),
+                ),
+              )
+            else ...[
             if (waiting.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
@@ -256,9 +327,182 @@ class ChatsScreen extends StatelessWidget {
                 },
               ),
             ),
+            ],
           ],
         );
       },
+    );
+  }
+}
+
+/// People, groups and single messages that match what was typed.
+class _SearchResults extends StatelessWidget {
+  const _SearchResults({
+    required this.query,
+    required this.onSelect,
+    required this.onSelectGroup,
+  });
+
+  final String query;
+  final void Function(Chat) onSelect;
+  final void Function(GroupChat) onSelectGroup;
+
+  @override
+  Widget build(BuildContext context) {
+    final results = appState.search(query);
+    if (results.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(L.t('search.none').replaceAll('{q}', query.trim()),
+              textAlign: TextAlign.center,
+              style: TextStyle(color: UmbraColors.textMuted, fontSize: 13)),
+        ),
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
+      children: [
+        if (results.people.isNotEmpty) ...[
+          _SearchHeading(L.t('search.people')),
+          for (final c in results.people)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _ChatTile(chat: c, onTap: onSelect),
+            ),
+        ],
+        if (results.groups.isNotEmpty) ...[
+          _SearchHeading(L.t('search.groups')),
+          for (final g in results.groups)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _GroupTile(group: g, onTap: onSelectGroup),
+            ),
+        ],
+        if (results.messages.isNotEmpty) ...[
+          _SearchHeading(L.t('search.messages')),
+          for (final m in results.messages)
+            _MessageHit(
+              hit: m,
+              query: query.trim(),
+              onOpen: () {
+                if (m.groupHex.isEmpty) {
+                  final chat = appState.chats
+                      .where((c) => c.contactHex == m.peerHex)
+                      .firstOrNull;
+                  if (chat != null) onSelect(chat);
+                } else {
+                  final group = appState.groupById(m.groupHex);
+                  if (group != null) onSelectGroup(group);
+                }
+              },
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SearchHeading extends StatelessWidget {
+  const _SearchHeading(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
+      child: Text(text,
+          style: TextStyle(
+              color: UmbraColors.accent,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.4)),
+    );
+  }
+}
+
+/// One matching message: where it was written, by whom, and the line itself
+/// with the match highlighted.
+class _MessageHit extends StatelessWidget {
+  const _MessageHit({required this.hit, required this.query, required this.onOpen});
+  final SearchHitView hit;
+  final String query;
+  final VoidCallback onOpen;
+
+  String _where() {
+    if (hit.groupHex.isNotEmpty) {
+      final group = appState.groupById(hit.groupHex);
+      return group?.name ?? L.t('search.inGroup');
+    }
+    final chat = appState.chats.where((c) => c.contactHex == hit.peerHex).firstOrNull;
+    return chat?.name ?? L.t('chats.unknown');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final at = DateTime.fromMillisecondsSinceEpoch(hit.sentAt.toInt() * 1000);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onOpen,
+        child: Panel(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(hit.groupHex.isEmpty ? Icons.person_outline : Icons.groups,
+                      size: 14, color: UmbraColors.textMuted),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '${hit.outgoing ? L.t('groups.you') : _where()} • ${_hhmm(at)} ${at.day}. ${at.month}.',
+                      style: TextStyle(color: UmbraColors.textMuted, fontSize: 11),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              _Highlighted(text: hit.body, needle: query),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The matched part of a line, marked so the eye lands on it.
+class _Highlighted extends StatelessWidget {
+  const _Highlighted({required this.text, required this.needle});
+  final String text;
+  final String needle;
+
+  @override
+  Widget build(BuildContext context) {
+    final base = TextStyle(color: UmbraColors.textPrimary, fontSize: 13, height: 1.3);
+    final start = text.toLowerCase().indexOf(needle.toLowerCase());
+    if (start < 0 || needle.isEmpty) {
+      return Text(text, maxLines: 3, overflow: TextOverflow.ellipsis, style: base);
+    }
+    final end = start + needle.length;
+    return RichText(
+      maxLines: 3,
+      overflow: TextOverflow.ellipsis,
+      text: TextSpan(style: base, children: [
+        TextSpan(text: text.substring(0, start)),
+        TextSpan(
+          text: text.substring(start, end),
+          style: base.copyWith(
+            color: UmbraColors.accent,
+            fontWeight: FontWeight.w700,
+            backgroundColor: UmbraColors.accent.withValues(alpha: 0.12),
+          ),
+        ),
+        TextSpan(text: text.substring(end)),
+      ]),
     );
   }
 }
@@ -431,31 +675,44 @@ class _WaitingTile extends StatelessWidget {
   }
 }
 
-/// The address book: contacts kept on purpose, with everything you can do to
-/// one of them in a single menu.
-void showContacts(BuildContext context) {
-  showDialog<void>(
-    context: context,
-    builder: (ctx) => ListenableBuilder(
+/// The address book, as its own section in the left bar: contacts kept on
+/// purpose, with everything you can do to one of them in a single menu.
+class ContactsScreen extends StatelessWidget {
+  const ContactsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
       listenable: appState,
-      builder: (ctx, _) {
+      builder: (context, _) {
         final saved = appState.savedContacts;
         final blocked = appState.blockedContacts;
-        return AlertDialog(
-          title: Text(L.t('contacts.title')),
-          content: SizedBox(
-            width: 420,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ScreenHeader(
+              L.t('contacts.title'),
+              subtitle: L.t('contacts.subtitle'),
+              trailing: FilledButton.icon(
+                onPressed: () => showAddContact(context),
+                icon: const Icon(Icons.person_add_alt_1, size: 18),
+                label: Text(L.t('chats.add')),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                 children: [
-                  if (saved.isEmpty)
-                    Text(L.t('contacts.empty'),
-                        style: TextStyle(color: UmbraColors.textMuted, fontSize: 13)),
+                  if (saved.isEmpty && blocked.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 40),
+                      child: Text(L.t('contacts.empty'),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: UmbraColors.textMuted, fontSize: 13)),
+                    ),
                   for (final c in saved) _ContactRow(chat: c),
                   if (blocked.isNotEmpty) ...[
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 18),
                     Text(L.t('contacts.blocked'),
                         style: TextStyle(
                             color: UmbraColors.textMuted,
@@ -466,14 +723,11 @@ void showContacts(BuildContext context) {
                 ],
               ),
             ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(L.t('common.close'))),
           ],
         );
       },
-    ),
-  );
+    );
+  }
 }
 
 class _ContactRow extends StatelessWidget {
@@ -486,6 +740,15 @@ class _ContactRow extends StatelessWidget {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       dense: true,
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (ctx) => Scaffold(
+            body: SafeArea(
+              child: ContactDetailScreen(chat: chat, onBack: () => Navigator.of(ctx).pop()),
+            ),
+          ),
+        ),
+      ),
       leading: ContactAvatar(chat: chat, radius: 16),
       title: Text(chat.name, style: const TextStyle(fontSize: 14)),
       subtitle: Text(chat.userCode,
@@ -520,6 +783,148 @@ class _ContactRow extends StatelessWidget {
             PopupMenuItem(value: 'unblock', child: Text(L.t('contacts.unblock'))),
         ],
       ),
+    );
+  }
+}
+
+/// One person, two questions: where do we share a conversation, and what have
+/// they actually written to me. The switch at the top decides which one is
+/// being answered.
+class ContactDetailScreen extends StatefulWidget {
+  const ContactDetailScreen({super.key, required this.chat, this.onBack});
+  final Chat chat;
+  final VoidCallback? onBack;
+
+  @override
+  State<ContactDetailScreen> createState() => _ContactDetailScreenState();
+}
+
+class _ContactDetailScreenState extends State<ContactDetailScreen> {
+  /// false = conversations, true = messages.
+  bool _showMessages = false;
+
+  /// 0 = everything, 1 = direct only, 2 = groups only.
+  int _filter = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final chat = widget.chat;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ScreenHeader(chat.name, subtitle: chat.userCode, onBack: widget.onBack),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+          child: SegmentedButton<bool>(
+            segments: [
+              ButtonSegment(value: false, label: Text(L.t('contact.where'))),
+              ButtonSegment(value: true, label: Text(L.t('contact.messages'))),
+            ],
+            selected: {_showMessages},
+            showSelectedIcon: false,
+            onSelectionChanged: (s) => setState(() => _showMessages = s.first),
+          ),
+        ),
+        if (_showMessages)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 4),
+            child: Wrap(
+              spacing: 8,
+              children: [
+                for (final f in [0, 1, 2])
+                  ChoiceChip(
+                    label: Text(
+                      [L.t('contact.all'), L.t('contact.direct'), L.t('contact.fromGroups')][f],
+                    ),
+                    selected: _filter == f,
+                    onSelected: (_) => setState(() => _filter = f),
+                  ),
+              ],
+            ),
+          ),
+        Expanded(child: _showMessages ? _messages(chat) : _conversations(chat)),
+      ],
+    );
+  }
+
+  Widget _conversations(Chat chat) {
+    final groups = appState.groupsWith(chat);
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      children: [
+        _SearchHeading(L.t('contact.directChat')),
+        _ChatTile(
+          chat: chat,
+          onTap: (c) {
+            appState.selectedChat = c;
+            appState.selectedGroup = null;
+            appState.railSection = 0;
+            appState.notify();
+            widget.onBack?.call();
+          },
+        ),
+        _SearchHeading('${L.t('contact.sharedGroups')} (${groups.length})'),
+        if (groups.isEmpty)
+          Text(L.t('contact.noGroups'),
+              style: TextStyle(color: UmbraColors.textMuted, fontSize: 13))
+        else
+          for (final g in groups)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _GroupTile(
+                group: g,
+                onTap: (group) {
+                  appState.selectedGroup = group;
+                  appState.selectedChat = null;
+                  appState.railSection = 0;
+                  appState.notify();
+                  widget.onBack?.call();
+                },
+              ),
+            ),
+      ],
+    );
+  }
+
+  Widget _messages(Chat chat) {
+    final all = appState.messagesFrom(chat);
+    final hits = all.where((h) {
+      if (_filter == 1) return h.groupHex.isEmpty;
+      if (_filter == 2) return h.groupHex.isNotEmpty;
+      return true;
+    }).toList();
+
+    if (hits.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(L.t('contact.noMessages'),
+              textAlign: TextAlign.center,
+              style: TextStyle(color: UmbraColors.textMuted, fontSize: 13)),
+        ),
+      );
+    }
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      children: [
+        for (final h in hits)
+          _MessageHit(
+            hit: h,
+            query: '',
+            onOpen: () {
+              if (h.groupHex.isEmpty) {
+                appState.selectedChat = chat;
+                appState.selectedGroup = null;
+              } else {
+                appState.selectedGroup = appState.groupById(h.groupHex);
+                appState.selectedChat = null;
+              }
+              appState.railSection = 0;
+              appState.notify();
+              widget.onBack?.call();
+            },
+          ),
+      ],
     );
   }
 }

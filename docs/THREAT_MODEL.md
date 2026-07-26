@@ -17,8 +17,13 @@
 
 ## What we protect
 
-- **Message & file content** — end-to-end encrypted (Double Ratchet); only the
-  intended recipient's device can decrypt. Relays carry opaque ciphertext.
+- **Message & file content** — end-to-end encrypted with the **Signal protocol**
+  (`libsignal`): PQXDH session setup and the Double Ratchet. Only the intended
+  recipient's device can decrypt; relays carry opaque ciphertext.
+- **Recorded traffic against a future quantum computer (session setup)** —
+  PQXDH mixes a post-quantum KEM (Kyber) into the key agreement, so a session
+  captured today is not opened by a quantum computer built later. The rest of
+  the stack (identity signatures, onion routing) is still classical.
 - **Message length** — padded to fixed size buckets before encryption, so
   content can't be inferred from size within a bucket.
 - **Transport metadata (partial)** — onion routing (Tor) hides the network path;

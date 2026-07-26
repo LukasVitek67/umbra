@@ -29,4 +29,7 @@ pub mod store;
 /// Semantic version of the wire/framing format. Bump on any incompatible change
 /// to how bytes are laid out on the wire, so peers can refuse mismatched peers
 /// instead of silently corrupting.
-pub const WIRE_VERSION: u16 = 1;
+/// Bumped to 2 when sessions moved from Olm to the Signal protocol (PQXDH +
+/// Double Ratchet): the handshake frames changed shape, so a 1.x peer and a
+/// 2.x peer cannot talk. Both sides update through the in-app updater.
+pub const WIRE_VERSION: u16 = 2;

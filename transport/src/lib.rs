@@ -21,7 +21,7 @@
 use anyhow::{anyhow, bail, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use umbra_core::crypto::padding::{pad, unpad};
-use umbra_core::crypto::ratchet::{RatchetAccount, RatchetSession};
+use umbra_core::crypto::signal::{PublishedBundle, SignalAccount};
 use umbra_core::identity::{self, Keypair};
 
 pub mod ctor;
@@ -38,24 +38,21 @@ const MAX_FRAME: usize = 1 << 20; // 1 MiB
 /// can stall. Sending this greeting primes the circuit.
 const HELLO_MAGIC: &[u8; 4] = b"UMB1";
 
-/// A local node: the account identity plus its ratchet key store.
+/// A local node: the account identity. The message keys are per-connection —
+/// see [`Session`].
 pub struct LocalNode {
     pub account: Keypair,
-    pub ratchet: RatchetAccount,
 }
 
 impl LocalNode {
-    /// Generate a brand-new node (fresh identity + ratchet keys).
+    /// Generate a brand-new node (fresh identity).
     pub fn generate() -> Result<Self> {
-        Ok(Self {
-            account: Keypair::generate().map_err(|e| anyhow!("identity: {e}"))?,
-            ratchet: RatchetAccount::new(),
-        })
+        Ok(Self { account: Keypair::generate().map_err(|e| anyhow!("identity: {e}"))? })
     }
 
-    /// Rebuild a node from a saved identity seed (ratchet keys are fresh).
+    /// Rebuild a node from a saved identity seed.
     pub fn from_seed(seed: &[u8; 32]) -> Self {
-        Self { account: Keypair::from_seed(seed), ratchet: RatchetAccount::new() }
+        Self { account: Keypair::from_seed(seed) }
     }
 
     /// This node's Ed25519 identity public key.
@@ -64,17 +61,21 @@ impl LocalNode {
     }
 }
 
-/// An established, ratcheting session with a peer.
+/// An established Signal session with one peer.
+///
+/// Each connection gets its own account and store, so the keys of one
+/// conversation are never in reach of another, and a fresh PQXDH runs every
+/// time you reconnect.
 pub struct Session {
-    inner: RatchetSession,
+    inner: SignalAccount,
 }
 
 impl Session {
-    /// Turn a plaintext into a message-frame payload (`type ‖ olm_body`), with
-    /// the payload length-hidden by padding first.
+    /// Turn a plaintext into a message-frame payload (`type ‖ body`), with the
+    /// payload length-hidden by padding first.
     pub fn encrypt_message(&mut self, plaintext: &[u8]) -> Vec<u8> {
         let framed = pad(plaintext).expect("padding never fails for in-range input");
-        let (t, body) = self.inner.encrypt_wire(&framed);
+        let (t, body) = self.inner.encrypt(&framed).expect("session is established");
         let mut out = Vec::with_capacity(1 + body.len());
         out.push(t);
         out.extend_from_slice(&body);
@@ -84,7 +85,7 @@ impl Session {
     /// Recover a plaintext from a message-frame payload.
     pub fn decrypt_message(&mut self, payload: &[u8]) -> Result<Vec<u8>> {
         let (&t, body) = payload.split_first().ok_or_else(|| anyhow!("empty message"))?;
-        let framed = self.inner.decrypt_wire(t, body).map_err(|e| anyhow!("decrypt: {e}"))?;
+        let framed = self.inner.decrypt(t, body).map_err(|e| anyhow!("decrypt: {e}"))?;
         unpad(&framed).map_err(|e| anyhow!("unpad: {e}"))
     }
 }
@@ -125,30 +126,32 @@ where
     stream.write_all(HELLO_MAGIC).await?;
     stream.flush().await?;
 
-    let prekey = read_frame(stream).await?;
-    if prekey.len() != 128 {
-        bail!("bad PREKEY length {}", prekey.len());
+    // The responder's bundle: their Signal prekeys, signed by the Ed25519
+    // identity we expect. The signature is the whole defence against a man in
+    // the middle — anyone can offer keys, only they can sign them.
+    let frame = read_frame(stream).await?;
+    if frame.len() < 64 {
+        bail!("bad PREKEY length {}", frame.len());
     }
-    let curve: [u8; 32] = prekey[0..32].try_into().unwrap();
-    let otk: [u8; 32] = prekey[32..64].try_into().unwrap();
-    let sig: [u8; 64] = prekey[64..128].try_into().unwrap();
-    if !identity::verify(&peer_ed25519, &prekey[0..64], &sig) {
+    let split = frame.len() - 64;
+    let (bundle_bytes, sig) = frame.split_at(split);
+    let sig: [u8; 64] = sig.try_into().unwrap();
+    if !identity::verify(&peer_ed25519, bundle_bytes, &sig) {
         bail!("PREKEY signature invalid — possible man-in-the-middle");
     }
 
-    let mut inner = node
-        .ratchet
-        .create_outbound_bytes(curve, otk)
+    let mut inner = SignalAccount::new().map_err(|e| anyhow!("session keys: {e}"))?;
+    inner
+        .start_session(&PublishedBundle::from_bytes(bundle_bytes))
         .map_err(|e| anyhow!("outbound session: {e}"))?;
 
     // First (empty) message doubles as the prekey message the responder needs.
-    let (t, body) = inner.encrypt_wire(&pad(b"").unwrap());
-    let curve_id = node.ratchet.identity_key_bytes();
-    let bind_sig = node.account.sign(&curve_id);
+    let (t, body) = inner.encrypt(&pad(b"").unwrap()).map_err(|e| anyhow!("first message: {e}"))?;
+    // Bind our own identity to this connection the same way.
+    let bind_sig = node.account.sign(&body);
 
-    let mut hello = Vec::with_capacity(128 + 1 + body.len());
+    let mut hello = Vec::with_capacity(97 + body.len());
     hello.extend_from_slice(&node.account.public());
-    hello.extend_from_slice(&curve_id);
     hello.extend_from_slice(&bind_sig);
     hello.push(t);
     hello.extend_from_slice(&body);
@@ -169,33 +172,30 @@ where
         bail!("not an Umbra peer");
     }
 
-    let (curve, otk) = node
-        .ratchet
-        .publish_prekey_bytes()
-        .map_err(|e| anyhow!("prekey: {e}"))?;
-    let mut prekey = Vec::with_capacity(128);
-    prekey.extend_from_slice(&curve);
-    prekey.extend_from_slice(&otk);
-    let sig = node.account.sign(&prekey);
+    // Fresh Signal keys for this connection, signed by our long-term identity.
+    let mut inner = SignalAccount::new().map_err(|e| anyhow!("session keys: {e}"))?;
+    let bundle = inner.publish_bundle().map_err(|e| anyhow!("prekey: {e}"))?;
+    let mut prekey = bundle.as_bytes().to_vec();
+    let sig = node.account.sign(bundle.as_bytes());
     prekey.extend_from_slice(&sig);
     write_frame(stream, &prekey).await?;
 
     let hello = read_frame(stream).await?;
-    if hello.len() < 129 {
+    if hello.len() < 98 {
         bail!("bad HELLO length {}", hello.len());
     }
     let peer_ed: [u8; 32] = hello[0..32].try_into().unwrap();
-    let peer_curve: [u8; 32] = hello[32..64].try_into().unwrap();
-    let bind_sig: [u8; 64] = hello[64..128].try_into().unwrap();
-    let t = hello[128];
-    let body = &hello[129..];
-    if !identity::verify(&peer_ed, &peer_curve, &bind_sig) {
+    let bind_sig: [u8; 64] = hello[32..96].try_into().unwrap();
+    let t = hello[96];
+    let body = &hello[97..];
+    // The signature covers their first message, so the identity they claim is
+    // the identity that produced this session.
+    if !identity::verify(&peer_ed, body, &bind_sig) {
         bail!("HELLO binding signature invalid — possible man-in-the-middle");
     }
 
-    let (inner, _first) = node
-        .ratchet
-        .create_inbound_wire(peer_curve, t, body)
+    inner
+        .decrypt(t, body)
         .map_err(|e| anyhow!("inbound session: {e}"))?;
     Ok((Session { inner }, peer_ed))
 }

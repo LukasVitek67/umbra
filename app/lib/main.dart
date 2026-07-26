@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import 'accounts_screen.dart';
@@ -12,11 +14,22 @@ import 'native_dir.dart';
 import 'notifications.dart';
 import 'screens_chats.dart';
 import 'screens_more.dart';
+import 'single_instance.dart';
 import 'src/rust/frb_generated.dart';
 import 'theme.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Before anything heavy: a second Umbra would fight the first one for Tor's
+  // data directory (and neither would connect), so hand over and quit instead.
+  final mine = await SingleInstance.acquire(
+    onSecondLaunch: () => BackgroundMode.instance.show(),
+  );
+  if (!mine) {
+    exit(0);
+  }
+
   await RustLib.init();
   await L.load();
   await UmbraTheme.load();
@@ -274,30 +287,34 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int _index = 0;
-  Chat? _selected;
-  GroupChat? _selectedGroup;
+  // Where the user is stays in appState, so a theme change (which rebuilds the
+  // whole tree) does not throw them back into Chats.
+  int get _index => appState.railSection;
+  Chat? get _selected => appState.selectedChat;
+  GroupChat? get _selectedGroup => appState.selectedGroup;
 
   /// The middle column: whichever section the rail has selected.
   Widget _section() {
     switch (_index) {
-      // Devices moved under Settings — it is not a place you visit often.
       case 1:
+        return const ContactsScreen();
+      // Devices moved under Settings — it is not a place you visit often.
+      case 2:
         return const SettingsScreen();
       default:
         return ChatsScreen(
           selectedHex: _selected?.contactHex,
           // Only one conversation is open at a time, be it a person or a group.
           onSelect: (chat) => setState(() {
-            _selected = chat;
-            _selectedGroup = null;
+            appState.selectedChat = chat;
+            appState.selectedGroup = null;
             // No notification for the conversation you are reading.
             Notifications.openConversation = chat.contactHex;
           }),
           selectedGroupHex: _selectedGroup?.idHex,
           onSelectGroup: (group) => setState(() {
-            _selectedGroup = group;
-            _selected = null;
+            appState.selectedGroup = group;
+            appState.selectedChat = null;
             Notifications.openConversation = group.idHex;
           }),
         );
@@ -311,8 +328,8 @@ class _HomeShellState extends State<HomeShell> {
         key: ValueKey(_selectedGroup!.idHex),
         group: _selectedGroup!,
         embedded: embedded,
-        onBack: () => setState(() => _selectedGroup = null),
-        onLeft: () => setState(() => _selectedGroup = null),
+        onBack: () => setState(() => appState.selectedGroup = null),
+        onLeft: () => setState(() => appState.selectedGroup = null),
       );
     }
     if (_selected != null) {
@@ -320,7 +337,7 @@ class _HomeShellState extends State<HomeShell> {
         key: ValueKey(_selected!.contactHex),
         chat: _selected!,
         embedded: embedded,
-        onBack: () => setState(() => _selected = null),
+        onBack: () => setState(() => appState.selectedChat = null),
       );
     }
     return null;
@@ -377,27 +394,36 @@ class _HomeShellState extends State<HomeShell> {
           final wide = constraints.maxWidth >= 820;
 
           final rail = NavigationRail(
-            selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
+            // Only the top two sections live in the rail's own selection;
+            // Settings sits at the bottom with the account, where you look for
+            // it rather than pass it on the way to a conversation.
+            selectedIndex: _index < 2 ? _index : null,
+            onDestinationSelected: (i) => setState(() => appState.railSection = i),
             labelType: NavigationRailLabelType.all,
             leading: const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
               child: UmbraMark(size: 40),
             ),
-            // Your account and the update sit at the bottom of the bar: always
-            // reachable, never in the way of a conversation.
-            trailing: const Expanded(
+            trailing: Expanded(
               child: Align(
                 alignment: Alignment.bottomCenter,
                 child: Padding(
-                  padding: EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.only(bottom: 10),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      UpdateRailButton(),
-                      SizedBox(height: 4),
-                      ProfileButton(),
-                      SizedBox(height: 4),
+                      _RailButton(
+                        icon: Icons.settings_outlined,
+                        selectedIcon: Icons.settings,
+                        label: L.t('nav.settings'),
+                        selected: _index == 2,
+                        onTap: () => setState(() => appState.railSection = 2),
+                      ),
+                      const SizedBox(height: 6),
+                      const UpdateRailButton(),
+                      const SizedBox(height: 4),
+                      const ProfileButton(),
+                      const SizedBox(height: 4),
                     ],
                   ),
                 ),
@@ -409,9 +435,9 @@ class _HomeShellState extends State<HomeShell> {
                   selectedIcon: const Icon(Icons.forum),
                   label: Text(L.t('nav.chats'))),
               NavigationRailDestination(
-                  icon: const Icon(Icons.settings_outlined),
-                  selectedIcon: const Icon(Icons.settings),
-                  label: Text(L.t('nav.settings'))),
+                  icon: const Icon(Icons.contacts_outlined),
+                  selectedIcon: const Icon(Icons.contacts),
+                  label: Text(L.t('contacts.title'))),
             ],
           );
 
@@ -446,6 +472,55 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
+/// A rail entry that lives outside the NavigationRail's own list (Settings),
+/// drawn to match the ones inside it.
+class _RailButton extends StatelessWidget {
+  const _RailButton({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? UmbraColors.accent : UmbraColors.textMuted;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              decoration: BoxDecoration(
+                color: selected ? UmbraColors.accent.withValues(alpha: 0.13) : null,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Icon(selected ? selectedIcon : icon, size: 22, color: color),
+            ),
+            const SizedBox(height: 2),
+            Text(label,
+                style: TextStyle(
+                    color: color,
+                    fontSize: 12,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// The update button at the bottom of the left bar: a dot when there is
 /// something to do, otherwise a quiet check mark.
 class UpdateRailButton extends StatelessWidget {
@@ -461,13 +536,15 @@ class UpdateRailButton extends StatelessWidget {
         final busy = appState.updateDownloading;
         final highlight = offered != null || ready != null || busy;
         return Tooltip(
+          // No version number here: the bar says whether there is anything to
+          // do, and the version itself belongs in Settings.
           message: busy
               ? L.t('update.downloading').replaceAll('{v}', offered ?? '')
               : ready != null
                   ? L.t('update.ready').replaceAll('{v}', ready)
                   : offered != null
                       ? L.t('update.available').replaceAll('{v}', offered)
-                      : '${L.t('update.title')} ${appState.version}',
+                      : L.t('update.upToDate'),
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
             onTap: () => showUpdateDialog(context),
@@ -528,7 +605,7 @@ void showUpdateDialog(BuildContext context) {
           ? L.t('update.ready').replaceAll('{v}', ready)
           : offered != null
               ? L.t('update.dialogTitle').replaceAll('{v}', offered)
-              : '${L.t('update.title')} ${appState.version}'),
+              : L.t('update.upToDate')),
       content: Text(
         ready != null
             ? L.t('update.dialogBody')

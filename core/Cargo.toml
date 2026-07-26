@@ -19,7 +19,12 @@ chacha20poly1305 = "0.10"   # XChaCha20-Poly1305 AEAD
 getrandom = "0.2"           # OS CSPRNG for salt + nonce
 zeroize = "1"               # wipe derived key material from memory
 ed25519-dalek = "2"         # identity/device signatures (identity module)
-vodozemac = "0.8"           # Olm Double Ratchet E2E sessions (ratchet module)
+vodozemac = "0.8"           # Olm Double Ratchet (legacy sessions, being replaced)
+# Signal's own protocol implementation — the reference for this kind of app.
+# AGPL-3.0, same licence as Umbra. Not on crates.io, so it is pinned to a tag.
+libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0.99.1" }
+futures = "0.3"             # libsignal's store traits are async; core is not
+rand = "0.9"                # the CSPRNG type libsignal's API takes
 rusqlite = { version = "0.37", features = ["bundled"] } # local SQLite (store); 0.37 aligns with Arti's tor-dirmgr (shared sqlite3 link)
 base64 = "0.22"             # invite-code encoding (invite module)
 sha2 = "0.10"               # invite checksum (invite module)

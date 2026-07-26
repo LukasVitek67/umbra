@@ -70,6 +70,56 @@ Opravy nalezené během testování (všechny v kódu):
   `reg.exe` (bez admina, uživatel to umí sám zrušit). Přepínač se řídí reálným
   stavem registru — když zápis selže, skočí zpět a řekne to.
 
+## 🔎 1.5.0 — hledání, kontakt v detailu, notifikace podle účtu
+- **Hledání v chatech**: jedno pole hledá naráz **lidi, skupiny i jednotlivé
+  zprávy**; nalezený text je v ukázce zvýrazněný a kliknutím se otevře rozhovor.
+  Zprávy jsou šifrované, takže hledání znamená dešifrovat a porovnat v Rustu —
+  cena za to, že databáze o obsahu nic neprozradí (žádný plaintextový index).
+- **Detail kontaktu**: kliknutím na osobu v Kontaktech se otevře přepínač
+  *Kde si píšete* (přímý rozhovor + společné skupiny) / *Co napsal* (všechny
+  přijaté zprávy s filtrem Vše / Jen přímé / Ze skupin).
+- **Notifikace**: defaultně říkají jen „Máte novou zprávu na @účet". Podrobná
+  varianta (odesílatel → účet: text) je volitelná a **jen pro účty, které se
+  přihlašují automaticky** — u ostatních je přepínač zšedlý i s vysvětlením,
+  protože účet, co si pokaždé řekne o frázi, nemá svítit obsahem na obrazovce,
+  u které nikdo není.
+- verze aplikace zmizela z lišty, zůstává v Nastavení
+- 2 nové testy jádra (hledání v obou typech konverzací, „co poslal tenhle člověk")
+
+## 🐞 Opraveno 1.4.1 — „Tor se nepřipojil do 900 s"
+Na stroji běželo **šest instancí Umbry naráz**. Každá si spouští vlastní `tor`
+nad stejným adresářem účtu, ten je zamčený pro jeden proces — první ho držel,
+zbytek nikdy nenaběhl a po 900 s to vzdal. Stejný důvod, proč neprošla
+aktualizace: rozbalené soubory nešly přejmenovat, protože je držely ostatní
+procesy.
+
+- druhé spuštění se **ukončí a vyvolá okno té běžící** (pojmenovaný mutex přes
+  `CreateMutexW`/`OpenMutexW` + lokální socket na předání „ukaž se")
+- `GetLastError` přes Dart FFI nejde věřit (runtime ho stihne přepsat), takže se
+  existence mutexu zjišťuje jeho otevřením
+- když výměna souborů při aktualizaci selže, hláška teď říká proč („běží ještě
+  jiná Umbra?"), místo holé chyby systému
+- ověřeno: první instance běží, druhá skončí, `instance.log` to zapíše
+
+## 🔐 1.4.0 — šifrování přešlo na Signal protokol
+Sezení už nestaví Olm (vodozemac), ale **`libsignal-protocol` přímo od Signalu**
+(AGPL-3.0, stejná licence jako Umbra). Krypto opět nepíšeme sami.
+
+- **PQXDH** při navázání sezení: ke klasickému X25519 se přimíchá post-kvantový
+  KEM (Kyber1024), takže odposlechnutý provoz neotevře ani kvantový počítač
+  postavený později. Olm tohle neumí.
+- Double Ratchet dál dává dopřednou bezpečnost i zotavení po kompromitaci.
+- Vazba na identitu zůstala: bundle klíčů podepisuje **Ed25519 identita** a
+  příjemce podpis ověřuje proti očekávané identitě z pozvánky — bez toho by
+  prekey klíče mohl nabídnout kdokoli (man-in-the-middle).
+- Každé spojení má vlastní účet i úložiště klíčů, takže klíče jednoho rozhovoru
+  nejsou v dosahu druhého a při každém připojení proběhne nové PQXDH.
+- **`WIRE_VERSION` 1 → 2**: handshake změnil tvar, takže 1.3 a 1.4 spolu
+  nedomluví. Obě strany musí projít aktualizací.
+- 5 nových testů (dva účty si píšou, cizí nepřečte, změněná zpráva neprojde,
+  poškozený bundle neprojde, bundly se neopakují) + `protoc` v nářadí (libsignal
+  si generuje protobufy)
+
 ## 📱 1.3.0 — Android APK
 Android build **existuje a sestaví se**; na reálném telefonu zatím neověřený.
 
