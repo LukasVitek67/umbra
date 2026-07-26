@@ -87,15 +87,23 @@ if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'signing failed' }
 Pop-Location
 
 # What changed, published as a plain file so the in-app updater can show it
-# before the user agrees to anything. It reads the newest section of STATUS.md
-# that mentions this version, and falls back to a single honest line.
+# before the user agrees to anything.
+#
+# The text comes from CHANGELOG.md, which is written in English for the person
+# installing the update — STATUS.md is the developer's Czech notebook and reads
+# like one, which is not what belongs in a release.
 $notesPath = Join-Path $dist "NOTES-$Version.md"
-$status = Get-Content (Join-Path $root 'STATUS.md') -Raw
-$section = [regex]::Match($status, "(?ms)^##[^\r\n]*$([regex]::Escape($Version))[^\r\n]*\r?\n(.*?)(?=^## |\z)")
-if ($section.Success) {
-    $notes = ($section.Groups[0].Value).Trim()
-} else {
-    $notes = "Umbra $Version"
+$changelog = Join-Path $root 'CHANGELOG.md'
+$notes = "Umbra $Version"
+if (Test-Path $changelog) {
+    $text = Get-Content $changelog -Raw
+    $pattern = "(?ms)^##\s+$([regex]::Escape($Version))\s*\r?\n(.*?)(?=^##\s|\z)"
+    $section = [regex]::Match($text, $pattern)
+    if ($section.Success) {
+        $notes = "Umbra $Version`r`n`r`n" + ($section.Groups[1].Value).Trim()
+    } else {
+        Write-Warning "CHANGELOG.md has no section for $Version - releasing with a bare title"
+    }
 }
 Set-Content -Path $notesPath -Value $notes -Encoding utf8
 
