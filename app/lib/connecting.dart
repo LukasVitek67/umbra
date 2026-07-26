@@ -57,15 +57,37 @@ class ConnectingScreen extends StatelessWidget {
                           color: UmbraColors.textMuted, fontSize: 13, height: 1.45),
                     ),
                     const SizedBox(height: 28),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(999),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 6,
-                        backgroundColor: UmbraColors.surfaceHigh,
-                        valueColor: AlwaysStoppedAnimation(
-                            failed ? UmbraColors.danger : UmbraColors.accent),
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(999),
+                            child: LinearProgressIndicator(
+                              value: progress,
+                              minHeight: 6,
+                              backgroundColor: UmbraColors.surfaceHigh,
+                              valueColor: AlwaysStoppedAnimation(
+                                  failed ? UmbraColors.danger : UmbraColors.accent),
+                            ),
+                          ),
+                        ),
+                        if (progress != null) ...[
+                          const SizedBox(width: 12),
+                          SizedBox(
+                            width: 48,
+                            child: Text(
+                              '${(progress * 100).round()} %',
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                color: UmbraColors.accent,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                fontFeatures: const [FontFeature.tabularFigures()],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 14),
                     Text(

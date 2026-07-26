@@ -52,6 +52,17 @@ const CHECK_EVERY: Duration = Duration::from_secs(5 * 60);
 /// Refuse absurd downloads outright (a release zip is ~60 MB).
 const MAX_DOWNLOAD: usize = 200 * 1024 * 1024;
 
+/// How long to wait for a circuit and a TLS handshake.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// How long a transfer may deliver *nothing* before it counts as dead.
+///
+/// A Tor circuit that dies mid-download does not close the socket — the read
+/// simply never returns anything. Without this the download sat there forever
+/// while the UI honestly reported "downloading", which is the one thing worse
+/// than an error message.
+const STALL_TIMEOUT: Duration = Duration::from_secs(45);
+
 /// What the updater is doing, for the UI.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateState {
@@ -145,9 +156,33 @@ where
     emit("update_downloading", &release.version);
 
     let result = async {
+        // The signed manifest comes *first*, not last. It is a few hundred
+        // bytes, and it states how big the archive is — which is what turns the
+        // download into a percentage instead of a number creeping upwards with
+        // no end in sight. GitHub does not always send Content-Length through
+        // its CDN, so without this there was nothing to divide by.
+        //
+        // A valid signature only says "the author built this", and every past
+        // release keeps one forever — on its own it would not stop an old,
+        // fixed-since version being replayed. The manifest ties the three
+        // together: this signature, this version, these bytes.
+        let manifest = match release.manifest_url.clone() {
+            Some(url) => {
+                let raw = http_get(socks_port, &url).await?;
+                let sig = http_get(socks_port, &format!("{url}.sig")).await?;
+                verify_signature(&raw, &sig)?;
+                // Refuses a manifest for another version, or an older one, before
+                // a single megabyte is downloaded.
+                let parsed = parse_manifest(&raw, &release.version)?;
+                Some((raw, parsed))
+            }
+            None => None,
+        };
+        let expected_size = manifest.as_ref().and_then(|(_, m)| m.size);
+
         // Report progress: an update is tens of megabytes over Tor, and a
         // silent minute looks exactly like a broken button.
-        let zip = http_get_with_progress(socks_port, &zip_url, &|got, total| {
+        let zip = http_get_with_progress(socks_port, &zip_url, expected_size, &|got, total| {
             emit("update_progress", &format!("{got}|{total}"));
         })
         .await?;
@@ -155,17 +190,8 @@ where
         let sig_raw = http_get(socks_port, &sig_url).await?;
         emit("update_verifying", &release.version);
         verify_signature(&zip, &sig_raw)?;
-
-        // A valid signature only says "the author built this" — every past
-        // release stays valid forever, so on its own it would not stop someone
-        // from serving an old, fixed-since version. The manifest is signed too
-        // and names the version and the archive's hash, which ties the three
-        // together: this signature, this version, these bytes.
-        if let Some(url) = release.manifest_url.clone() {
-            let manifest = http_get(socks_port, &url).await?;
-            let manifest_sig = http_get(socks_port, &format!("{url}.sig")).await?;
-            verify_signature(&manifest, &manifest_sig)?;
-            check_manifest(&manifest, &release.version, &zip)?;
+        if let Some((raw, _)) = &manifest {
+            check_manifest(raw, &release.version, &zip)?;
         }
 
         install(&zip, &install_dir, &release.version)?;
@@ -340,22 +366,36 @@ fn verify_signature(zip: &[u8], sig_raw: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// Check a signed manifest against what we are about to install.
+/// What a signed manifest says about the release it belongs to.
+struct Manifest {
+    sha256: String,
+    /// Archive size in bytes. Absent in manifests written before the updater
+    /// showed a percentage, so it stays optional.
+    size: Option<u64>,
+}
+
+/// Read a signed manifest and check it describes the release we were offered.
 ///
 /// Format (one `key=value` per line):
 /// ```text
 /// version=1.6.0
 /// sha256=<hex of the zip>
+/// size=<bytes of the zip>
 /// ```
-fn check_manifest(manifest: &[u8], expected_version: &str, zip: &[u8]) -> Result<(), String> {
+///
+/// Everything here can be decided *before* downloading the archive, which is
+/// why it is separate from comparing the bytes.
+fn parse_manifest(manifest: &[u8], expected_version: &str) -> Result<Manifest, String> {
     let text = String::from_utf8_lossy(manifest);
     let mut version = None;
     let mut sha = None;
+    let mut size = None;
     for line in text.lines() {
         let Some((k, v)) = line.split_once('=') else { continue };
         match k.trim() {
             "version" => version = Some(v.trim().to_string()),
             "sha256" => sha = Some(v.trim().to_lowercase()),
+            "size" => size = v.trim().parse::<u64>().ok(),
             _ => {}
         }
     }
@@ -371,9 +411,22 @@ fn check_manifest(manifest: &[u8], expected_version: &str, zip: &[u8]) -> Result
             current_version()
         ));
     }
-    let sha = sha.ok_or_else(|| "manifest bez otisku archivu".to_string())?;
-    let actual = sha256_hex(zip);
-    if actual != sha {
+    let sha256 = sha.ok_or_else(|| "manifest bez otisku archivu".to_string())?;
+    if size.is_some_and(|s| s == 0 || s as usize > MAX_DOWNLOAD) {
+        return Err("manifest udává nesmyslnou velikost archivu — NEinstaluji".to_string());
+    }
+    Ok(Manifest { sha256, size })
+}
+
+/// Check the downloaded archive against its signed manifest.
+fn check_manifest(manifest: &[u8], expected_version: &str, zip: &[u8]) -> Result<(), String> {
+    let m = parse_manifest(manifest, expected_version)?;
+    if let Some(size) = m.size {
+        if size != zip.len() as u64 {
+            return Err("stažený archiv má jinou velikost, než slibuje manifest — NEinstaluji".to_string());
+        }
+    }
+    if sha256_hex(zip) != m.sha256 {
         return Err("otisk archivu nesedí s podepsaným manifestem — NEinstaluji".to_string());
     }
     Ok(())
@@ -505,20 +558,25 @@ pub fn clean_leftovers(install_dir: &Path) {
 
 /// GET a URL through Tor, following redirects (GitHub sends assets to a CDN).
 async fn http_get(socks_port: u16, url: &str) -> Result<Vec<u8>, String> {
-    http_get_with_progress(socks_port, url, &|_, _| {}).await
+    http_get_with_progress(socks_port, url, None, &|_, _| {}).await
 }
 
-/// The same, reporting `(bytes so far, total)` as the body arrives. `total` is
-/// 0 while the server has not said how big it is.
+/// The same, reporting `(bytes so far, total)` as the body arrives.
+///
+/// `size_hint` is the size from the signed manifest and is used when the server
+/// does not send `Content-Length` — GitHub's asset CDN often does not, and a
+/// progress bar with no total is what made the download look endless.
 async fn http_get_with_progress(
     socks_port: u16,
     url: &str,
+    size_hint: Option<u64>,
     on_progress: &(dyn Fn(u64, u64) + Sync),
 ) -> Result<Vec<u8>, String> {
     let mut url = url.to_string();
     for _ in 0..5 {
         let (host, path) = split_url(&url)?;
-        let (status, body, location) = request_progress(socks_port, &host, &path, on_progress).await?;
+        let (status, body, location) =
+            request_progress(socks_port, &host, &path, size_hint, on_progress).await?;
         match status {
             200 => return Ok(body),
             301 | 302 | 303 | 307 | 308 => {
@@ -555,21 +613,22 @@ async fn request(
     host: &str,
     path: &str,
 ) -> Result<(u16, Vec<u8>, Option<String>), String> {
-    request_progress(socks_port, host, path, &|_, _| {}).await
+    request_progress(socks_port, host, path, None, &|_, _| {}).await
 }
 
 async fn request_progress(
     socks_port: u16,
     host: &str,
     path: &str,
+    size_hint: Option<u64>,
     on_progress: &(dyn Fn(u64, u64) + Sync),
 ) -> Result<(u16, Vec<u8>, Option<String>), String> {
-    let first = request_on_circuit(socks_port, host, path, "", on_progress).await;
+    let first = request_on_circuit(socks_port, host, path, "", size_hint, on_progress).await;
     match &first {
         Ok((403, _, _)) | Ok((429, _, _)) | Err(_) => {
             // A label Tor has not seen before means a fresh exit.
             let tag = format!("umbra-{}", now_tag());
-            match request_on_circuit(socks_port, host, path, &tag, on_progress).await {
+            match request_on_circuit(socks_port, host, path, &tag, size_hint, on_progress).await {
                 Ok(second) => Ok(second),
                 Err(_) => first,
             }
@@ -591,14 +650,19 @@ async fn request_on_circuit(
     host: &str,
     path: &str,
     isolation: &str,
+    size_hint: Option<u64>,
     on_progress: &(dyn Fn(u64, u64) + Sync),
 ) -> Result<(u16, Vec<u8>, Option<String>), String> {
     // rustls needs a crypto provider chosen once per process.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let tcp = socks5_connect_isolated(socks_port, host, 443, isolation)
-        .await
-        .map_err(|e| format!("Tor nedokázal otevřít spojení na {host}: {e}"))?;
+    let tcp = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        socks5_connect_isolated(socks_port, host, 443, isolation),
+    )
+    .await
+    .map_err(|_| format!("Tor neotevřel spojení na {host} do {} s", CONNECT_TIMEOUT.as_secs()))?
+    .map_err(|e| format!("Tor nedokázal otevřít spojení na {host}: {e}"))?;
 
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -607,10 +671,13 @@ async fn request_on_circuit(
         .with_no_client_auth();
     let server = rustls::pki_types::ServerName::try_from(host.to_string())
         .map_err(|_| format!("neplatné jméno serveru {host}"))?;
-    let mut tls = TlsConnector::from(Arc::new(config))
-        .connect(server, tcp)
-        .await
-        .map_err(|e| format!("TLS selhalo: {e}"))?;
+    let mut tls = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        TlsConnector::from(Arc::new(config)).connect(server, tcp),
+    )
+    .await
+    .map_err(|_| format!("{host} neodpověděl na TLS do {} s", CONNECT_TIMEOUT.as_secs()))?
+    .map_err(|e| format!("TLS selhalo: {e}"))?;
 
     let req = format!(
         "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: umbra-updater\r\n\
@@ -623,13 +690,31 @@ async fn request_on_circuit(
 
     let mut raw = Vec::new();
     let mut buf = [0u8; 16 * 1024];
-    // Learned from the headers as soon as they arrive, so progress can be a
-    // percentage rather than a growing number.
-    let mut total: u64 = 0;
+    // Learned from the headers as soon as they arrive, and otherwise taken from
+    // the signed manifest, so progress is a percentage and not a number with no
+    // ceiling.
+    let mut total: u64 = size_hint.unwrap_or(0);
     let mut header_end: Option<usize> = None;
     let mut last_report = 0u64;
+    let mut last_report_at = tokio::time::Instant::now();
+    // This attempt starts from zero — say so, in case a previous one on another
+    // circuit already moved the bar.
+    if total > 0 {
+        on_progress(0, total);
+    }
     loop {
-        let n = tls.read(&mut buf).await.map_err(|e| format!("čtení selhalo: {e}"))?;
+        // A dead Tor circuit does not close the socket, it just stops
+        // delivering; without a deadline the read below never returns and the
+        // download "runs" until the app is killed.
+        let n = tokio::time::timeout(STALL_TIMEOUT, tls.read(&mut buf))
+            .await
+            .map_err(|_| {
+                format!(
+                    "stahování se zaseklo — {} s nepřišel žádný další byte",
+                    STALL_TIMEOUT.as_secs()
+                )
+            })?
+            .map_err(|e| format!("čtení selhalo: {e}"))?;
         if n == 0 {
             break;
         }
@@ -640,15 +725,24 @@ async fn request_on_circuit(
         if header_end.is_none() {
             if let Some(pos) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
                 header_end = Some(pos + 4);
-                total = content_length(&raw[..pos]).unwrap_or(0);
+                // What the server says wins over the hint; a redirect answer is
+                // a few hundred bytes and must not inherit the archive's size.
+                if let Some(len) = content_length(&raw[..pos]) {
+                    total = len;
+                }
             }
         }
         if let Some(start) = header_end {
             let got = (raw.len() - start) as u64;
-            // Report every 256 KiB: often enough to look alive, rarely enough
+            // Report every 64 KiB or every second, whichever comes first: often
+            // enough that the bar visibly moves on a slow circuit, rarely enough
             // not to flood the UI.
-            if got >= last_report + 256 * 1024 {
+            let now = tokio::time::Instant::now();
+            if got >= last_report + 64 * 1024
+                || now.duration_since(last_report_at) >= Duration::from_secs(1)
+            {
                 last_report = got;
+                last_report_at = now;
                 on_progress(got, total);
             }
         }
@@ -771,6 +865,30 @@ mod tests {
         // Missing fields: refuse.
         assert!(check_manifest(b"version=99.0.0", "99.0.0", zip).is_err());
         assert!(check_manifest(b"", "99.0.0", zip).is_err());
+    }
+
+    #[test]
+    fn the_manifest_carries_the_size_the_progress_bar_divides_by() {
+        let zip = b"pretend release archive";
+        let sha = sha256_hex(zip);
+        let with_size = format!("version=99.0.0\nsha256={sha}\nsize={}\n", zip.len());
+        assert_eq!(
+            parse_manifest(with_size.as_bytes(), "99.0.0").unwrap().size,
+            Some(zip.len() as u64)
+        );
+        assert!(check_manifest(with_size.as_bytes(), "99.0.0", zip).is_ok());
+
+        // Right hash cannot coexist with a wrong size, but the check is cheap
+        // and runs before hashing tens of megabytes.
+        let wrong = format!("version=99.0.0\nsha256={sha}\nsize=999999\n");
+        assert!(check_manifest(wrong.as_bytes(), "99.0.0", zip).is_err());
+        // Absurd sizes are refused before anything is downloaded.
+        let absurd = format!("version=99.0.0\nsha256={sha}\nsize=0\n");
+        assert!(parse_manifest(absurd.as_bytes(), "99.0.0").is_err());
+        // Releases published before manifests had a size still install.
+        let sizeless = format!("version=99.0.0\nsha256={sha}\n");
+        assert!(parse_manifest(sizeless.as_bytes(), "99.0.0").unwrap().size.is_none());
+        assert!(check_manifest(sizeless.as_bytes(), "99.0.0", zip).is_ok());
     }
 
     #[test]

@@ -90,9 +90,14 @@ if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'signing failed' }
 # keeps a valid one — so it cannot stop an old, fixed-since version from being
 # replayed at users. The manifest binds version and archive together, and is
 # signed as well.
+#
+# The size is in there for a second reason: GitHub's asset CDN does not always
+# send Content-Length, and without a total the updater's progress bar had
+# nothing to divide by and looked like it was downloading forever.
 $manifestPath = Join-Path $dist "MANIFEST-$Version.txt"
 $sha = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower()
-$manifest = "version=$Version`nsha256=$sha`n"
+$size = (Get-Item $zip).Length
+$manifest = "version=$Version`nsha256=$sha`nsize=$size`n"
 [System.IO.File]::WriteAllText($manifestPath, $manifest, (New-Object System.Text.UTF8Encoding($false)))
 & $signer sign $KeyFile $manifestPath
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'signing the manifest failed' }

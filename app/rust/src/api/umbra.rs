@@ -711,9 +711,9 @@ impl UmbraApp {
         ONION.lock().unwrap().clone().unwrap_or_default()
     }
 
-    /// Start the Tor node: bootstrap (through bundled obfs4 bridges when
-    /// present), host our onion service, and accept incoming peers. Returns
-    /// immediately — all progress arrives as [`NetEvent`]s on the stream.
+    /// Start the Tor node: bootstrap (directly, falling back to bridges when
+    /// the network blocks Tor), host our onion service, and accept incoming
+    /// peers. Returns immediately — all progress arrives as [`NetEvent`]s.
     pub fn start_network(&self, sink: StreamSink<NetEvent>) {
         let (seed, dir) = {
             let g = self.inner.lock().unwrap();

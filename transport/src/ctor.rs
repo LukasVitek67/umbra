@@ -37,12 +37,22 @@ use crate::{accept, initiate, read_frame, write_frame, LocalNode, Session};
 /// Virtual port our onion service listens on.
 pub const ONION_PORT: u16 = 9735;
 
-/// How long we allow Tor to reach "Bootstrapped 100%".
+/// How long a *direct* connection to the Tor network may take.
 ///
-/// Shorter than it used to be (900 s): the first attempt is now followed by an
-/// automatic repair and a second try, so waiting a quarter of an hour before
-/// doing anything about it only makes a stuck start feel like a broken app.
-const BOOTSTRAP_TIMEOUT: Duration = Duration::from_secs(360);
+/// A direct bootstrap either works within a couple of minutes or is being
+/// blocked; waiting longer only delays falling back to bridges.
+const DIRECT_TIMEOUT: Duration = Duration::from_secs(150);
+
+/// How long a bootstrap *through bridges* may take. Pluggable transports are
+/// slower to come up, so they get more room than a direct attempt.
+const BRIDGE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// A bootstrap that has not gained a single percent for this long is stuck.
+///
+/// Without this the app sat on a dead attempt until the full timeout expired —
+/// which is where "Tor did not connect in 900 s" came from. Noticing the stall
+/// early is what makes an automatic second attempt worth having.
+const STALL_TIMEOUT: Duration = Duration::from_secs(75);
 
 /// An event surfaced to the app.
 /// `kind`: `"status"`, `"onion"`, `"connected"`, `"disconnected"`, `"message"`, `"error"`.
@@ -135,6 +145,46 @@ fn bundled(name: &str) -> Option<PathBuf> {
     None
 }
 
+/// Read a bridge list, dropping comments and blank lines.
+fn read_bridges(path: &Path) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(str::to_string)
+        .collect()
+}
+
+/// The last few complaints from Tor's own log.
+///
+/// When a start fails, "the network is probably blocking it" is a guess. Tor
+/// usually says exactly what went wrong — an unreadable data directory, a
+/// missing pluggable transport, a clock that is hours off — and that line is
+/// worth far more to whoever has to fix it than our guess.
+fn log_tail(data_dir: &Path) -> String {
+    let Ok(text) = std::fs::read_to_string(data_dir.join("tor.log")) else {
+        return String::new();
+    };
+    let mut lines: Vec<&str> = text
+        .lines()
+        .rev()
+        .take(400)
+        .filter(|l| l.contains("[warn]") || l.contains("[err]"))
+        .collect();
+    lines.dedup();
+    let picked: Vec<String> = lines
+        .into_iter()
+        .take(2)
+        // Drop the timestamp and level, keep what happened.
+        .map(|l| l.split("] ").last().unwrap_or(l).trim().to_string())
+        .collect();
+    if picked.is_empty() {
+        String::new()
+    } else {
+        format!(" (Tor hlásí: {})", picked.join(" / "))
+    }
+}
+
 /// A running `tor` daemon owned by this process; killed when dropped.
 pub struct TorProcess {
     child: Child,
@@ -156,33 +206,21 @@ impl TorProcess {
     /// Write a torrc, launch Tor, wait for a full bootstrap, and read back our
     /// onion address.
     ///
-    /// `tor_exe` and `pt_exe` default to `tor.exe` / `lyrebird.exe` next to our
-    /// own executable; `bridges` come from `bridges.txt` there. With no bridge
-    /// file we connect to Tor directly.
+    /// `tor_exe` and `pt_exe` are the `tor.exe` / `lyrebird.exe` bundled next to
+    /// our own executable. An empty `bridges` means a direct connection, which
+    /// is what works on an ordinary network — bridges are the answer to
+    /// censorship, and [`TorService::start`] falls back to them by itself.
     pub async fn start(
         data_dir: &Path,
         local_port: u16,
+        bridges: &[String],
+        timeout: Duration,
         progress: impl Fn(&str) + Send + 'static,
     ) -> Result<TorProcess> {
         let tor_exe = bundled("tor.exe")
             .or_else(|| bundled("tor"))
             .ok_or_else(|| anyhow!("tor nenalezen — chybí binárka vedle aplikace"))?;
         let pt_exe = bundled("lyrebird.exe").or_else(|| bundled("lyrebird"));
-        // The user's own bridges win over the ones we ship. The shipped list is
-        // public, so on a censored network it is the first thing to be blocked;
-        // a line from bridges.torproject.org is what actually gets through.
-        let bridges = Some(data_dir.join("bridges.txt"))
-            .filter(|p| p.exists())
-            .or_else(|| bundled("bridges.txt"))
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .map(|t| {
-                t.lines()
-                    .map(str::trim)
-                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                    .map(str::to_string)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
 
         std::fs::create_dir_all(data_dir).context("nelze vytvořit datový adresář")?;
         let tor_data = data_dir.join("tor-data");
@@ -225,7 +263,7 @@ impl TorProcess {
                 ));
             }
             torrc.push_str("UseBridges 1\n");
-            for b in &bridges {
+            for b in bridges {
                 torrc.push_str(&format!("Bridge {b}\n"));
             }
         }
@@ -236,7 +274,7 @@ impl TorProcess {
         cmd.arg("-f")
             .arg(&torrc_path)
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .stdin(Stdio::null());
         // Run the daemon without a console window: users must never see (or be
         // able to close) a stray terminal belonging to the app's internals.
@@ -248,33 +286,84 @@ impl TorProcess {
         }
         let mut child = cmd.spawn().context("nepodařilo se spustit tor.exe")?;
 
-        // Tor's stdout is a blocking pipe: read it on its own thread and report
-        // bootstrap progress through a channel.
-        let stdout = child.stdout.take().ok_or_else(|| anyhow!("no tor stdout"))?;
+        // Tor's pipes block when nobody reads them, so both are drained on their
+        // own thread for the whole life of the daemon. stderr is where a refused
+        // config or a missing pluggable transport lands — discarding it is how a
+        // failure to *start* used to be reported as a network problem.
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+        let stdout = child.stdout.take().ok_or_else(|| anyhow!("no tor stdout"))?;
+        let out_tx = tx.clone();
         std::thread::spawn(move || {
-            // Keep draining for the whole lifetime of the daemon: if we stopped
-            // reading, Tor's stdout pipe would fill up and block the daemon.
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                let _ = tx.send(line);
+                let _ = out_tx.send(line);
             }
         });
+        if let Some(stderr) = child.stderr.take() {
+            let err_tx = tx.clone();
+            std::thread::spawn(move || {
+                for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                    let _ = err_tx.send(line);
+                }
+            });
+        }
+        // Both senders now live in the threads; dropping ours is what lets the
+        // channel close when Tor dies, which is how we tell "it exited" from
+        // "it is still trying".
+        drop(tx);
 
-        let deadline = tokio::time::Instant::now() + BOOTSTRAP_TIMEOUT;
+        let deadline = tokio::time::Instant::now() + timeout;
+        let mut last_move = tokio::time::Instant::now();
+        let mut pct: u32 = 0;
         let mut done = false;
-        while let Ok(Some(line)) = tokio::time::timeout_at(deadline, rx.recv()).await {
-            if let Some(pos) = line.find("Bootstrapped ") {
-                let msg = line[pos..].trim().to_string();
-                progress(&msg);
-                if msg.starts_with("Bootstrapped 100%") {
-                    done = true;
+        let mut fault = String::new();
+        loop {
+            // Wake either at the overall deadline or once the percentage has sat
+            // still long enough to call the attempt dead, whichever comes first.
+            let wake = std::cmp::min(deadline, last_move + STALL_TIMEOUT);
+            match tokio::time::timeout_at(wake, rx.recv()).await {
+                Ok(Some(line)) => {
+                    let Some(pos) = line.find("Bootstrapped ") else { continue };
+                    let msg = line[pos..].trim().to_string();
+                    let reached = line[pos + "Bootstrapped ".len()..]
+                        .split('%')
+                        .next()
+                        .and_then(|n| n.trim().parse::<u32>().ok())
+                        .unwrap_or(pct);
+                    if reached > pct {
+                        pct = reached;
+                        last_move = tokio::time::Instant::now();
+                    }
+                    progress(&msg);
+                    if pct >= 100 {
+                        done = true;
+                        break;
+                    }
+                }
+                Ok(None) => {
+                    fault = format!("Tor skončil hned po spuštění{}", log_tail(data_dir));
+                    break;
+                }
+                Err(_) => {
+                    fault = if tokio::time::Instant::now() >= deadline {
+                        format!(
+                            "Tor se nepřipojil do {} s (zůstal na {pct} %){}",
+                            timeout.as_secs(),
+                            log_tail(data_dir)
+                        )
+                    } else {
+                        format!(
+                            "Tor uvízl na {pct} % a {} s se nepohnul{}",
+                            STALL_TIMEOUT.as_secs(),
+                            log_tail(data_dir)
+                        )
+                    };
                     break;
                 }
             }
         }
         if !done {
             let _ = child.kill();
-            bail!("Tor se nepřipojil do {} s — síť ho nejspíš blokuje. Zkus jinou síť nebo aktualizuj bridges.txt", BOOTSTRAP_TIMEOUT.as_secs());
+            bail!("{fault}");
         }
 
         // The hostname file appears once the service keys exist.
@@ -422,26 +511,61 @@ impl TorService {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let local_port = listener.local_addr()?.port();
 
-        // One retry, and not a blind one: a bootstrap that stalls is almost
-        // always a half-written consensus or a leftover lock in the data
-        // directory, and both are ours to clean. The identity keys stay, so the
-        // repair costs the user nothing but the wait — and it beats a dead
-        // "Connecting to Tor" screen they can only fix by deleting files.
-        let progress = Arc::new(progress);
-        let first = {
-            let p = progress.clone();
-            TorProcess::start(data_dir, local_port, move |m| p(m)).await
-        };
-        let tor = match first {
-            Ok(tor) => tor,
-            Err(e) => {
-                progress(&format!("první pokus selhal ({e}) — opravuji Tor a zkouším znovu"));
-                clear_tor_cache(data_dir)?;
-                let p = progress.clone();
-                TorProcess::start(data_dir, local_port, move |m| p(m))
-                    .await
-                    .with_context(|| format!("ani po opravě se Tor nepřipojil (první chyba: {e})"))?
+        // What to try, in order.
+        //
+        // A **direct** connection is what works on an ordinary network, and it
+        // is what Tor Browser does by default. Bridges exist for censorship and
+        // are slower and less reliable everywhere else — the public ones we ship
+        // are also the first a censor blocks, so most of them are dead. Umbra
+        // used to force bridges on every single start, for no better reason than
+        // that the file was bundled next to the executable; that is where the
+        // hung "Connecting to Tor" screen came from.
+        //
+        // Each further attempt also clears Tor's cached directory data, the
+        // other classic reason a bootstrap stops partway. Identity and onion
+        // keys are never touched, so a repair costs the user nothing but time.
+        let user = read_bridges(&data_dir.join("bridges.txt"));
+        let shipped = bundled("bridges.txt").map(|p| read_bridges(&p)).unwrap_or_default();
+        let mut plans: Vec<(String, Vec<String>, Duration)> = Vec::new();
+        if user.is_empty() {
+            plans.push(("přímé připojení".into(), Vec::new(), DIRECT_TIMEOUT));
+            if !shipped.is_empty() {
+                plans.push(("mosty".into(), shipped, BRIDGE_TIMEOUT));
             }
+        } else {
+            // Someone who pasted their own bridges is behind censorship: start
+            // with what they gave us. A stale line must not lock them out, so
+            // the other routes still follow.
+            plans.push(("tvoje mosty".into(), user.clone(), BRIDGE_TIMEOUT));
+            plans.push(("přímé připojení".into(), Vec::new(), DIRECT_TIMEOUT));
+            if !shipped.is_empty() {
+                let mut both = user;
+                both.extend(shipped);
+                plans.push(("tvoje i zabudované mosty".into(), both, BRIDGE_TIMEOUT));
+            }
+        }
+
+        let progress = Arc::new(progress);
+        let mut started = None;
+        let mut failures: Vec<String> = Vec::new();
+        for (i, (label, bridges, limit)) in plans.iter().enumerate() {
+            if i == 0 {
+                progress(&format!("spouštím Tor — {label}"));
+            } else {
+                progress(&format!("nepovedlo se, opravuji a zkouším {label}"));
+                let _ = clear_tor_cache(data_dir);
+            }
+            let p = progress.clone();
+            match TorProcess::start(data_dir, local_port, bridges, *limit, move |m| p(m)).await {
+                Ok(tor) => {
+                    started = Some(tor);
+                    break;
+                }
+                Err(e) => failures.push(format!("{label} — {e}")),
+            }
+        }
+        let Some(tor) = started else {
+            bail!("Tor se nepřipojil. {}", failures.join(" | "));
         };
         let onion = tor.onion.clone();
         let socks_port = tor.socks_port;

@@ -683,10 +683,37 @@ void showUpdateDialog(BuildContext context) {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (busy) ...[
-                  LinearProgressIndicator(
-                    value: appState.updateProgress,
-                    minHeight: 6,
-                    backgroundColor: UmbraColors.surface,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: appState.updateProgress,
+                            minHeight: 6,
+                            backgroundColor: UmbraColors.surface,
+                          ),
+                        ),
+                      ),
+                      // The plain number out of 100: a bar alone does not say
+                      // whether it is nearly done or barely started.
+                      if (appState.updatePercent != null) ...[
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 48,
+                          child: Text(
+                            '${appState.updatePercent} %',
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              color: UmbraColors.accent,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              fontFeatures: const [FontFeature.tabularFigures()],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 10),
                   Text(appState.updateStatus,

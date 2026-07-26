@@ -10,16 +10,34 @@ Umbra is experimental and has not been independently audited.
 
 ## 1.6.1
 
-- **"Connecting to Tor" no longer gets stuck.** A crash or a second copy of the
-  app could leave Tor's data directory locked, or its downloaded network
-  directory half-written — and Tor then never finished starting, with nothing
-  the user could do about it. Umbra now clears a stale lock before starting,
-  and if the first attempt stalls it clears the cached network data and tries
-  again by itself. Your identity, onion address and messages are never touched
-  by the repair.
-- The wait before that repair kicks in is 6 minutes instead of 15.
+- **"Connecting to Tor" no longer gets stuck.** The real cause: Umbra forced
+  every start through the bundled bridges, for no better reason than that the
+  bridge file shipped next to the program. Bridges exist to get through
+  censorship — they are slower everywhere else, and the public ones we ship are
+  the first a censor blocks, so most of them are dead. Umbra now connects
+  **directly** first, like Tor Browser does, and falls back to bridges only if
+  that fails. Your own bridges, if you pasted any in Settings, are still tried
+  first.
+- A start that has stopped making progress is now noticed in about a minute
+  instead of after fifteen, and the next route is tried immediately. A crashed
+  run's leftover lock is cleared, and cached network data is thrown away between
+  attempts. Your identity, onion address and messages are never touched.
+- **When Tor does fail, it now says why.** Tor's own error was being thrown
+  away, so every failure was reported as "the network is probably blocking it" —
+  including failures that were nothing of the sort. The message now carries what
+  Tor actually reported, and how far the start got.
+- **Updates can no longer download forever.** A Tor circuit that dies mid-file
+  does not close the connection, it just goes quiet — and the download waited
+  for the next byte with no time limit while the app cheerfully reported
+  "downloading". Every step now has a deadline and fails with a reason you can
+  act on.
+- **The download shows real percentages.** The signed manifest is fetched first
+  and states the archive's exact size, so the bar has something to divide by
+  even when GitHub's CDN sends no length. The dialog shows `42 %` next to the
+  bar and how many megabytes of how many have arrived.
 - If even the automatic repair fails, the connecting screen offers a
-  **"Repair and try again"** button instead of just reporting failure.
+  **"Repair and try again"** button instead of just reporting failure, and the
+  bootstrap percentage is shown as a number.
 
 ## 1.6.0
 

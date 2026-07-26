@@ -188,6 +188,10 @@ class AppState extends ChangeNotifier {
   bool updateDownloading = false;
   /// 0..1 while downloading, null when the size is unknown.
   double? updateProgress;
+
+  /// The same as a whole percentage, for the number next to the bar.
+  int? get updatePercent =>
+      updateProgress == null ? null : (updateProgress! * 100).clamp(0, 100).round();
   /// Why the last attempt failed, if it did.
   String? updateError;
   /// A newer version is already installed next to the app; a restart uses it.
@@ -483,10 +487,11 @@ class AppState extends ChangeNotifier {
           final total = parts.length > 1 ? int.tryParse(parts[1]) ?? 0 : 0;
           updateDownloading = true;
           updateProgress = total > 0 ? (got / total).clamp(0.0, 1.0) : null;
+          // The size comes from the signed manifest when the server does not
+          // send one, so "X of Y MB" is there even over Tor's CDN redirects.
           updateStatus = total > 0
-              ? L
-                  .t('update.downloadingPct')
-                  .replaceAll('{pct}', ((got / total) * 100).round().toString())
+              ? '${L.t('update.downloadingPct').replaceAll('{pct}', ((got / total) * 100).round().toString())}'
+                  '  ${L.t('update.downloadedOf').replaceAll('{got}', _mb(got)).replaceAll('{total}', _mb(total))}'
               : L.t('update.downloading').replaceAll('{v}', updateAvailableVersion ?? '');
           break;
         case 'update_verifying':
@@ -1121,6 +1126,9 @@ class AppState extends ChangeNotifier {
     if (s.startsWith('Exception: ')) s = s.substring(11);
     return s;
   }
+
+  /// Bytes as megabytes with one decimal — the unit an update is measured in.
+  static String _mb(int bytes) => (bytes / (1024 * 1024)).toStringAsFixed(1);
 }
 
 final AppState appState = AppState();
