@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# OpenSSF Scorecard: an automated, independent look at this repository's
+# security practices — branch protection, pinned dependencies, whether CI runs,
+# whether releases are signed, and so on.
+#
+# It is not an audit and does not look at whether the cryptography is correct.
+# It measures the *process* around the code, which is worth knowing and worth
+# publishing, but it must never be presented as "Umbra has been reviewed".
+
+name: Scorecard
+
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: '31 4 * * 1'
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: ossf/scorecard-action@v2.4.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif

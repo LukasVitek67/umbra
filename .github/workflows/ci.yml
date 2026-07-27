@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Runs the whole suite on every push, in public.
+#
+# The point is not decoration. A test suite that only ever runs on the author's
+# laptop is a claim; one that runs here is evidence anyone can re-check, and the
+# log stays readable long after the commit. It is also the first thing an
+# outside reviewer looks for.
+
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # libsignal generates code from protobufs at build time.
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # Includes core/tests/hostile_input.rs: ~140 000 malformed inputs through
+      # every parser a hostile peer can reach.
+      - name: Test
+        run: cargo test --workspace --verbose
+
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings -A missing_docs
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  flutter:
+    name: Flutter analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Analyze
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
