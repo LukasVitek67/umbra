@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 #
-# Build, sign and publish an Umbra release.
+# Build, sign and publish an NullChat release.
 #
-#   powershell -File tools\release.ps1 -Version 1.1.0 -KeyFile C:\path\umbra-release-key.txt
+#   powershell -File tools\release.ps1 -Version 1.1.0 -KeyFile C:\path\nullchat-release-key.txt
 #
 # What it does, in order:
 #   1. writes the version into app/rust/Cargo.toml and app/pubspec.yaml
@@ -33,7 +33,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $app = Join-Path $root 'app'
 $release = Join-Path $app 'build\windows\x64\runner\Release'
 $dist = Join-Path $root 'dist'
-$zip = Join-Path $dist "Umbra-$Version.zip"
+$zip = Join-Path $dist "NullChat-$Version.zip"
 
 if (-not (Test-Path $KeyFile)) { throw "signing key not found: $KeyFile" }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "version must be X.Y.Z, got '$Version'" }
@@ -51,7 +51,7 @@ $text = (Get-Content $pubspec -Raw) -replace '(?m)^version: .*$', "version: $Ver
 
 Write-Host "== core tests =="
 Push-Location $root
-cargo test -p umbra-core
+cargo test -p nullchat-core
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'core tests failed - not releasing' }
 
 Write-Host "== build =="
@@ -73,16 +73,16 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
 if (Test-Path $zip) { Remove-Item $zip -Force }
 if (Test-Path "$zip.sig") { Remove-Item "$zip.sig" -Force }
 # One top-level folder inside the zip; the updater strips it when unpacking.
-$staging = Join-Path $dist "Umbra-$Version"
+$staging = Join-Path $dist "NullChat-$Version"
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $staging | Out-Null
 Copy-Item (Join-Path $release '*') $staging -Recurse -Force
 Compress-Archive -Path $staging -DestinationPath $zip
 Remove-Item $staging -Recurse -Force
 
-cargo build -p umbra-cli --bin umbra-sign --release
+cargo build -p nullchat-cli --bin nullchat-sign --release
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'building the signer failed' }
-$signer = Join-Path $root 'target\release\umbra-sign.exe'
+$signer = Join-Path $root 'target\release\nullchat-sign.exe'
 & $signer sign $KeyFile $zip
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'signing failed' }
 
@@ -111,13 +111,13 @@ Pop-Location
 # like one, which is not what belongs in a release.
 $notesPath = Join-Path $dist "NOTES-$Version.md"
 $changelog = Join-Path $root 'CHANGELOG.md'
-$notes = "Umbra $Version"
+$notes = "NullChat $Version"
 if (Test-Path $changelog) {
     $text = Get-Content $changelog -Raw
     $pattern = "(?ms)^##\s+$([regex]::Escape($Version))\s*\r?\n(.*?)(?=^##\s|\z)"
     $section = [regex]::Match($text, $pattern)
     if ($section.Success) {
-        $notes = "Umbra $Version`r`n`r`n" + ($section.Groups[1].Value).Trim()
+        $notes = "NullChat $Version`r`n`r`n" + ($section.Groups[1].Value).Trim()
     } else {
         Write-Warning "CHANGELOG.md has no section for $Version - releasing with a bare title"
     }
@@ -141,7 +141,7 @@ foreach ($attempt in 1..3) {
         gh release delete "v$Version" --yes --cleanup-tag 2>&1 | Out-Null
         Start-Sleep -Seconds 5
     }
-    gh release create "v$Version" @assets --title "Umbra $Version" --notes-file $notesPath
+    gh release create "v$Version" @assets --title "NullChat $Version" --notes-file $notesPath
     if ($LASTEXITCODE -eq 0) { $published = $true; break }
 }
 if (-not $published) { throw "gh release create failed after 3 attempts - assets are in $dist" }

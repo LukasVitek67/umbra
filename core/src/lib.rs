@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Umbra core — the memory-safe Rust heart of the messenger.
+// NullChat core — the memory-safe Rust heart of the messenger.
 //
 // Design rule #1 (see docs/THREAT_MODEL.md): we do NOT invent cryptography.
 // Every primitive is a well-reviewed, open-source crate; this crate only
@@ -13,7 +13,7 @@
 #![forbid(unsafe_code)] // relaxed only in the FFI layer, behind its own review
 #![warn(missing_docs)]
 
-//! Umbra core library.
+//! NullChat core library.
 //!
 //! Currently exposes the [`crypto`] module. See `docs/ARCHITECTURE.md` for the
 //! full planned surface (identity, transport, store, api).

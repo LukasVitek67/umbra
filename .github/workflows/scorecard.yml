@@ -6,7 +6,7 @@
 #
 # It is not an audit and does not look at whether the cryptography is correct.
 # It measures the *process* around the code, which is worth knowing and worth
-# publishing, but it must never be presented as "Umbra has been reviewed".
+# publishing, but it must never be presented as "NullChat has been reviewed".
 
 name: Scorecard
 

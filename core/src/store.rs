@@ -59,7 +59,7 @@ const BLIND_INDEX_MARK: &str = "schema.blind_index.v1";
 
 /// Domain separator, so the index key cannot coincide with any other use of
 /// the data key.
-const INDEX_KEY_INFO: &[u8] = b"umbra blind index v1";
+const INDEX_KEY_INFO: &[u8] = b"nullchat blind index v1";
 
 const SCHEMA: &str = "
 PRAGMA secure_delete = ON;
@@ -452,7 +452,7 @@ impl Store {
             .query_row("SELECT sealed FROM blind_index WHERE bi = ?1", params![bi], |r| r.get(0))
             .optional()?;
         // A routing column pointing at nothing means the file was edited or
-        // truncated outside Umbra; refusing to guess is the only safe answer.
+        // truncated outside NullChat; refusing to guess is the only safe answer.
         self.unseal(&blob.ok_or(StoreError::Corrupt)?)
     }
 
@@ -1619,7 +1619,7 @@ mod tests {
         fn new() -> Self {
             let mut b = [0u8; 8];
             getrandom::getrandom(&mut b).unwrap();
-            let name = format!("umbra-test-{}.sqlite", u64::from_le_bytes(b));
+            let name = format!("nullchat-test-{}.sqlite", u64::from_le_bytes(b));
             TempDb(std::env::temp_dir().join(name))
         }
     }
@@ -2269,7 +2269,7 @@ mod tests {
         assert_eq!(s.message_peers().unwrap(), vec![peer]);
     }
 
-    /// A database written by an older Umbra opens, converts itself, and keeps
+    /// A database written by an older NullChat opens, converts itself, and keeps
     /// every row reachable by the same lookups as before.
     #[test]
     fn an_old_database_is_converted_on_open() {

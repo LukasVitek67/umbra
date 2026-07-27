@@ -6,7 +6,7 @@ release notes on GitHub and of the "What changed" text the app shows before you
 agree to an update, so it is written for the person installing it, not for the
 person who wrote the code. Newest first.
 
-Umbra is experimental and has not been independently audited.
+NullChat is experimental and has not been independently audited.
 
 ## 1.9.1
 
@@ -29,7 +29,7 @@ Umbra is experimental and has not been independently audited.
 
 ## 1.9.0
 
-- **Post-quantum identity.** Umbra already resisted a future quantum computer
+- **Post-quantum identity.** NullChat already resisted a future quantum computer
   where *confidentiality* was concerned — sessions are set up with PQXDH, so
   traffic recorded today cannot be opened later. Identity was the hole: every
   signature saying "this key bundle is mine" was Ed25519, which is exactly what
@@ -81,7 +81,7 @@ Umbra is experimental and has not been independently audited.
 
 - **Notifications stop going to Windows once an emergency passphrase is set.**
   Windows keeps its own copy of every notification it displays, in a database
-  outside this app's reach that no passphrase of ours can clear. Umbra now draws
+  outside this app's reach that no passphrase of ours can clear. NullChat now draws
   its own notices inside its own window instead, leaving nothing behind.
 
 - **You can now verify who you are actually talking to.** Every conversation
@@ -96,7 +96,7 @@ Umbra is experimental and has not been independently audited.
 Findings from a full read of the application. See `docs/HARDENING.md`.
 
 - **The app's own log file was storing your messages in readable form.** Every
-  event was written to `umbra-app.log` together with its content — so message
+  event was written to `nullchat-app.log` together with its content — so message
   text, contacts' names and their onion addresses sat unencrypted next to the
   database, readable without your passphrase. Encrypting the database while this
   file existed protected very little. The log now records only what kind of
@@ -127,7 +127,7 @@ Findings from a full read of the application. See `docs/HARDENING.md`.
 
   Those columns now hold a *blind index*: `HMAC-SHA256` of the value under a key
   derived from your passphrase. Searching still works, because a search is
-  always for something you already have — Umbra computes the same index and
+  always for something you already have — NullChat computes the same index and
   matches it. The real value is stored once, encrypted. Without the passphrase
   the identity keys cannot be recovered, and an adversary who already suspects a
   particular contact cannot confirm the guess either, because computing that
@@ -139,7 +139,7 @@ Findings from a full read of the application. See `docs/HARDENING.md`.
 - **Your existing history is converted automatically** the first time 1.7.0
   opens it — in one transaction, so it either completes or leaves the file
   untouched. Nothing is lost and nothing needs to be re-added. A copy of the
-  database as it was is kept beside it as `umbra.db.pre-blind-index.bak` (still
+  database as it was is kept beside it as `nullchat.db.pre-blind-index.bak` (still
   encrypted, exactly as before), so even a conversion that goes wrong in some
   way nobody anticipated is survivable. A conversion is refused outright if the
   key is wrong, because converting with the wrong key would leave the data in
@@ -154,18 +154,18 @@ Findings from a full read of the application. See `docs/HARDENING.md`.
 ## 1.6.2
 
 - **The actual reason "Connecting to Tor" hung.** Tor refuses to share its data
-  directory: when a copy left over from an earlier run of Umbra was still alive,
+  directory: when a copy left over from an earlier run of NullChat was still alive,
   the new one waited five seconds, gave up and exited — and the app, unable to
   tell "Tor died" from "Tor is still trying", reported a 900-second timeout that
-  had never happened. Umbra now writes down the daemon it starts, ends a
+  had never happened. NullChat now writes down the daemon it starts, ends a
   leftover one on the next start, and if the directory is busy anyway it waits
-  and retries the same route instead of failing. Only a process Umbra itself
+  and retries the same route instead of failing. Only a process NullChat itself
   recorded, and which is still called `tor`, is ever touched.
 - Failures now name what Tor said, so the next problem does not need guessing.
 
 ## 1.6.1
 
-- **Umbra connects directly first.** It used to force every start through the
+- **NullChat connects directly first.** It used to force every start through the
   bundled bridges, for no better reason than that the bridge file shipped next
   to the program. Bridges exist to get through censorship — they are slower
   everywhere else, and the public ones we ship are the first a censor blocks, so
@@ -240,13 +240,13 @@ replaces those columns with a blind index. See `docs/THREAT_MODEL.md`.
   account: message) can be turned on, but only for accounts that sign in
   automatically — an account that asks for a passphrase every time keeps its
   messages off an unattended screen.
-- Licences screen in Settings, listing every component Umbra ships or links
+- Licences screen in Settings, listing every component NullChat ships or links
   against, with its licence.
 - The version number moved out of the sidebar into Settings.
 
 ## 1.4.1
 
-- Fixed: "Tor did not connect in 900 s". Starting Umbra several times left every
+- Fixed: "Tor did not connect in 900 s". Starting NullChat several times left every
   copy fighting over the same Tor data directory, so none of them connected, and
   updates could not replace files the other copies held open. A second launch now
   hands over to the one already running and exits.
@@ -267,7 +267,7 @@ replaces those columns with a blind index. See `docs/THREAT_MODEL.md`.
 - **Android**: signed APKs for arm64, armv7 and x86_64, with the official Tor
   daemon bundled inside. Experimental — not yet tested on a physical phone, no
   bridges, and background operation is unfinished.
-- Umbra starts with Windows into the tray and stays reachable with the window
+- NullChat starts with Windows into the tray and stays reachable with the window
   closed; closing the window hides it, quitting is a choice in the tray menu.
 - Fixed themes: parts of the interface kept the colours of the previous theme.
 - Empty state for the chat list and day separators in conversations.

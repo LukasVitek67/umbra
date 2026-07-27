@@ -6,20 +6,20 @@
 //! that key, signs an archive with it, and can check a signature by hand.
 //!
 //! ```text
-//! umbra-sign keygen <key-file>          make a new signing key (KEEP IT SECRET)
-//! umbra-sign pubkey <key-file>          print the public key to paste into updater.rs
-//! umbra-sign sign   <key-file> <file>   write <file>.sig
-//! umbra-sign verify <pubkey-hex> <file> check <file> against <file>.sig
+//! nullchat-sign keygen <key-file>          make a new signing key (KEEP IT SECRET)
+//! nullchat-sign pubkey <key-file>          print the public key to paste into updater.rs
+//! nullchat-sign sign   <key-file> <file>   write <file>.sig
+//! nullchat-sign verify <pubkey-hex> <file> check <file> against <file>.sig
 //! ```
 //!
 //! The key file holds the 32-byte secret seed as hex. Anyone who copies it can
-//! push code to every Umbra user, so it belongs outside the repository — on the
+//! push code to every NullChat user, so it belongs outside the repository — on the
 //! author's machine (and a backup they control), nowhere else.
 
 use std::path::Path;
 use std::process::ExitCode;
 
-use umbra_core::identity::{verify, Keypair};
+use nullchat_core::identity::{verify, Keypair};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -31,10 +31,10 @@ fn main() -> ExitCode {
         ("verify", 3) => verify_file(&args[1], &args[2]),
         _ => {
             eprintln!(
-                "umbra-sign keygen <key-file>\n\
-                 umbra-sign pubkey <key-file>\n\
-                 umbra-sign sign   <key-file> <file>\n\
-                 umbra-sign verify <pubkey-hex> <file>"
+                "nullchat-sign keygen <key-file>\n\
+                 nullchat-sign pubkey <key-file>\n\
+                 nullchat-sign sign   <key-file> <file>\n\
+                 nullchat-sign verify <pubkey-hex> <file>"
             );
             return ExitCode::from(2);
         }

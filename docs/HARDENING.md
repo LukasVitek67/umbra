@@ -3,7 +3,7 @@
 
 A read of the whole application (Rust core, transport, the frb API layer and the
 Flutter UI — about 12 000 lines of hand-written code), together with a look at
-what [Briar](https://code.briarproject.org/briar) does that Umbra does not.
+what [Briar](https://code.briarproject.org/briar) does that NullChat does not.
 
 Findings are ordered by how much they matter, not by how hard they are to fix.
 Anything marked **fixed** was fixed in the same pass and has a test; everything
@@ -13,7 +13,7 @@ else is listed with what it would take.
 
 ### 1. The app log held message text in the clear — critical
 
-`emit()` wrote every event to `umbra-app.log` as
+`emit()` wrote every event to `nullchat-app.log` as
 `{kind} peer={12 hex of identity} {data}`. For a text message, `data` **was the
 message**. The file sits next to the encrypted database, is not encrypted, and
 needs no passphrase.
@@ -92,7 +92,7 @@ so an in-person exchange needs no reading at all.
 
 DPAPI ties it to the Windows account, so copying the file elsewhere is useless —
 but malware running as the user can call `CryptUnprotectData` just as easily as
-Umbra can, and that yields the passphrase, and with it the whole database.
+NullChat can, and that yields the passphrase, and with it the whole database.
 
 **Plan:** keep it, because typing a long passphrase at every start is what makes
 people pick short ones — but bound the damage. Add an idle lock that clears the
@@ -103,7 +103,7 @@ it.
 ### C. Handshake signatures lack domain separation — medium
 
 `identity.rs` gets this right: roster signatures are prefixed with
-`umbra-roster-v1\0`. The transport does not — it signs the prekey bundle and the
+`nullchat-roster-v1\0`. The transport does not — it signs the prekey bundle and the
 first message body raw. Both inputs are structured enough that a practical
 cross-protocol attack is not obvious, but "not obvious" is a poor place to
 stand, and the codebase already knows better in another module.
@@ -136,12 +136,12 @@ version wins. This keeps strangers out and converges, but it does not defend
 against a member who turns hostile. Signed, ordered membership changes with an
 owner are the fix, and they are a real piece of work.
 
-## What Briar has that Umbra does not
+## What Briar has that NullChat does not
 
 Briar has been doing this since 2015 and is worth borrowing from. What stands
 out, and what it would mean here:
 
-| Briar | Umbra today | Worth taking? |
+| Briar | NullChat today | Worth taking? |
 |---|---|---|
 | **QR pairing in person** (BQP): each side shows a hash *commitment* to an ephemeral key, then the keys are exchanged over an insecure channel and checked against what was scanned | invite string, no verification step | **Yes** — this is the answer to finding A, and the commitment trick is the part to copy |
 | **Mailbox**: a contact, or a box on a spare device, holds messages for you while you are offline | outbox is local only — both sides must be online at the same moment | **Yes, eventually.** The single biggest usability gap, and it can be done without weakening encryption |
@@ -149,7 +149,7 @@ out, and what it would mean here:
 | **Transport key rotation with pre-computed tags**, so streams are unlinkable and replays are caught by a reordering window | fresh PQXDH per connection, no long-lived transport keys | Not needed — the property is already there by a different route |
 | **Reproducible builds** verified via Docker | signed releases only | **Yes** — a signature proves who built it, not *what* they built |
 
-Two things Umbra already does that Briar does not: post-quantum session setup
+Two things NullChat already does that Briar does not: post-quantum session setup
 (PQXDH/Kyber, Briar's handshake is classical X25519), and the blind index over
 routing columns.
 

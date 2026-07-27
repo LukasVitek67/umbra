@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Two-node test of the Tor onion transport — the real scenario.
 //!
-//! Terminal A:  umbra-tor-probe listen  <datadir-a>
+//! Terminal A:  nullchat-tor-probe listen  <datadir-a>
 //!              (prints its .onion address and identity)
-//! Terminal B:  umbra-tor-probe dial    <datadir-b> <onion> <identity-hex>
+//! Terminal B:  nullchat-tor-probe dial    <datadir-b> <onion> <identity-hex>
 //!
 //! Each side runs its own Tor daemon and its own onion service, exactly like two
 //! people on two machines.
@@ -11,9 +11,9 @@
 use std::path::PathBuf;
 
 use anyhow::{bail, Result};
-use umbra_core::envelope;
-use umbra_core::identity::Keypair;
-use umbra_transport::ctor::TorService;
+use nullchat_core::envelope;
+use nullchat_core::identity::Keypair;
+use nullchat_transport::ctor::TorService;
 
 fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
     let data_dir: PathBuf = args
         .get(2)
         .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("umbra-node"));
+        .unwrap_or_else(|| std::env::temp_dir().join("nullchat-node"));
 
     // A per-directory deterministic seed keeps identities stable across runs.
     let mut seed = [0u8; 32];
@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
     println!("IDENTITY={}", hex(&identity));
     // A ready-to-paste invite, so this node can be added as a contact in the
     // GUI app and used as the "other person" when testing on one machine.
-    let invite = umbra_core::invite::Invite::new(identity, "Testovací uzel", svc.onion.clone());
+    let invite = nullchat_core::invite::Invite::new(identity, "Testovací uzel", svc.onion.clone());
     println!("INVITE={}", invite.encode());
     println!();
     println!("↑ Zkopíruj řádek INVITE (i s 'umbra1:') do aplikace: Chaty → Přidat");
@@ -143,7 +143,7 @@ async fn main() -> Result<()> {
                 bail!("spojení se nepodařilo navázat");
             }
             eprintln!("[*] ✓ Spojeno a ověřeno. Posílám zprávu…");
-            svc.send_bytes(&hex(&peer), envelope::encode_text("ahoj pres Tor, tady Umbra"))
+            svc.send_bytes(&hex(&peer), envelope::encode_text("ahoj pres Tor, tady NullChat"))
                 .await?;
 
             // Optional 5th argument: a file to send, to exercise file transfer.
@@ -170,11 +170,11 @@ async fn main() -> Result<()> {
         // problem apart from a handshake problem.
         "raw" => {
             let onion = args.get(3).cloned().unwrap_or_default();
-            let socks = umbra_transport::ctor::socks_port_of(&svc);
+            let socks = nullchat_transport::ctor::socks_port_of(&svc);
             eprintln!("[*] raw: připojuji se na {onion} (SOCKS {socks})…");
             let mut stream = tokio::time::timeout(
                 tokio::time::Duration::from_secs(120),
-                umbra_transport::ctor::socks5_connect(socks, &onion, 9735),
+                nullchat_transport::ctor::socks5_connect(socks, &onion, 9735),
             )
             .await??;
             eprintln!("[*] SOCKS spojení otevřeno, čekám na data (60 s)…");

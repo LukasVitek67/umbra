@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Umbra demo CLI.
+//! NullChat demo CLI.
 //!
 //! Runs entirely on one machine and drives the REAL core modules (the same code
 //! covered by the crate's tests). It is a demonstration of the on-device crypto
@@ -10,10 +10,10 @@
 use std::env;
 use std::io::{self, BufRead, Write};
 
-use umbra_core::crypto::{keystore, padding};
-use umbra_core::crypto::ratchet::{RatchetAccount, RatchetSession};
-use umbra_core::identity::{Keypair, Roster, SignedRoster};
-use umbra_core::store::{Contact, Direction, NewMessage, Store};
+use nullchat_core::crypto::{keystore, padding};
+use nullchat_core::crypto::ratchet::{RatchetAccount, RatchetSession};
+use nullchat_core::identity::{Keypair, Roster, SignedRoster};
+use nullchat_core::store::{Contact, Direction, NewMessage, Store};
 
 const DEMO_EPOCH: u64 = 1_700_000_000;
 
@@ -24,7 +24,7 @@ fn main() {
         "chat" => chat(),
         other => {
             eprintln!("neznámý příkaz: {other}");
-            eprintln!("použití: umbra [demo|chat]");
+            eprintln!("použití: nullchat [demo|chat]");
             std::process::exit(2);
         }
     }
@@ -111,7 +111,7 @@ fn demo() {
     rule("4) Šifrovaný lokální store");
     let mut key = [0u8; 32];
     getrandom::getrandom(&mut key).unwrap();
-    let path = env::temp_dir().join("umbra-cli-demo.sqlite");
+    let path = env::temp_dir().join("nullchat-cli-demo.sqlite");
     let _ = std::fs::remove_file(&path);
     {
         let store = Store::open(&path, &key).unwrap();
@@ -120,7 +120,7 @@ fn demo() {
             display_name: "Bob".to_string(),
             onion_addr: "exampleonionaddress.onion".to_string(),
             added_at: DEMO_EPOCH,
-            status: umbra_core::store::ContactStatus::Accepted,
+            status: nullchat_core::store::ContactStatus::Accepted,
             saved: true,
             verified: false,
             pq_fingerprint: None,
@@ -146,11 +146,11 @@ fn demo() {
     let _ = std::fs::remove_file(&path);
 
     println!("\n\x1b[1mVše proběhlo. To je pět hotových modulů jádra, živě na tomhle PC.\x1b[0m");
-    println!("Vyzkoušej interaktivně:  cargo run -p umbra-cli -- chat");
+    println!("Vyzkoušej interaktivně:  cargo run -p nullchat-cli -- chat");
 }
 
 fn chat() {
-    println!("Umbra — interaktivní demo (Alice -> Bob, JEDEN proces, síť zatím není).");
+    println!("NullChat — interaktivní demo (Alice -> Bob, JEDEN proces, síť zatím není).");
     println!("Piš zprávy; každou zašifruju E2E a rozšifruju na Bobově straně. Konec: /quit\n");
 
     let alice = RatchetAccount::new();

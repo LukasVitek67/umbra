@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 # Duress passphrases — what they do, and what they cannot do
 
-Umbra lets one account answer to more than one passphrase:
+NullChat lets one account answer to more than one passphrase:
 
 | Passphrase | What happens |
 |---|---|
@@ -19,7 +19,7 @@ the situations it is for are the ones where being wrong costs the most.
 
 There is no list of passphrases anywhere. A passphrase is turned into a key
 (Argon2id over the account's salt), and that key is simply used to open rows.
-Rows sealed under a different key do not decrypt, and Umbra treats a row it
+Rows sealed under a different key do not decrypt, and NullChat treats a row it
 cannot decrypt as **absent** — not as an error, not as a locked door.
 
 The consequences are what the design is for:
@@ -61,9 +61,9 @@ Stated plainly, because a false sense of safety here is worse than none.
 
 4. **The rest of the machine.** Message notifications in the OS history, a
    thumbnail cache, the Windows page file, a backup tool, `tor.log`'s timestamps
-   — Umbra controls its own directory and nothing else.
+   — NullChat controls its own directory and nothing else.
 
-5. **Someone who knows Umbra has this feature.** The design hides *whether you
+5. **Someone who knows NullChat has this feature.** The design hides *whether you
    used it*, not that it exists — the source is public. Being asked "is there a
    second passphrase?" is a question about you, not about the file, and no
    amount of cryptography answers it on your behalf.

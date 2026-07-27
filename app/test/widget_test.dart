@@ -6,7 +6,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:umbra/theme.dart';
+import 'package:nullchat/theme.dart';
 
 void main() {
   testWidgets('widgets follow the selected palette', (tester) async {

@@ -1,7 +1,7 @@
 ﻿<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 # Third-party components
 
-Umbra itself is AGPL-3.0-or-later. Everything it builds on is listed here,
+NullChat itself is AGPL-3.0-or-later. Everything it builds on is listed here,
 generated from the build (`cargo license`, `flutter pub deps`) plus the
 programs shipped next to the app. The same list in plain language is in the
 app under Settings -> Licences.
@@ -21,7 +21,7 @@ app under Settings -> Licences.
 (Apache-2.0 OR MIT) AND Unicode-3.0 (1): unicode-ident
 0BSD OR Apache-2.0 OR MIT (1): adler2
 AGPL-3.0 (5): libsignal-core, libsignal-debug, libsignal-protocol, signal-crypto, spqr
-AGPL-3.0-or-later (3): umbra-cli, umbra-core, umbra-transport
+AGPL-3.0-or-later (3): nullchat-cli, nullchat-core, nullchat-transport
 Apache-2.0 (23): core-models, hax-lib, hax-lib-macros, hax-lib-macros-types, libcrux-hacl-rs, libcrux-hmac, libcrux-intrinsics, libcrux-macros, libcrux-ml-kem, libcrux-platform, libcrux-secrets, libcrux-sha2, libcrux-sha3, libcrux-traits, matrix-pickle, matrix-pickle-derive, prost, prost, prost-derive, prost-derive, sorted-vec, vodozemac, zopfli
 Apache-2.0 AND ISC (1): ring
 Apache-2.0 OR Apache-2.0 WITH LLVM-exception OR MIT (3): wasi, wasip2, wit-bindgen
@@ -39,7 +39,7 @@ ISC (2): rustls-webpki, untrusted
 MIT (25): bytes, const-str, crabgrind, dashmap, data-encoding, data-encoding-macro, data-encoding-macro-internal, delegate-attr, derive_more, derive_more-impl, flutter_rust_bridge, flutter_rust_bridge_macros, generic-array, libsqlite3-sys, mio, oslog, redox_syscall, rusqlite, simd-adler32, slab, tokio, tokio-macros, winnow, zip, zmij
 MIT OR Unlicense (3): aho-corasick, byteorder, memchr
 MPL-2.0 (2): hpke-rs, hpke-rs-crypto
-N/A (1): rust_lib_umbra
+N/A (1): rust_lib_nullchat
 Zlib (1): foldhash
 ```
 
@@ -50,7 +50,7 @@ Full licence texts are shown in the app (Settings -> Licences -> Package licence
 ```
 Dart SDK 3.12.2
 Flutter SDK 3.44.8
-umbra 1.3.0+1
+nullchat 1.3.0+1
 
 dependencies:
 - cupertino_icons 1.0.9
@@ -59,7 +59,7 @@ dependencies:
 - flutter_rust_bridge 2.12.0 [args async build_cli_annotations meta path web]
 - local_notifier 0.1.6 [flutter uuid]
 - path_provider 2.1.6 [flutter path_provider_android path_provider_foundation path_provider_linux path_provider_platform_interface path_provider_windows]
-- rust_lib_umbra 0.0.1 [flutter plugin_platform_interface]
+- rust_lib_nullchat 0.0.1 [flutter plugin_platform_interface]
 - tray_manager 0.5.3 [flutter menu_base path shortid]
 - window_manager 0.5.2 [flutter path screen_retriever]
 

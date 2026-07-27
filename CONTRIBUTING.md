@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-# Contributing to Umbra
+# Contributing to NullChat
 
 ## Reporting a security hole
 
@@ -15,8 +15,8 @@ Open an [issue](https://github.com/LukasVitek67/umbra/issues) with:
 - for a connection problem, the last few lines of `tor.log` from your account
   directory.
 
-Do **not** attach `umbra.db`, `umbra.salt`, or anything from `hs/` — those are
-your identity and your history. `umbra-app.log` is safe to attach: it records
+Do **not** attach `nullchat.db`, `nullchat.salt`, or anything from `hs/` — those are
+your identity and your history. `nullchat-app.log` is safe to attach: it records
 only event types and sizes, never message content.
 
 ## Changing code
@@ -53,6 +53,6 @@ honest sentence about what is *not* protected is as valuable as the feature.
 
 ## Licence
 
-Umbra is **AGPL-3.0-or-later**, and links against `libsignal`, which is AGPL as
+NullChat is **AGPL-3.0-or-later**, and links against `libsignal`, which is AGPL as
 well. Contributions are accepted under the same licence. Every source file
 carries an `SPDX-License-Identifier` header; keep it.

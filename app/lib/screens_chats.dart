@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 
 import 'l10n.dart';
 import 'mock.dart';
-import 'src/rust/api/umbra.dart' show SearchHitView;
+import 'src/rust/api/nullchat.dart' show SearchHitView;
 import 'theme.dart';
 
 String _hhmm(DateTime t) =>
@@ -15,7 +15,7 @@ String _hhmm(DateTime t) =>
 
 /// Show the safety number and let the user say whether it matched.
 ///
-/// This is the only check in Umbra that needs a person. Everything else proves
+/// This is the only check in NullChat that needs a person. Everything else proves
 /// that the other end holds the key named in the invite; only this proves the
 /// invite was theirs. So the dialog says what to do and why, in words — a
 /// screen of digits with a tick box would get ticked without being read.

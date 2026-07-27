@@ -19,8 +19,8 @@
 import 'dart:io';
 
 import 'package:local_notifier/local_notifier.dart';
-import 'package:path_provider/path_provider.dart';
 
+import 'app_dir.dart';
 import 'l10n.dart';
 
 class Notifications {
@@ -43,8 +43,8 @@ class Notifications {
   /// Windows keeps every notification it displays in its own database under
   /// `%LOCALAPPDATA%\Microsoft\Windows\Notifications`, where it survives long
   /// after the message is gone — and a duress passphrase cannot reach it,
-  /// because it is not Umbra's file. So an account with duress passphrases set
-  /// switches this off and Umbra draws its own, in its own window, leaving
+  /// because it is not NullChat's file. So an account with duress passphrases set
+  /// switches this off and NullChat draws its own, in its own window, leaving
   /// nothing behind. See `docs/DURESS.md`.
   static bool useSystemNotifications = true;
 
@@ -57,7 +57,7 @@ class Notifications {
   static Future<void> init() async {
     if (!supported || _ready) return;
     try {
-      await localNotifier.setup(appName: 'Umbra');
+      await localNotifier.setup(appName: 'NullChat');
       _ready = true;
     } catch (_) {
       // A missing notification service must never stop the messenger.
@@ -67,7 +67,7 @@ class Notifications {
 
   static Future<void> _loadPreference() async {
     try {
-      final dir = await getApplicationSupportDirectory();
+      final dir = Directory(await AppDir.path());
       _prefFile = File('${dir.path}${Platform.pathSeparator}notification-preview.txt');
       if (await _prefFile!.exists()) {
         showContent = (await _prefFile!.readAsString()).trim() == '1';
@@ -102,7 +102,7 @@ class Notifications {
         : L.t('notif.newFor').replaceAll('{account}', account);
     final text = detailed && preview ? body : '';
 
-    // Umbra's own notice, drawn by Umbra, recorded nowhere.
+    // NullChat's own notice, drawn by NullChat, recorded nowhere.
     if (!useSystemNotifications) {
       inApp?.call(title, text);
       return;

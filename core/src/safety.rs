@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Safety numbers — the one thing that catches a swapped invite.
 //!
-//! Everything else in Umbra proves that the person on the other end holds the
+//! Everything else in NullChat proves that the person on the other end holds the
 //! private key named in the invite. Nothing proves the invite came from who you
 //! think: replace it while it travels (a read of someone's chat account, a
 //! hostile network between you) and every signature still verifies. You are

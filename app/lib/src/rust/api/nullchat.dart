@@ -12,13 +12,13 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 /// Install the update the user was offered. Progress arrives as
 /// `update_downloading` / `update_installed` / `update_error` events.
-void installUpdate() => RustLib.instance.api.crateApiUmbraInstallUpdate();
+void installUpdate() => RustLib.instance.api.crateApiNullchatInstallUpdate();
 
 /// The version waiting to be installed, empty when there is none.
-String offeredUpdate() => RustLib.instance.api.crateApiUmbraOfferedUpdate();
+String offeredUpdate() => RustLib.instance.api.crateApiNullchatOfferedUpdate();
 
 /// This build's version, for the UI.
-String appVersion() => RustLib.instance.api.crateApiUmbraAppVersion();
+String appVersion() => RustLib.instance.api.crateApiNullchatAppVersion();
 
 /// Tell the transport where the shipped binaries live.
 ///
@@ -26,7 +26,7 @@ String appVersion() => RustLib.instance.api.crateApiUmbraAppVersion();
 /// so `tor` travels as `libtor.so` there and only the Java side knows the path.
 /// Desktop builds find their binaries next to the executable and never call this.
 void setNativeDir({required String path}) =>
-    RustLib.instance.api.crateApiUmbraSetNativeDir(path: path);
+    RustLib.instance.api.crateApiNullchatSetNativeDir(path: path);
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<UmbraApp>>
 abstract class UmbraApp implements RustOpaqueInterface {
@@ -69,7 +69,7 @@ abstract class UmbraApp implements RustOpaqueInterface {
     required String dir,
     required String username,
     required String passphrase,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppCreate(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppCreate(
     dir: dir,
     username: username,
     passphrase: passphrase,
@@ -81,7 +81,7 @@ abstract class UmbraApp implements RustOpaqueInterface {
     required String name,
     required String passphrase,
     required bool autologin,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppCreateAccount(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppCreateAccount(
     root: root,
     name: name,
     passphrase: passphrase,
@@ -96,7 +96,7 @@ abstract class UmbraApp implements RustOpaqueInterface {
     required BigInt now,
   });
 
-  /// Bridges the user pasted themselves, or empty when Umbra's own list is in
+  /// Bridges the user pasted themselves, or empty when NullChat's own list is in
   /// use. Stored next to the account's Tor data, where the daemon reads it.
   String customBridges();
 
@@ -109,7 +109,7 @@ abstract class UmbraApp implements RustOpaqueInterface {
 
   /// Whether an identity already exists at `dir`.
   static bool exists({required String dir}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppExists(dir: dir);
+      RustLib.instance.api.crateApiNullchatUmbraAppExists(dir: dir);
 
   /// Where finished incoming files are stored.
   String filesDir();
@@ -126,7 +126,7 @@ abstract class UmbraApp implements RustOpaqueInterface {
 
   /// Delete an account and everything it stored on this computer.
   static void forgetAccount({required String root, required String id}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppForgetAccount(
+      RustLib.instance.api.crateApiNullchatUmbraAppForgetAccount(
         root: root,
         id: id,
       );
@@ -139,7 +139,7 @@ abstract class UmbraApp implements RustOpaqueInterface {
 
   /// Accounts stored on this computer. Also migrates a pre-accounts install.
   static List<AccountView> listAccounts({required String root}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppListAccounts(root: root);
+      RustLib.instance.api.crateApiNullchatUmbraAppListAccounts(root: root);
 
   List<ContactView> listContacts();
 
@@ -173,7 +173,7 @@ abstract class UmbraApp implements RustOpaqueInterface {
 
   /// Open an existing identity at `dir` with `passphrase`.
   static UmbraApp open({required String dir, required String passphrase}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppOpen(
+      RustLib.instance.api.crateApiNullchatUmbraAppOpen(
         dir: dir,
         passphrase: passphrase,
       );
@@ -184,7 +184,7 @@ abstract class UmbraApp implements RustOpaqueInterface {
     required String id,
     required String passphrase,
     required bool remember,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppOpenAccount(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppOpenAccount(
     root: root,
     id: id,
     passphrase: passphrase,
@@ -193,7 +193,7 @@ abstract class UmbraApp implements RustOpaqueInterface {
 
   /// Unlock an account whose passphrase this computer remembers.
   static UmbraApp openAccountAuto({required String root, required String id}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppOpenAccountAuto(
+      RustLib.instance.api.crateApiNullchatUmbraAppOpenAccountAuto(
         root: root,
         id: id,
       );
@@ -205,12 +205,12 @@ abstract class UmbraApp implements RustOpaqueInterface {
   void renameContact({required String contactHex, required String name});
 
   /// Rename a group. The new name travels with the roster, so everyone sees
-  /// it (a group has no owner â€” see `docs/THREAT_MODEL.md`).
+  /// it (a group has no owner — see `docs/THREAT_MODEL.md`).
   GroupView renameGroup({required String groupIdHex, required String name});
 
   /// Throw away Tor's cached directory data and start the network again.
   ///
-  /// The identity and the onion address are kept â€” only what Tor can fetch
+  /// The identity and the onion address are kept — only what Tor can fetch
   /// again is deleted. This is the manual version of the repair the app
   /// already tries by itself when a bootstrap stalls.
   Stream<NetEvent> repairTor();
@@ -242,7 +242,7 @@ abstract class UmbraApp implements RustOpaqueInterface {
   });
 
   /// Store a message and send it. If the contact is not reachable it waits in
-  /// the encrypted outbox and goes out by itself once they appear â€” closing
+  /// the encrypted outbox and goes out by itself once they appear — closing
   /// the app does not lose it.
   void sendOverNetwork({
     required String contactHex,
@@ -280,12 +280,12 @@ abstract class UmbraApp implements RustOpaqueInterface {
   void setMyPicture({required List<int> bytes});
 
   /// Record that the user compared the number and it matched (or take it
-  /// back). Nothing in the protocol may call this â€” only a person can.
+  /// back). Nothing in the protocol may call this — only a person can.
   void setVerified({required String contactHex, required bool verified});
 
   /// Start the Tor node: bootstrap (directly, falling back to bridges when
   /// the network blocks Tor), host our onion service, and accept incoming
-  /// peers. Returns immediately â€” all progress arrives as [`NetEvent`]s.
+  /// peers. Returns immediately — all progress arrives as [`NetEvent`]s.
   Stream<NetEvent> startNetwork();
 
   String userCode();
@@ -508,7 +508,7 @@ class MessageView {
 /// An event from the network layer, pushed to the UI.
 ///
 /// `kind` is one of:
-/// `"status"` (bootstrapping / connectingâ€¦), `"onion"` (our address is ready),
+/// `"status"` (bootstrapping / connecting…), `"onion"` (our address is ready),
 /// `"connected"` / `"disconnected"` (peer session), `"message"` (incoming text),
 /// `"error"`.
 class NetEvent {

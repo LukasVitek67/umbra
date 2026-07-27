@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! End-to-end sessions on **Signal's own protocol** (`libsignal-protocol`).
 //!
-//! This replaces the Olm ratchet Umbra started with. Both are Double Ratchet
+//! This replaces the Olm ratchet NullChat started with. Both are Double Ratchet
 //! implementations, but this one is the code Signal itself runs, and it brings
 //! the session setup Olm does not have: **PQXDH**, whose key agreement mixes a
 //! post-quantum KEM (Kyber) with X25519, so a recorded conversation is not
@@ -15,7 +15,7 @@
 //!
 //! We do not touch the cryptography: this module is glue, plus the wire
 //! encoding of a prekey bundle. The bundle travels inside the handshake, signed
-//! by the sender's **Ed25519 identity** (see `umbra_transport`), which is what
+//! by the sender's **Ed25519 identity** (see `nullchat_transport`), which is what
 //! ties "these keys" to "that identity" and keeps a man in the middle out.
 //!
 //! Sessions live in memory for the lifetime of a connection; the encrypted
@@ -39,10 +39,10 @@ use rand::TryRngCore;
 
 use crate::error::RatchetError;
 
-/// Every peer is addressed the same way; Umbra has one device per account, so
+/// Every peer is addressed the same way; NullChat has one device per account, so
 /// the name is a constant and the device id is always 1.
 const DEVICE_ID: u32 = 1;
-const ADDRESS_NAME: &str = "umbra";
+const ADDRESS_NAME: &str = "nullchat";
 
 fn address() -> ProtocolAddress {
     ProtocolAddress::new(ADDRESS_NAME.to_string(), DeviceId::new(DEVICE_ID as u8).expect("device id"))

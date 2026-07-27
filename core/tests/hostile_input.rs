@@ -21,10 +21,10 @@
 //! needs a nightly toolchain and libFuzzer; it is what runs on every `cargo
 //! test` on any machine, so a regression cannot sit unnoticed.
 
-use umbra_core::crypto::padding::{pad, unpad};
-use umbra_core::envelope::{self, Payload};
-use umbra_core::identity::Keypair;
-use umbra_core::invite::Invite;
+use nullchat_core::crypto::padding::{pad, unpad};
+use nullchat_core::envelope::{self, Payload};
+use nullchat_core::identity::Keypair;
+use nullchat_core::invite::Invite;
 
 /// Deterministic PRNG — same sequence on every machine and every run.
 struct Rng(u64);
@@ -235,12 +235,12 @@ fn signature_verification_survives_hostile_input() {
         let i = rng.below(64);
         sig[i] ^= 1 << rng.below(8);
         assert!(
-            !umbra_core::identity::verify(&public, msg, &sig),
+            !nullchat_core::identity::verify(&public, msg, &sig),
             "a damaged signature must never verify"
         );
 
         let mut key = public;
         key[rng.below(32)] ^= 1 << rng.below(8);
-        assert!(!umbra_core::identity::verify(&key, msg, &good));
+        assert!(!nullchat_core::identity::verify(&key, msg, &good));
     }
 }

@@ -43,7 +43,7 @@ const MAX_P_COST: u32 = 16;
 /// Argon2id defaults: **256 MiB**, 3 passes, 4 lanes.
 ///
 /// The OWASP minimum (19 MiB) is aimed at a server hashing many logins per
-/// second. Umbra derives this key once, when a person unlocks their own
+/// second. NullChat derives this key once, when a person unlocks their own
 /// messages, and the thing it defends against is someone with the database file
 /// and unlimited time. Memory is what makes that expensive on GPUs, so we spend
 /// a quarter of a gigabyte for the second it costs the user.

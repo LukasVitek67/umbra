@@ -5,7 +5,7 @@ import 'palette.dart';
 
 export 'palette.dart';
 
-/// Umbra design system — a calm, privacy-forward palette with a single accent
+/// NullChat design system — a calm, privacy-forward palette with a single accent
 /// (reads as "secure/encrypted"), deliberately not the generic Material default.
 ///
 /// These are getters, not constants: they follow whichever [UmbraPalette] the

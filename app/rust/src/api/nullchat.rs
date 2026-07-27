@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! The real flutter_rust_bridge API: bridges the Flutter UI to the Umbra core
+//! The real flutter_rust_bridge API: bridges the Flutter UI to the NullChat core
 //! (identity, user codes, invites, and the encrypted local store).
 //!
 //! Live peer-to-peer send/receive over the transport is a follow-up; this layer
@@ -14,23 +14,23 @@ use std::sync::{Arc, Mutex, OnceLock};
 use crate::frb_generated::StreamSink;
 use flutter_rust_bridge::frb;
 use tokio::sync::mpsc;
-use umbra_core::crypto::keystore;
-use umbra_core::identity::{user_code, Keypair};
-use umbra_core::invite::Invite;
-use umbra_core::crypto::pq::HybridIdentity;
-use umbra_core::safety;
-use umbra_core::group::{Group, GroupMember};
-use umbra_core::store::{
+use nullchat_core::crypto::keystore;
+use nullchat_core::identity::{user_code, Keypair};
+use nullchat_core::invite::Invite;
+use nullchat_core::crypto::pq::HybridIdentity;
+use nullchat_core::safety;
+use nullchat_core::group::{Group, GroupMember};
+use nullchat_core::store::{
     Contact, ContactStatus, Direction, MessageState, NewGroupMessage, NewMessage, ProfileKind,
     Store,
 };
 use zeroize::Zeroizing;
-use umbra_transport::ctor::TorService;
+use nullchat_transport::ctor::TorService;
 
 use crate::accounts::{self, AccountEntry};
 use crate::updater;
 
-use umbra_core::envelope::{self, Payload};
+use nullchat_core::envelope::{self, Payload};
 
 /// An event from the network layer, pushed to the UI.
 ///
@@ -102,7 +102,7 @@ static KEEPALIVE: AtomicBool = AtomicBool::new(false);
 static UPDATER: AtomicBool = AtomicBool::new(false);
 /// Tor's SOCKS port, so an update can be fetched on demand.
 static SOCKS: Mutex<Option<u16>> = Mutex::new(None);
-/// Where to append a plain-text diagnostic log (data dir / umbra-app.log).
+/// Where to append a plain-text diagnostic log (data dir / nullchat-app.log).
 static LOGPATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// Append one line to the diagnostic log. Best effort: never fails the caller.
@@ -362,7 +362,7 @@ pub fn app_version() -> String {
 /// Desktop builds find their binaries next to the executable and never call this.
 #[frb(sync)]
 pub fn set_native_dir(path: String) {
-    umbra_transport::ctor::set_native_dir(PathBuf::from(path));
+    nullchat_transport::ctor::set_native_dir(PathBuf::from(path));
 }
 
 /// Push an event to the UI (no-op before the network is started).
@@ -426,7 +426,7 @@ pub struct SearchHitView {
     pub body: String,
 }
 
-fn hit_view(h: umbra_core::store::SearchHit) -> SearchHitView {
+fn hit_view(h: nullchat_core::store::SearchHit) -> SearchHitView {
     SearchHitView {
         peer_hex: hex(&h.peer_pubkey),
         group_hex: h.group_id.map(|g| hex(&g)).unwrap_or_default(),
@@ -484,7 +484,7 @@ impl UmbraApp {
     /// Whether an identity already exists at `dir`.
     #[frb(sync)]
     pub fn exists(dir: String) -> bool {
-        PathBuf::from(dir).join("umbra.db").exists()
+        PathBuf::from(dir).join("nullchat.db").exists()
     }
 
     /// Create a brand-new identity + encrypted store at `dir`, protected by
@@ -496,10 +496,10 @@ impl UmbraApp {
 
         let mut salt = [0u8; 16];
         getrandom::getrandom(&mut salt).map_err(|_| "RNG failed".to_string())?;
-        std::fs::write(dir.join("umbra.salt"), salt).map_err(|e| e.to_string())?;
+        std::fs::write(dir.join("nullchat.salt"), salt).map_err(|e| e.to_string())?;
         // The KDF settings live next to the salt, so raising them for new
         // accounts never locks anyone out of an existing one.
-        std::fs::write(dir.join("umbra.kdf"), kdf_line()).map_err(|e| e.to_string())?;
+        std::fs::write(dir.join("nullchat.kdf"), kdf_line()).map_err(|e| e.to_string())?;
 
         let key = keystore::derive_store_key_with(
             passphrase.as_bytes(),
@@ -509,7 +509,7 @@ impl UmbraApp {
             keystore::STORE_P_COST,
         )
         .map_err(|e| e.to_string())?;
-        let store = Store::open(&dir.join("umbra.db"), &key).map_err(|e| e.to_string())?;
+        let store = Store::open(&dir.join("nullchat.db"), &key).map_err(|e| e.to_string())?;
 
         let account = Keypair::generate().map_err(|e| e.to_string())?;
         store
@@ -538,14 +538,14 @@ impl UmbraApp {
         // Opening a database that isn't there would CREATE an empty one, and the
         // app would then offer "unlock" forever for an identity that does not
         // exist. Refuse instead, so the UI can fall back to onboarding.
-        if !dir.join("umbra.db").exists() || !dir.join("umbra.salt").exists() {
+        if !dir.join("nullchat.db").exists() || !dir.join("nullchat.salt").exists() {
             return Err("Na tomto počítači není žádná identita.".to_string());
         }
-        let salt = std::fs::read(dir.join("umbra.salt")).map_err(|e| e.to_string())?;
+        let salt = std::fs::read(dir.join("nullchat.salt")).map_err(|e| e.to_string())?;
         let (m, t, p) = read_kdf(&dir);
         let key = keystore::derive_store_key_with(passphrase.as_bytes(), &salt, m, t, p)
             .map_err(|e| e.to_string())?;
-        let store = Store::open(&dir.join("umbra.db"), &key).map_err(|e| e.to_string())?;
+        let store = Store::open(&dir.join("nullchat.db"), &key).map_err(|e| e.to_string())?;
 
         // A duress passphrase destroys everything it cannot read and then
         // carries on as an ordinary sign-in. This happens here, before anything
@@ -832,7 +832,7 @@ impl UmbraApp {
         // text, contact names and onion addresses into this file in the clear,
         // so the old contents are a liability sitting next to the encrypted
         // database — and truncating also stops the file growing without end.
-        let log_path = dir.join("umbra-app.log");
+        let log_path = dir.join("nullchat-app.log");
         let _ = std::fs::write(&log_path, b"");
         *LOGPATH.lock().unwrap() = Some(log_path);
         *FILES_DIR.lock().unwrap() = Some(dir.join("files"));
@@ -857,7 +857,7 @@ impl UmbraApp {
                     let onion = svc.onion.clone();
                     // The updater talks to GitHub through this very daemon, so
                     // the version check is onion-routed like everything else.
-                    let socks_port = umbra_transport::ctor::socks_port_of(&svc);
+                    let socks_port = nullchat_transport::ctor::socks_port_of(&svc);
                     *ONION.lock().unwrap() = Some(onion.clone());
                     *SERVICE.lock().unwrap() = Some(svc);
                     emit("onion", &onion, "");
@@ -1090,7 +1090,7 @@ impl UmbraApp {
     pub fn repair_tor(&self, sink: StreamSink<NetEvent>) -> Result<(), String> {
         {
             let g = self.inner.lock().unwrap();
-            umbra_transport::ctor::clear_tor_cache(&g.dir).map_err(|e| e.to_string())?;
+            nullchat_transport::ctor::clear_tor_cache(&g.dir).map_err(|e| e.to_string())?;
         }
         // Drop the old service so its daemon exits and releases the lock.
         *SERVICE.lock().unwrap() = None;
@@ -1099,7 +1099,7 @@ impl UmbraApp {
         Ok(())
     }
 
-    /// Bridges the user pasted themselves, or empty when Umbra's own list is in
+    /// Bridges the user pasted themselves, or empty when NullChat's own list is in
     /// use. Stored next to the account's Tor data, where the daemon reads it.
     #[frb(sync)]
     pub fn custom_bridges(&self) -> String {
@@ -1200,7 +1200,7 @@ impl UmbraApp {
     /// Derive the key one more passphrase would produce for this account.
     fn duress_key(&self, passphrase: &str) -> Result<Zeroizing<[u8; 32]>, String> {
         let dir = { self.inner.lock().unwrap().dir.clone() };
-        let salt = std::fs::read(dir.join("umbra.salt")).map_err(|e| e.to_string())?;
+        let salt = std::fs::read(dir.join("nullchat.salt")).map_err(|e| e.to_string())?;
         let (m, t, p) = read_kdf(&dir);
         keystore::derive_store_key_with(passphrase.as_bytes(), &salt, m, t, p)
             .map_err(|e| e.to_string())
@@ -1227,7 +1227,7 @@ impl UmbraApp {
         }
         let key = self.duress_key(&passphrase)?;
         let dir = { self.inner.lock().unwrap().dir.clone() };
-        let store = Store::open(&dir.join("umbra.db"), &key).map_err(|e| e.to_string())?;
+        let store = Store::open(&dir.join("nullchat.db"), &key).map_err(|e| e.to_string())?;
 
         // Refuse a passphrase this account already answers to. Without this
         // check, reusing the real passphrase would mark the *real* profile as
@@ -1278,7 +1278,7 @@ impl UmbraApp {
     pub fn clear_duress_passphrase(&self, passphrase: String) -> Result<String, String> {
         let key = self.duress_key(&passphrase)?;
         let dir = { self.inner.lock().unwrap().dir.clone() };
-        let store = Store::open(&dir.join("umbra.db"), &key).map_err(|e| e.to_string())?;
+        let store = Store::open(&dir.join("nullchat.db"), &key).map_err(|e| e.to_string())?;
         let kind = store.profile_kind();
         // Never let this be pointed at the real account.
         if kind == ProfileKind::Normal {
@@ -1308,7 +1308,7 @@ impl UmbraApp {
     ) -> Result<(), String> {
         let key = self.duress_key(&passphrase)?;
         let dir = { self.inner.lock().unwrap().dir.clone() };
-        let store = Store::open(&dir.join("umbra.db"), &key).map_err(|e| e.to_string())?;
+        let store = Store::open(&dir.join("nullchat.db"), &key).map_err(|e| e.to_string())?;
         if store.profile_kind() != ProfileKind::Decoy {
             return Err("Tato fráze nepatří nastrčenému účtu.".to_string());
         }
@@ -2140,7 +2140,7 @@ fn read_kdf(dir: &Path) -> (u32, u32, u32) {
         keystore::LEGACY_T_COST,
         keystore::LEGACY_P_COST,
     );
-    let Ok(text) = std::fs::read_to_string(dir.join("umbra.kdf")) else { return legacy };
+    let Ok(text) = std::fs::read_to_string(dir.join("nullchat.kdf")) else { return legacy };
     let parts: Vec<&str> = text.split_whitespace().collect();
     if parts.len() != 4 || parts[0] != "argon2id" {
         return legacy;
@@ -2204,7 +2204,7 @@ mod tests {
             assert_ne!(safe, ".");
             assert!(!safe.is_empty());
             // The decisive property: joining it onto the folder stays inside it.
-            let base = std::path::Path::new("C:/umbra/files");
+            let base = std::path::Path::new("C:/nullchat/files");
             let joined = base.join(&safe);
             assert_eq!(joined.parent(), Some(base), "{evil} escaped to {joined:?}");
         }

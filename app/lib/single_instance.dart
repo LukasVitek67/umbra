@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// One Umbra at a time.
+// One NullChat at a time.
 //
 // Every instance starts its own Tor over the same account directory, and Tor
 // refuses to share it: the first one holds the lock and the others sit there
 // bootstrapping forever ("Tor did not connect in 900 s"). The same duplicates
-// hold umbra.exe open, so an update cannot swap the files either. Both problems
+// hold nullchat.exe open, so an update cannot swap the files either. Both problems
 // disappear once a second launch simply hands over to the first.
 //
 // The lock is a file lock (the OS drops it if we crash, so no stale-lockfile
@@ -16,8 +16,9 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'app_dir.dart';
+
 import 'package:ffi/ffi.dart';
-import 'package:path_provider/path_provider.dart';
 
 // Windows' own single-instance mechanism, bound directly: a named mutex is
 // three calls, and the win32 package does not expose them.
@@ -49,18 +50,18 @@ class SingleInstance {
   static RandomAccessFile? _lock;
   static ServerSocket? _server;
 
-  /// True when this process may continue. False means another Umbra is already
+  /// True when this process may continue. False means another NullChat is already
   /// running (it has been asked to come to the front) and we should quit.
   static Future<bool> acquire({required Future<void> Function() onSecondLaunch}) async {
     if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) return true;
     try {
-      final dir = await getApplicationSupportDirectory();
+      final dir = Directory(await AppDir.path());
       final sep = Platform.pathSeparator;
       final lockFile = File('${dir.path}${sep}instance.lock');
       final portFile = File('${dir.path}${sep}instance.port');
 
       final claimed = _claim(lockFile);
-      _note(claimed ? 'this process is the running Umbra' : 'another Umbra is running — handing over');
+      _note(claimed ? 'this process is the running NullChat' : 'another NullChat is running — handing over');
       if (!claimed) {
         // Someone else is running: ask them to show their window, step aside.
         await _wakeExisting(portFile);
@@ -85,7 +86,7 @@ class SingleInstance {
     }
   }
 
-  /// Take the "I am the running Umbra" claim, or report that someone else has
+  /// Take the "I am the running NullChat" claim, or report that someone else has
   /// it. Windows gets a named mutex — the mechanism the OS provides for exactly
   /// this; elsewhere a file lock does the same job.
   static bool _claim(File lockFile) {
@@ -124,7 +125,7 @@ class SingleInstance {
   static void _note(String message) {
     try {
       final dir = Directory(
-        '${Platform.environment['APPDATA']}${Platform.pathSeparator}org.umbra${Platform.pathSeparator}umbra',
+        '${Platform.environment['APPDATA']}${Platform.pathSeparator}org.umbra${Platform.pathSeparator}nullchat',
       );
       if (!dir.existsSync()) return;
       File('${dir.path}${Platform.pathSeparator}instance.log')

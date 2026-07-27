@@ -481,7 +481,7 @@ class SettingsScreen extends StatelessWidget {
 
 /// Your own Tor bridges.
 ///
-/// The bridges Umbra ships are public, which means a censor can — and usually
+/// The bridges NullChat ships are public, which means a censor can — and usually
 /// does — have them on a list. Anyone actually behind such a censor needs lines
 /// from bridges.torproject.org, and those are personal, so they belong here
 /// rather than in the build.
@@ -695,7 +695,7 @@ class _DuressEntry extends StatelessWidget {
   }
 }
 
-/// What Umbra is built from, and under what licence.
+/// What NullChat is built from, and under what licence.
 class _LicensesEntry extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -803,7 +803,7 @@ class LicensesScreen extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: () => showLicensePage(
                   context: context,
-                  applicationName: 'Umbra',
+                  applicationName: 'NullChat',
                   applicationVersion: appState.version,
                   applicationLegalese: 'AGPL-3.0-or-later',
                 ),

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// App state backed by the REAL Umbra core over flutter_rust_bridge. Identity,
+// App state backed by the REAL NullChat core over flutter_rust_bridge. Identity,
 // user code, invites, contacts and message history are genuine and persisted
 // encrypted at rest. Live peer-to-peer send/receive over the transport is the
 // remaining step; until then, `sendMessage` stores the message locally.
@@ -8,11 +8,11 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 
+import 'app_dir.dart';
 import 'l10n.dart';
 import 'notifications.dart';
-import 'src/rust/api/umbra.dart';
+import 'src/rust/api/nullchat.dart';
 
 const List<int> kPaddingBuckets = [256, 1024, 4096, 16384, 65536];
 
@@ -240,7 +240,7 @@ class AppState extends ChangeNotifier {
   /// The open group conversation, if any.
   GroupChat? selectedGroup;
 
-  Future<String> _dir() async => (await getApplicationSupportDirectory()).path;
+  Future<String> _dir() async => AppDir.path();
 
   /// Accounts stored on this computer.
   Future<List<AccountView>> accounts() async =>
@@ -586,7 +586,7 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Bridge lines the user pasted, empty when Umbra's own list is in use.
+  /// Bridge lines the user pasted, empty when NullChat's own list is in use.
   String get customBridges => _app?.customBridges() ?? '';
 
   /// Save (or, with empty text, drop) the user's own bridges. Tor picks them up
@@ -1101,7 +1101,7 @@ class AppState extends ChangeNotifier {
 
   /// Add a second passphrase: `'decoy'` or `'wipe'`.
   ///
-  /// Setting one also stops Umbra handing notifications to Windows, which keeps
+  /// Setting one also stops NullChat handing notifications to Windows, which keeps
   /// its own copy of them in a database no passphrase of ours can reach.
   String? setDuressPassphrase(String kind, String passphrase) {
     try {
@@ -1145,12 +1145,12 @@ class AppState extends ChangeNotifier {
   }
 
   /// An account with duress passphrases must not leave notifications in the
-  /// operating system's own history, so Umbra draws them itself instead.
+  /// operating system's own history, so NullChat draws them itself instead.
   void _applyNotificationPolicy() {
     Notifications.useSystemNotifications = duressConfigured.isEmpty;
   }
 
-  /// A notice Umbra draws itself. Cleared after a few seconds.
+  /// A notice NullChat draws itself. Cleared after a few seconds.
   ({String title, String body})? inAppNotice;
   int _noticeSeq = 0;
 

@@ -6,8 +6,9 @@
 
 import 'dart:io';
 
+import 'app_dir.dart';
+
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 
 /// Notifies the whole app when the language changes.
 final ValueNotifier<String> languageNotifier = ValueNotifier<String>('en');
@@ -21,7 +22,7 @@ class L {
   /// Load the stored preference (call once at startup).
   static Future<void> load() async {
     try {
-      final dir = await getApplicationSupportDirectory();
+      final dir = Directory(await AppDir.path());
       _file = File('${dir.path}${Platform.pathSeparator}language.txt');
       if (await _file!.exists()) {
         final v = (await _file!.readAsString()).trim();
@@ -76,7 +77,7 @@ class L {
       'nav.settings': 'Settings',
       'connecting.title': 'Connecting to Tor',
       'connecting.subtitle':
-          'Umbra needs a Tor connection before it can reach anyone. Nothing here needs your attention — it just takes a while.',
+          'NullChat needs a Tor connection before it can reach anyone. Nothing here needs your attention — it just takes a while.',
       'connecting.hint':
           'The first start can take 2–15 minutes: Tor downloads the network directory, and on networks that block Tor it looks for a way through bridges. Later starts are much faster.',
       'chats.title': 'Chats',
@@ -100,7 +101,7 @@ class L {
           'all of the digits: checking a few is not almost as good.',
       'safety.isVerified':
           'You confirmed these digits matched. If they ever change, the person '
-          'reinstalled Umbra or someone is impersonating them — compare again.',
+          'reinstalled NullChat or someone is impersonating them — compare again.',
       'wire.legacy': 'Older version',
       'wire.legacyHelp':
           'This contact runs a version from before post-quantum identities, so '
@@ -129,7 +130,7 @@ class L {
       'chat.yesterday': 'Yesterday',
       'chats.emptyTitle': 'No conversations yet',
       'chats.emptyHelp':
-          'Send someone your invite, or paste theirs. Umbra has no user directory — a conversation starts only because you two chose it.',
+          'Send someone your invite, or paste theirs. NullChat has no user directory — a conversation starts only because you two chose it.',
       'chat.sent': 'sent',
       'chat.outbox': '{n} waiting — they go out as soon as {name} is online.',
       'chat.outboxOne': '1 waiting — it goes out as soon as {name} is online.',
@@ -216,7 +217,7 @@ class L {
           'A group message reaches the members who are online right now — there is no server to hold it.',
       'settings.autostart': 'Start with Windows',
       'settings.autostartHelp':
-          'Umbra launches when you sign in, so you are reachable without opening it by hand.',
+          'NullChat launches when you sign in, so you are reachable without opening it by hand.',
       'settings.autostartFailed': 'Windows did not accept the change.',
       'settings.theme': 'Colour theme',
       'settings.themeHelp':
@@ -234,7 +235,7 @@ class L {
       'theme.day': 'Daylight',
       'theme.custom': 'Custom',
       'settings.disclaimer':
-          'Umbra is experimental and has not been independently audited. Do not rely on it where lives are at stake.',
+          'NullChat is experimental and has not been independently audited. Do not rely on it where lives are at stake.',
       'devices.title': 'Devices',
       'devices.subtitle': 'active • signed by your key, revocable',
       'devices.fingerprint': 'Your identity fingerprint',
@@ -269,7 +270,7 @@ class L {
       'duress.intro':
           'This account can answer to more than one passphrase. Set neither, '
           'one, or both — nothing in the file records how many there are, and '
-          'Umbra behaves identically whichever you type.',
+          'NullChat behaves identically whichever you type.',
       'duress.decoy.title': 'Decoy account',
       'duress.decoy.body':
           'Opens a separate history with its own contacts and messages. Your '
@@ -318,7 +319,7 @@ class L {
       'duress.notifications':
           'Notifications are no longer handed to Windows while an emergency '
           'passphrase is set. Windows keeps its own copy of every notice it '
-          'shows, in a database no passphrase of ours can reach, so Umbra now '
+          'shows, in a database no passphrase of ours can reach, so NullChat now '
           'draws them itself inside its own window.',
       'waiting.title': 'Waiting for you',
       'waiting.help':
@@ -368,22 +369,22 @@ class L {
           'Deletes what Tor downloaded about the network and starts over. Your identity, address and messages are untouched.',
       'connecting.repairing': 'Repairing Tor and reconnecting…',
       'bridges.title': 'Tor bridges',
-      'bridges.usingDefault': 'Using the bridges Umbra ships with.',
+      'bridges.usingDefault': 'Using the bridges NullChat ships with.',
       'bridges.usingCustom': 'Using your own bridges.',
       'bridges.help':
           'The bundled bridges are public, so a censor can block them. If Tor will not connect, get personal bridges from bridges.torproject.org (or e-mail bridges@torproject.org) and paste the lines here.',
       'bridges.hint': 'obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0',
       'bridges.saved': 'Saved — takes effect on the next start.',
       'licenses.title': 'Licences',
-      'licenses.subtitle': 'What Umbra is built from, and under what terms.',
-      'licenses.header': 'Umbra is AGPL-3.0. Everything it uses is listed here.',
+      'licenses.subtitle': 'What NullChat is built from, and under what terms.',
+      'licenses.header': 'NullChat is AGPL-3.0. Everything it uses is listed here.',
       'licenses.full':
           'The complete list of every dependency, including the ones pulled in indirectly, is in THIRD-PARTY.md next to the source.',
       'licenses.packages': 'Package licence texts',
-      'tray.open': 'Open Umbra',
+      'tray.open': 'Open NullChat',
       'tray.quit': 'Quit (you stop being reachable)',
       'settings.trayHint':
-          'Closing the window leaves Umbra running in the tray so messages keep arriving. Quit from the tray icon.',
+          'Closing the window leaves NullChat running in the tray so messages keep arriving. Quit from the tray icon.',
     },
     'cs': {
       'app.tagline': 'Šifrovaná peer-to-peer komunikace.\nŽádný server, žádné stopy.',
@@ -412,7 +413,7 @@ class L {
       'nav.settings': 'Nastavení',
       'connecting.title': 'Připojuji se k Toru',
       'connecting.subtitle':
-          'Umbra potřebuje spojení se sítí Tor, než na někoho dosáhne. Nic nemusíš dělat — jen to chvíli trvá.',
+          'NullChat potřebuje spojení se sítí Tor, než na někoho dosáhne. Nic nemusíš dělat — jen to chvíli trvá.',
       'connecting.hint':
           'První spuštění může trvat 2–15 minut: Tor stahuje adresář sítě a na sítích, které ho blokují, hledá cestu přes mosty. Další spuštění jsou výrazně rychlejší.',
       'chats.title': 'Chaty',
@@ -466,7 +467,7 @@ class L {
       'chat.yesterday': 'Včera',
       'chats.emptyTitle': 'Zatím žádné konverzace',
       'chats.emptyHelp':
-          'Pošli někomu svoji pozvánku, nebo vlož jeho. Umbra nemá seznam uživatelů — rozhovor vznikne jen tím, že se na něm vy dva domluvíte.',
+          'Pošli někomu svoji pozvánku, nebo vlož jeho. NullChat nemá seznam uživatelů — rozhovor vznikne jen tím, že se na něm vy dva domluvíte.',
       'chat.sent': 'odesláno',
       'chat.outbox': 'Čeká {n} zpráv — odejdou, jakmile bude {name} online.',
       'chat.outboxOne': 'Čeká 1 zpráva — odejde, jakmile bude {name} online.',
@@ -553,7 +554,7 @@ class L {
           'Skupinová zpráva dojde těm, kdo jsou právě online — není žádný server, který by ji podržel.',
       'settings.autostart': 'Spouštět s Windows',
       'settings.autostartHelp':
-          'Umbra se spustí po přihlášení, takže jsi dostupný i bez ručního zapnutí.',
+          'NullChat se spustí po přihlášení, takže jsi dostupný i bez ručního zapnutí.',
       'settings.autostartFailed': 'Windows změnu nepřijaly.',
       'settings.theme': 'Barevný motiv',
       'settings.themeHelp':
@@ -571,7 +572,7 @@ class L {
       'theme.day': 'Denní',
       'theme.custom': 'Vlastní',
       'settings.disclaimer':
-          'Umbra je experimentální a zatím bez nezávislého bezpečnostního auditu. Nespoléhej na ni tam, kde jde o život.',
+          'NullChat je experimentální a zatím bez nezávislého bezpečnostního auditu. Nespoléhej na ni tam, kde jde o život.',
       'devices.title': 'Zařízení',
       'devices.subtitle': 'aktivní • podepsané tvým klíčem, odvolatelné',
       'devices.fingerprint': 'Otisk tvé identity',
@@ -605,7 +606,7 @@ class L {
       'duress.title': 'Nouzové fráze',
       'duress.intro':
           'Tento účet může odpovídat víc než jedné frázi. Nastav žádnou, jednu '
-          'nebo obě — v souboru není nikde napsáno, kolik jich je, a Umbra se '
+          'nebo obě — v souboru není nikde napsáno, kolik jich je, a NullChat se '
           'chová úplně stejně, ať zadáš kteroukoli.',
       'duress.decoy.title': 'Nastrčený účet',
       'duress.decoy.body':
@@ -656,7 +657,7 @@ class L {
       'duress.notifications':
           'Dokud je nastavená nouzová fráze, oznámení se nepředávají Windows. '
           'Windows si každé zobrazené oznámení ukládá do vlastní databáze, kam '
-          'žádná naše fráze nedosáhne, takže si je Umbra kreslí sama ve svém '
+          'žádná naše fráze nedosáhne, takže si je NullChat kreslí sama ve svém '
           'okně.',
       'waiting.title': 'Nevyřízené',
       'waiting.help':
@@ -713,15 +714,15 @@ class L {
       'bridges.hint': 'obfs4 1.2.3.4:443 OTISK cert=… iat-mode=0',
       'bridges.saved': 'Uloženo — projeví se při příštím startu.',
       'licenses.title': 'Licence',
-      'licenses.subtitle': 'Z čeho je Umbra postavená a pod jakými podmínkami.',
-      'licenses.header': 'Umbra je pod AGPL-3.0. Všechno, co používá, je tady.',
+      'licenses.subtitle': 'Z čeho je NullChat postavená a pod jakými podmínkami.',
+      'licenses.header': 'NullChat je pod AGPL-3.0. Všechno, co používá, je tady.',
       'licenses.full':
           'Úplný seznam všech závislostí včetně nepřímých je v souboru THIRD-PARTY.md vedle zdrojového kódu.',
       'licenses.packages': 'Texty licencí balíčků',
       'tray.open': 'Otevřít Umbru',
       'tray.quit': 'Ukončit (přestaneš být dostupný)',
       'settings.trayHint':
-          'Zavřením okna Umbra běží dál v liště, takže zprávy pořád chodí. Ukončit ji jde přes ikonu v liště.',
+          'Zavřením okna NullChat běží dál v liště, takže zprávy pořád chodí. Ukončit ji jde přes ikonu v liště.',
     },
   };
 }

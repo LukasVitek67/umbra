@@ -20,7 +20,7 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use zeroize::Zeroizing;
 
 /// Domain-separation tag mixed into every roster signature.
-const ROSTER_DOMAIN: &[u8] = b"umbra-roster-v1\0";
+const ROSTER_DOMAIN: &[u8] = b"nullchat-roster-v1\0";
 /// Magic prefixing a serialized [`SignedRoster`].
 const ROSTER_MAGIC: &[u8; 8] = b"UMBRARO1";
 

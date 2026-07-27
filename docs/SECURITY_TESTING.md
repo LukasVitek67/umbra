@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-# Security testing Umbra
+# Security testing NullChat
 
 What is automated, what has to be done by hand, and — because it saves time —
 which commonly recommended tools do **not** apply to this architecture and why.
@@ -41,14 +41,14 @@ is worse, because the encryption is not what they came for.
 
 1. Start Wireshark on the real network adapter (not loopback).
 2. Filter out Tor's own traffic: `not tcp.port == 9001 and not tcp.port == 443`.
-3. Start Umbra, sign in, connect to a contact, send a message and a file.
-4. **Expected: nothing.** Every byte Umbra sends should reach the network only
+3. Start NullChat, sign in, connect to a contact, send a message and a file.
+4. **Expected: nothing.** Every byte NullChat sends should reach the network only
    as Tor cells from `tor.exe`.
 
 Then the harder variant, which catches what passive watching does not:
 
-5. Block `tor.exe` in the firewall while Umbra runs.
-6. **Expected: Umbra fails to connect and says so.** If any feature keeps
+5. Block `tor.exe` in the firewall while NullChat runs.
+6. **Expected: NullChat fails to connect and says so.** If any feature keeps
    working, that feature is not going through Tor.
 
 The updater deserves its own pass — it is the one component that talks to a
@@ -57,7 +57,7 @@ clearnet host (GitHub), and it must do so only through the SOCKS port.
 ### 2. What is in memory
 
 `Frida` or a debugger attached to the running process, searching memory for
-known plaintext. Umbra wipes key material on drop (`Zeroizing`), but decrypted
+known plaintext. NullChat wipes key material on drop (`Zeroizing`), but decrypted
 *messages* live in the UI as long as the conversation is open — that is
 unavoidable in a messenger and is stated in the threat model. What must **not**
 be findable after sign-out is the identity seed or the database key.
@@ -72,17 +72,17 @@ grep -r "some message you sent" %APPDATA%\org.umbra
 ```
 
 Expected: nothing. This is exactly how the plaintext log file was found in
-1.7.1 — the database was encrypted while `umbra-app.log` sat next to it with
+1.7.1 — the database was encrypted while `nullchat-app.log` sat next to it with
 every message in the clear.
 
 ## Tools that do not apply, and why
 
 Written down so nobody spends a day discovering it:
 
-- **OWASP ZAP** — an HTTP proxy. Umbra speaks a custom binary protocol between
+- **OWASP ZAP** — an HTTP proxy. NullChat speaks a custom binary protocol between
   peers, not HTTP, so ZAP has nothing to parse. The one exception is the
   updater, which does speak HTTPS to GitHub and can be inspected this way.
-- **MobSF** — analyses the Android wrapper. Umbra's logic, crypto and storage
+- **MobSF** — analyses the Android wrapper. NullChat's logic, crypto and storage
   are in the Rust library inside the APK, which MobSF does not decompile. It
   also flags "unencrypted SQLite" for our database, which is a false positive:
   the file is plain SQLite by design, with every value sealed individually and
@@ -98,7 +98,7 @@ Written down so nobody spends a day discovering it:
 Honestly, rather than implied by omission:
 
 - **An independent audit.** Briar has had two (Cure53 2017, Radically Open
-  Security 2024). Umbra has had none. No amount of self-testing substitutes for
+  Security 2024). NullChat has had none. No amount of self-testing substitutes for
   this, and it is the largest single gap between us and the alternatives.
 - **Coverage-guided fuzzing** (`cargo-fuzz`) — needs a nightly toolchain and
   libFuzzer; the deterministic suite above is what runs everywhere in the

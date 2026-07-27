@@ -148,7 +148,7 @@ bool Win32Window::Create(const std::wstring& title,
   UpdateTheme(window);
 
   if (!show) {
-    // Created but never shown: Umbra is running in the tray.
+    // Created but never shown: NullChat is running in the tray.
     ShowWindow(window, SW_HIDE);
   }
 

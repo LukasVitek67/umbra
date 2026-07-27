@@ -6,8 +6,9 @@
 
 import 'dart:io';
 
+import 'app_dir.dart';
+
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 
 @immutable
 class UmbraPalette {
@@ -89,7 +90,7 @@ class UmbraPalette {
 
 /// The built-in themes, in the order they appear in Settings.
 class UmbraPalettes {
-  /// The original Umbra look: near-black with a mint accent.
+  /// The original NullChat look: near-black with a mint accent.
   static const mint = UmbraPalette(
     id: 'mint',
     dark: true,
@@ -199,7 +200,7 @@ class UmbraTheme {
   /// Load the stored choice (call once at startup).
   static Future<void> load() async {
     try {
-      final dir = await getApplicationSupportDirectory();
+      final dir = Directory(await AppDir.path());
       _file = File('${dir.path}${Platform.pathSeparator}theme.txt');
       if (await _file!.exists()) {
         final stored = UmbraPalette.decode(await _file!.readAsString());

@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "org.umbra" "\0"
-            VALUE "FileDescription", "umbra" "\0"
+            VALUE "FileDescription", "nullchat" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "umbra" "\0"
+            VALUE "InternalName", "nullchat" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 org.umbra. All rights reserved." "\0"
-            VALUE "OriginalFilename", "umbra.exe" "\0"
-            VALUE "ProductName", "umbra" "\0"
+            VALUE "OriginalFilename", "nullchat.exe" "\0"
+            VALUE "ProductName", "nullchat" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

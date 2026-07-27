@@ -21,7 +21,7 @@ import 'theme.dart';
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Before anything heavy: a second Umbra would fight the first one for Tor's
+  // Before anything heavy: a second NullChat would fight the first one for Tor's
   // data directory (and neither would connect), so hand over and quit instead.
   final mine = await SingleInstance.acquire(
     onSecondLaunch: () => BackgroundMode.instance.show(),
@@ -58,7 +58,7 @@ class UmbraAppRoot extends StatelessWidget {
       valueListenable: UmbraTheme.notifier,
       builder: (context, palette, _) => MaterialApp(
         key: ValueKey('theme-${palette.id}-${palette.accent.toARGB32()}'),
-        title: 'Umbra',
+        title: 'NullChat',
         debugShowCheckedModeBanner: false,
         theme: umbraTheme(),
         home: ValueListenableBuilder<String>(
@@ -79,7 +79,7 @@ class UmbraAppRoot extends StatelessWidget {
   }
 }
 
-/// The Umbra brand mark: a rounded shield with a soft accent glow.
+/// The NullChat brand mark: a rounded shield with a soft accent glow.
 class UmbraMark extends StatelessWidget {
   const UmbraMark({super.key, this.size = 72});
   final double size;
@@ -194,7 +194,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               children: [
                 const Center(child: UmbraMark(size: 84)),
                 const SizedBox(height: 24),
-                Text('Umbra',
+                Text('NullChat',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontSize: 34)),
                 const SizedBox(height: 8),
@@ -409,7 +409,7 @@ class _HomeShellState extends State<HomeShell> {
       child: Scaffold(
       body: Column(
         children: [
-          // Umbra's own notification. Used when handing one to Windows is not
+          // NullChat's own notification. Used when handing one to Windows is not
           // acceptable, because Windows keeps a copy of everything it shows in
           // a database outside this app's reach (see docs/DURESS.md).
           ListenableBuilder(

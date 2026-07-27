@@ -3,7 +3,7 @@
 //!
 //! # Why this exists
 //!
-//! Umbra already resists a future quantum computer where *confidentiality* is
+//! NullChat already resists a future quantum computer where *confidentiality* is
 //! concerned: sessions are set up with PQXDH, which mixes a post-quantum key
 //! exchange into the handshake, so traffic recorded today cannot be opened
 //! later. Identity was the hole. Every signature that says "this key bundle is
@@ -45,7 +45,7 @@ pub const PQ_PUBLIC_LEN: usize = 1952;
 pub const PQ_SIGNATURE_LEN: usize = 3309;
 
 /// Separates the post-quantum key derivation from every other use of the seed.
-const PQ_SEED_INFO: &[u8] = b"umbra post-quantum identity v1";
+const PQ_SEED_INFO: &[u8] = b"nullchat post-quantum identity v1";
 
 /// An identity that signs with both schemes.
 pub struct HybridIdentity {
@@ -100,7 +100,7 @@ fn pq_key_from_seed(seed: &[u8; 32]) -> SigningKey<MlDsa65> {
 /// The commitment an invite carries for a given encoded public key.
 pub fn pq_fingerprint(pq_public: &[u8]) -> [u8; 32] {
     let mut h = Sha256::new();
-    h.update(b"umbra pq fingerprint v1");
+    h.update(b"nullchat pq fingerprint v1");
     h.update(pq_public);
     h.finalize().into()
 }

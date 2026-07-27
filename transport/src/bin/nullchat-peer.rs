@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Minimal two-party encrypted chat over TCP — the real, runnable proof that
 //! two separate processes (or machines on a LAN / forwarded port) exchange
-//! end-to-end encrypted messages through the Umbra session handshake.
+//! end-to-end encrypted messages through the NullChat session handshake.
 //!
-//!   Terminal A:  umbra-chat listen 9000
-//!   Terminal B:  umbra-chat connect 127.0.0.1:9000 <identity-hex-from-A>
+//!   Terminal A:  nullchat-peer listen 9000
+//!   Terminal B:  nullchat-peer connect 127.0.0.1:9000 <identity-hex-from-A>
 
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::Mutex;
-use umbra_core::identity::user_code;
-use umbra_transport::{read_frame, tcp, write_frame, LocalNode, Session};
+use nullchat_core::identity::user_code;
+use nullchat_transport::{read_frame, tcp, write_frame, LocalNode, Session};
 
 fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
             chat_loop(stream, session).await
         }
         _ => {
-            eprintln!("použití: umbra-chat listen <port> | connect <host:port> <identita-hex>");
+            eprintln!("použití: nullchat-peer listen <port> | connect <host:port> <identita-hex>");
             std::process::exit(2);
         }
     }

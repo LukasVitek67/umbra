@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// The gate a user sees right after unlocking: Umbra cannot do anything useful
+// The gate a user sees right after unlocking: NullChat cannot do anything useful
 // until Tor is up, so instead of a dead-looking chat list we show what is
 // happening and roughly how far along it is.
 

@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-# Umbra — Threat Model
+# NullChat — Threat Model
 
-> This is a living document. It states honestly what Umbra does and does **not**
+> This is a living document. It states honestly what NullChat does and does **not**
 > protect. Claiming more than this would put people at risk.
 
 ## Who we defend against
@@ -12,7 +12,7 @@
   *seizes* a node that carries other people's traffic.
 - **Mass-surveillance / content-scanning mandates** — bulk collection and
   client-/server-side scanning of message content.
-- **A central-server seizure** — the Umbra failure mode is designed away: there
+- **A central-server seizure** — the NullChat failure mode is designed away: there
   is no central server to seize.
 
 ## What we protect
@@ -28,7 +28,7 @@
   only if both verify. Breaking the classical half does not let anyone forge an
   invite, sign a key bundle in your name, or place themselves in the middle of a
   conversation. Onion routing itself is still classical, as is Tor's own
-  cryptography, which is outside Umbra's control.
+  cryptography, which is outside NullChat's control.
 - **Message length** — padded to fixed size buckets before encryption, so
   content can't be inferred from size within a bucket.
 - **Transport metadata (partial)** — onion routing (Tor) hides the network path;
@@ -44,7 +44,7 @@
 ## What we do NOT protect (limitations)
 
 - **Endpoint compromise.** If the OS/device is compromised (malware, a coerced
-  unlock, screen capture, a keylogger), Umbra cannot help. Content is plaintext
+  unlock, screen capture, a keylogger), NullChat cannot help. Content is plaintext
   on the endpoints by necessity.
 - **Global passive adversary / traffic-confirmation.** An adversary who watches a
   large fraction of the network can attempt end-to-end timing/volume correlation
@@ -72,12 +72,12 @@
 - **Coarse size class.** Padding quantises length; it does not equalise a 2 MB
   file with a text. Size *class* still leaks; very large transfers leak coarse
   magnitude. Constant-rate cover traffic is the mitigation (Fáze 2).
-- **The fact that you run Umbra.** Using Tor / running an onion service can be
+- **The fact that you run NullChat.** Using Tor / running an onion service can be
   observable to a local network watcher. Pluggable transports / bridges are a
   future item.
 - **Contact-graph metadata beyond the transport.** Who you add as a contact,
   timing of activity, and similar side channels are only partially mitigated.
-- **Availability.** A determined adversary can try to block Tor; Umbra is a
+- **Availability.** A determined adversary can try to block Tor; NullChat is a
   privacy tool, not a censorship-circumvention guarantee.
 - **A hostile group member.** A group is a shared roster fanned out over the
   existing 1:1 channels, so every hop keeps full end-to-end encryption — but the
@@ -106,6 +106,6 @@
 
 ## Pre-audit status
 
-Umbra has **not** been independently audited. Until it has (Fáze 5), treat every
-guarantee above as *intended*, not *verified*, and do not use Umbra where a
+NullChat has **not** been independently audited. Until it has (Fáze 5), treat every
+guarantee above as *intended*, not *verified*, and do not use NullChat where a
 person's safety depends on it.

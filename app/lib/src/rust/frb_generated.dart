@@ -3,8 +3,8 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
+import 'api/nullchat.dart';
 import 'api/simple.dart';
-import 'api/umbra.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'frb_generated.dart';
@@ -67,11 +67,11 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -307693654;
+  int get rustContentHash => -1011531821;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
-        stem: 'rust_lib_umbra',
+        stem: 'rust_lib_nullchat',
         ioDirectory: 'rust/target/release/',
         webPrefix: 'pkg/',
         wasmBindgenName: 'wasm_bindgen',
@@ -79,19 +79,19 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
-  ContactView crateApiUmbraUmbraAppAddContact({
+  ContactView crateApiNullchatUmbraAppAddContact({
     required UmbraApp that,
     required String inviteCode,
     required BigInt now,
   });
 
-  GroupView crateApiUmbraUmbraAppAddGroupMember({
+  GroupView crateApiNullchatUmbraAppAddGroupMember({
     required UmbraApp that,
     required String groupIdHex,
     required String contactHex,
   });
 
-  void crateApiUmbraUmbraAppAddMessage({
+  void crateApiNullchatUmbraAppAddMessage({
     required UmbraApp that,
     required String contactHex,
     required bool outgoing,
@@ -99,57 +99,59 @@ abstract class RustLibApi extends BaseApi {
     required String body,
   });
 
-  bool crateApiUmbraUmbraAppAutologinEnabled({required UmbraApp that});
+  bool crateApiNullchatUmbraAppAutologinEnabled({required UmbraApp that});
 
-  String crateApiUmbraUmbraAppClearDuressPassphrase({
+  String crateApiNullchatUmbraAppClearDuressPassphrase({
     required UmbraApp that,
     required String passphrase,
   });
 
-  void crateApiUmbraUmbraAppConnectPeer({
+  void crateApiNullchatUmbraAppConnectPeer({
     required UmbraApp that,
     required String contactHex,
   });
 
-  bool crateApiUmbraUmbraAppContactIsPostQuantum({
+  bool crateApiNullchatUmbraAppContactIsPostQuantum({
     required UmbraApp that,
     required String contactHex,
   });
 
-  String crateApiUmbraUmbraAppContactPicturePath({
+  String crateApiNullchatUmbraAppContactPicturePath({
     required UmbraApp that,
     required String contactHex,
   });
 
-  UmbraApp crateApiUmbraUmbraAppCreate({
+  UmbraApp crateApiNullchatUmbraAppCreate({
     required String dir,
     required String username,
     required String passphrase,
   });
 
-  UmbraApp crateApiUmbraUmbraAppCreateAccount({
+  UmbraApp crateApiNullchatUmbraAppCreateAccount({
     required String root,
     required String name,
     required String passphrase,
     required bool autologin,
   });
 
-  GroupView crateApiUmbraUmbraAppCreateGroup({
+  GroupView crateApiNullchatUmbraAppCreateGroup({
     required UmbraApp that,
     required String name,
     required List<String> memberHexes,
     required BigInt now,
   });
 
-  String crateApiUmbraUmbraAppCustomBridges({required UmbraApp that});
+  String crateApiNullchatUmbraAppCustomBridges({required UmbraApp that});
 
-  List<String> crateApiUmbraUmbraAppDuressConfigured({required UmbraApp that});
+  List<String> crateApiNullchatUmbraAppDuressConfigured({
+    required UmbraApp that,
+  });
 
-  bool crateApiUmbraUmbraAppExists({required String dir});
+  bool crateApiNullchatUmbraAppExists({required String dir});
 
-  String crateApiUmbraUmbraAppFilesDir({required UmbraApp that});
+  String crateApiNullchatUmbraAppFilesDir({required UmbraApp that});
 
-  void crateApiUmbraUmbraAppFillDecoy({
+  void crateApiNullchatUmbraAppFillDecoy({
     required UmbraApp that,
     required String passphrase,
     required String contactName,
@@ -157,169 +159,175 @@ abstract class RustLibApi extends BaseApi {
     required BigInt startAt,
   });
 
-  void crateApiUmbraUmbraAppForgetAccount({
+  void crateApiNullchatUmbraAppForgetAccount({
     required String root,
     required String id,
   });
 
-  String crateApiUmbraUmbraAppIdentityHex({required UmbraApp that});
+  String crateApiNullchatUmbraAppIdentityHex({required UmbraApp that});
 
-  void crateApiUmbraUmbraAppLeaveGroup({
+  void crateApiNullchatUmbraAppLeaveGroup({
     required UmbraApp that,
     required String groupIdHex,
   });
 
-  List<AccountView> crateApiUmbraUmbraAppListAccounts({required String root});
+  List<AccountView> crateApiNullchatUmbraAppListAccounts({
+    required String root,
+  });
 
-  List<ContactView> crateApiUmbraUmbraAppListContacts({required UmbraApp that});
+  List<ContactView> crateApiNullchatUmbraAppListContacts({
+    required UmbraApp that,
+  });
 
-  List<GroupMessageView> crateApiUmbraUmbraAppListGroupMessages({
+  List<GroupMessageView> crateApiNullchatUmbraAppListGroupMessages({
     required UmbraApp that,
     required String groupIdHex,
     required int limit,
   });
 
-  List<GroupView> crateApiUmbraUmbraAppListGroups({required UmbraApp that});
+  List<GroupView> crateApiNullchatUmbraAppListGroups({required UmbraApp that});
 
-  List<MessageView> crateApiUmbraUmbraAppListMessages({
+  List<MessageView> crateApiNullchatUmbraAppListMessages({
     required UmbraApp that,
     required String contactHex,
     required int limit,
   });
 
-  List<SearchHitView> crateApiUmbraUmbraAppMessagesFromContact({
+  List<SearchHitView> crateApiNullchatUmbraAppMessagesFromContact({
     required UmbraApp that,
     required String contactHex,
     required int limit,
   });
 
-  String crateApiUmbraUmbraAppMyInvite({required UmbraApp that});
+  String crateApiNullchatUmbraAppMyInvite({required UmbraApp that});
 
-  String crateApiUmbraUmbraAppMyOnion({required UmbraApp that});
+  String crateApiNullchatUmbraAppMyOnion({required UmbraApp that});
 
-  Uint8List crateApiUmbraUmbraAppMyPicture({required UmbraApp that});
+  Uint8List crateApiNullchatUmbraAppMyPicture({required UmbraApp that});
 
-  UmbraApp crateApiUmbraUmbraAppOpen({
+  UmbraApp crateApiNullchatUmbraAppOpen({
     required String dir,
     required String passphrase,
   });
 
-  UmbraApp crateApiUmbraUmbraAppOpenAccount({
+  UmbraApp crateApiNullchatUmbraAppOpenAccount({
     required String root,
     required String id,
     required String passphrase,
     required bool remember,
   });
 
-  UmbraApp crateApiUmbraUmbraAppOpenAccountAuto({
+  UmbraApp crateApiNullchatUmbraAppOpenAccountAuto({
     required String root,
     required String id,
   });
 
-  int crateApiUmbraUmbraAppPendingMessages({required UmbraApp that});
+  int crateApiNullchatUmbraAppPendingMessages({required UmbraApp that});
 
-  void crateApiUmbraUmbraAppRenameContact({
+  void crateApiNullchatUmbraAppRenameContact({
     required UmbraApp that,
     required String contactHex,
     required String name,
   });
 
-  GroupView crateApiUmbraUmbraAppRenameGroup({
+  GroupView crateApiNullchatUmbraAppRenameGroup({
     required UmbraApp that,
     required String groupIdHex,
     required String name,
   });
 
-  Stream<NetEvent> crateApiUmbraUmbraAppRepairTor({required UmbraApp that});
+  Stream<NetEvent> crateApiNullchatUmbraAppRepairTor({required UmbraApp that});
 
-  String crateApiUmbraUmbraAppSafetyNumber({
+  String crateApiNullchatUmbraAppSafetyNumber({
     required UmbraApp that,
     required String contactHex,
   });
 
-  List<SearchHitView> crateApiUmbraUmbraAppSearchMessages({
+  List<SearchHitView> crateApiNullchatUmbraAppSearchMessages({
     required UmbraApp that,
     required String query,
     required int limit,
   });
 
-  void crateApiUmbraUmbraAppSendFile({
+  void crateApiNullchatUmbraAppSendFile({
     required UmbraApp that,
     required String contactHex,
     required String path,
   });
 
-  void crateApiUmbraUmbraAppSendGroupMessage({
+  void crateApiNullchatUmbraAppSendGroupMessage({
     required UmbraApp that,
     required String groupIdHex,
     required String text,
     required BigInt now,
   });
 
-  void crateApiUmbraUmbraAppSendOverNetwork({
+  void crateApiNullchatUmbraAppSendOverNetwork({
     required UmbraApp that,
     required String contactHex,
     required String text,
     required BigInt now,
   });
 
-  void crateApiUmbraUmbraAppSetAutologin({
+  void crateApiNullchatUmbraAppSetAutologin({
     required UmbraApp that,
     required String passphrase,
     required bool enabled,
   });
 
-  void crateApiUmbraUmbraAppSetContactSaved({
+  void crateApiNullchatUmbraAppSetContactSaved({
     required UmbraApp that,
     required String contactHex,
     required bool saved,
   });
 
-  void crateApiUmbraUmbraAppSetContactStatus({
+  void crateApiNullchatUmbraAppSetContactStatus({
     required UmbraApp that,
     required String contactHex,
     required int status,
   });
 
-  void crateApiUmbraUmbraAppSetCustomBridges({
+  void crateApiNullchatUmbraAppSetCustomBridges({
     required UmbraApp that,
     required String text,
   });
 
-  void crateApiUmbraUmbraAppSetDuressPassphrase({
+  void crateApiNullchatUmbraAppSetDuressPassphrase({
     required UmbraApp that,
     required String kind,
     required String passphrase,
   });
 
-  void crateApiUmbraUmbraAppSetMyPicture({
+  void crateApiNullchatUmbraAppSetMyPicture({
     required UmbraApp that,
     required List<int> bytes,
   });
 
-  void crateApiUmbraUmbraAppSetVerified({
+  void crateApiNullchatUmbraAppSetVerified({
     required UmbraApp that,
     required String contactHex,
     required bool verified,
   });
 
-  Stream<NetEvent> crateApiUmbraUmbraAppStartNetwork({required UmbraApp that});
+  Stream<NetEvent> crateApiNullchatUmbraAppStartNetwork({
+    required UmbraApp that,
+  });
 
-  String crateApiUmbraUmbraAppUserCode({required UmbraApp that});
+  String crateApiNullchatUmbraAppUserCode({required UmbraApp that});
 
-  String crateApiUmbraUmbraAppUsername({required UmbraApp that});
+  String crateApiNullchatUmbraAppUsername({required UmbraApp that});
 
-  String crateApiUmbraAppVersion();
+  String crateApiNullchatAppVersion();
 
   String crateApiSimpleGreet({required String name});
 
   Future<void> crateApiSimpleInitApp();
 
-  void crateApiUmbraInstallUpdate();
+  void crateApiNullchatInstallUpdate();
 
-  String crateApiUmbraOfferedUpdate();
+  String crateApiNullchatOfferedUpdate();
 
-  void crateApiUmbraSetNativeDir({required String path});
+  void crateApiNullchatSetNativeDir({required String path});
 
   RustArcIncrementStrongCountFnType
   get rust_arc_increment_strong_count_UmbraApp;
@@ -339,7 +347,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
-  ContactView crateApiUmbraUmbraAppAddContact({
+  ContactView crateApiNullchatUmbraAppAddContact({
     required UmbraApp that,
     required String inviteCode,
     required BigInt now,
@@ -360,21 +368,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_contact_view,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppAddContactConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppAddContactConstMeta,
         argValues: [that, inviteCode, now],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppAddContactConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppAddContactConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_add_contact",
         argNames: ["that", "inviteCode", "now"],
       );
 
   @override
-  GroupView crateApiUmbraUmbraAppAddGroupMember({
+  GroupView crateApiNullchatUmbraAppAddGroupMember({
     required UmbraApp that,
     required String groupIdHex,
     required String contactHex,
@@ -395,21 +403,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_group_view,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppAddGroupMemberConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppAddGroupMemberConstMeta,
         argValues: [that, groupIdHex, contactHex],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppAddGroupMemberConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppAddGroupMemberConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_add_group_member",
         argNames: ["that", "groupIdHex", "contactHex"],
       );
 
   @override
-  void crateApiUmbraUmbraAppAddMessage({
+  void crateApiNullchatUmbraAppAddMessage({
     required UmbraApp that,
     required String contactHex,
     required bool outgoing,
@@ -434,21 +442,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppAddMessageConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppAddMessageConstMeta,
         argValues: [that, contactHex, outgoing, sentAt, body],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppAddMessageConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppAddMessageConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_add_message",
         argNames: ["that", "contactHex", "outgoing", "sentAt", "body"],
       );
 
   @override
-  bool crateApiUmbraUmbraAppAutologinEnabled({required UmbraApp that}) {
+  bool crateApiNullchatUmbraAppAutologinEnabled({required UmbraApp that}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -463,21 +471,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bool,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppAutologinEnabledConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppAutologinEnabledConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppAutologinEnabledConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppAutologinEnabledConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_autologin_enabled",
         argNames: ["that"],
       );
 
   @override
-  String crateApiUmbraUmbraAppClearDuressPassphrase({
+  String crateApiNullchatUmbraAppClearDuressPassphrase({
     required UmbraApp that,
     required String passphrase,
   }) {
@@ -496,21 +504,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppClearDuressPassphraseConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppClearDuressPassphraseConstMeta,
         argValues: [that, passphrase],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppClearDuressPassphraseConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppClearDuressPassphraseConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_clear_duress_passphrase",
         argNames: ["that", "passphrase"],
       );
 
   @override
-  void crateApiUmbraUmbraAppConnectPeer({
+  void crateApiNullchatUmbraAppConnectPeer({
     required UmbraApp that,
     required String contactHex,
   }) {
@@ -529,21 +537,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppConnectPeerConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppConnectPeerConstMeta,
         argValues: [that, contactHex],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppConnectPeerConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppConnectPeerConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_connect_peer",
         argNames: ["that", "contactHex"],
       );
 
   @override
-  bool crateApiUmbraUmbraAppContactIsPostQuantum({
+  bool crateApiNullchatUmbraAppContactIsPostQuantum({
     required UmbraApp that,
     required String contactHex,
   }) {
@@ -562,21 +570,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bool,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppContactIsPostQuantumConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppContactIsPostQuantumConstMeta,
         argValues: [that, contactHex],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppContactIsPostQuantumConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppContactIsPostQuantumConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_contact_is_post_quantum",
         argNames: ["that", "contactHex"],
       );
 
   @override
-  String crateApiUmbraUmbraAppContactPicturePath({
+  String crateApiNullchatUmbraAppContactPicturePath({
     required UmbraApp that,
     required String contactHex,
   }) {
@@ -595,21 +603,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppContactPicturePathConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppContactPicturePathConstMeta,
         argValues: [that, contactHex],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppContactPicturePathConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppContactPicturePathConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_contact_picture_path",
         argNames: ["that", "contactHex"],
       );
 
   @override
-  UmbraApp crateApiUmbraUmbraAppCreate({
+  UmbraApp crateApiNullchatUmbraAppCreate({
     required String dir,
     required String username,
     required String passphrase,
@@ -628,21 +636,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
               sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerUmbraApp,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppCreateConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppCreateConstMeta,
         argValues: [dir, username, passphrase],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppCreateConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppCreateConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_create",
         argNames: ["dir", "username", "passphrase"],
       );
 
   @override
-  UmbraApp crateApiUmbraUmbraAppCreateAccount({
+  UmbraApp crateApiNullchatUmbraAppCreateAccount({
     required String root,
     required String name,
     required String passphrase,
@@ -663,21 +671,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
               sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerUmbraApp,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppCreateAccountConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppCreateAccountConstMeta,
         argValues: [root, name, passphrase, autologin],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppCreateAccountConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppCreateAccountConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_create_account",
         argNames: ["root", "name", "passphrase", "autologin"],
       );
 
   @override
-  GroupView crateApiUmbraUmbraAppCreateGroup({
+  GroupView crateApiNullchatUmbraAppCreateGroup({
     required UmbraApp that,
     required String name,
     required List<String> memberHexes,
@@ -700,21 +708,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_group_view,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppCreateGroupConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppCreateGroupConstMeta,
         argValues: [that, name, memberHexes, now],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppCreateGroupConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppCreateGroupConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_create_group",
         argNames: ["that", "name", "memberHexes", "now"],
       );
 
   @override
-  String crateApiUmbraUmbraAppCustomBridges({required UmbraApp that}) {
+  String crateApiNullchatUmbraAppCustomBridges({required UmbraApp that}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -729,21 +737,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppCustomBridgesConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppCustomBridgesConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppCustomBridgesConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppCustomBridgesConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_custom_bridges",
         argNames: ["that"],
       );
 
   @override
-  List<String> crateApiUmbraUmbraAppDuressConfigured({required UmbraApp that}) {
+  List<String> crateApiNullchatUmbraAppDuressConfigured({
+    required UmbraApp that,
+  }) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -758,21 +768,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppDuressConfiguredConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppDuressConfiguredConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppDuressConfiguredConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppDuressConfiguredConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_duress_configured",
         argNames: ["that"],
       );
 
   @override
-  bool crateApiUmbraUmbraAppExists({required String dir}) {
+  bool crateApiNullchatUmbraAppExists({required String dir}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -784,18 +794,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_bool,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppExistsConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppExistsConstMeta,
         argValues: [dir],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppExistsConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppExistsConstMeta =>
       const TaskConstMeta(debugName: "UmbraApp_exists", argNames: ["dir"]);
 
   @override
-  String crateApiUmbraUmbraAppFilesDir({required UmbraApp that}) {
+  String crateApiNullchatUmbraAppFilesDir({required UmbraApp that}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -810,18 +820,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppFilesDirConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppFilesDirConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppFilesDirConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppFilesDirConstMeta =>
       const TaskConstMeta(debugName: "UmbraApp_files_dir", argNames: ["that"]);
 
   @override
-  void crateApiUmbraUmbraAppFillDecoy({
+  void crateApiNullchatUmbraAppFillDecoy({
     required UmbraApp that,
     required String passphrase,
     required String contactName,
@@ -846,21 +856,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppFillDecoyConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppFillDecoyConstMeta,
         argValues: [that, passphrase, contactName, lines, startAt],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppFillDecoyConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppFillDecoyConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_fill_decoy",
         argNames: ["that", "passphrase", "contactName", "lines", "startAt"],
       );
 
   @override
-  void crateApiUmbraUmbraAppForgetAccount({
+  void crateApiNullchatUmbraAppForgetAccount({
     required String root,
     required String id,
   }) {
@@ -876,21 +886,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppForgetAccountConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppForgetAccountConstMeta,
         argValues: [root, id],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppForgetAccountConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppForgetAccountConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_forget_account",
         argNames: ["root", "id"],
       );
 
   @override
-  String crateApiUmbraUmbraAppIdentityHex({required UmbraApp that}) {
+  String crateApiNullchatUmbraAppIdentityHex({required UmbraApp that}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -905,21 +915,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppIdentityHexConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppIdentityHexConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppIdentityHexConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppIdentityHexConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_identity_hex",
         argNames: ["that"],
       );
 
   @override
-  void crateApiUmbraUmbraAppLeaveGroup({
+  void crateApiNullchatUmbraAppLeaveGroup({
     required UmbraApp that,
     required String groupIdHex,
   }) {
@@ -938,21 +948,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppLeaveGroupConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppLeaveGroupConstMeta,
         argValues: [that, groupIdHex],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppLeaveGroupConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppLeaveGroupConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_leave_group",
         argNames: ["that", "groupIdHex"],
       );
 
   @override
-  List<AccountView> crateApiUmbraUmbraAppListAccounts({required String root}) {
+  List<AccountView> crateApiNullchatUmbraAppListAccounts({
+    required String root,
+  }) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -964,21 +976,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_account_view,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppListAccountsConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppListAccountsConstMeta,
         argValues: [root],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppListAccountsConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppListAccountsConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_list_accounts",
         argNames: ["root"],
       );
 
   @override
-  List<ContactView> crateApiUmbraUmbraAppListContacts({
+  List<ContactView> crateApiNullchatUmbraAppListContacts({
     required UmbraApp that,
   }) {
     return handler.executeSync(
@@ -995,21 +1007,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_contact_view,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppListContactsConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppListContactsConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppListContactsConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppListContactsConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_list_contacts",
         argNames: ["that"],
       );
 
   @override
-  List<GroupMessageView> crateApiUmbraUmbraAppListGroupMessages({
+  List<GroupMessageView> crateApiNullchatUmbraAppListGroupMessages({
     required UmbraApp that,
     required String groupIdHex,
     required int limit,
@@ -1030,21 +1042,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_group_message_view,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppListGroupMessagesConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppListGroupMessagesConstMeta,
         argValues: [that, groupIdHex, limit],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppListGroupMessagesConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppListGroupMessagesConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_list_group_messages",
         argNames: ["that", "groupIdHex", "limit"],
       );
 
   @override
-  List<GroupView> crateApiUmbraUmbraAppListGroups({required UmbraApp that}) {
+  List<GroupView> crateApiNullchatUmbraAppListGroups({required UmbraApp that}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -1059,21 +1071,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_group_view,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppListGroupsConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppListGroupsConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppListGroupsConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppListGroupsConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_list_groups",
         argNames: ["that"],
       );
 
   @override
-  List<MessageView> crateApiUmbraUmbraAppListMessages({
+  List<MessageView> crateApiNullchatUmbraAppListMessages({
     required UmbraApp that,
     required String contactHex,
     required int limit,
@@ -1094,21 +1106,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_message_view,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppListMessagesConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppListMessagesConstMeta,
         argValues: [that, contactHex, limit],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppListMessagesConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppListMessagesConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_list_messages",
         argNames: ["that", "contactHex", "limit"],
       );
 
   @override
-  List<SearchHitView> crateApiUmbraUmbraAppMessagesFromContact({
+  List<SearchHitView> crateApiNullchatUmbraAppMessagesFromContact({
     required UmbraApp that,
     required String contactHex,
     required int limit,
@@ -1129,21 +1141,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_search_hit_view,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppMessagesFromContactConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppMessagesFromContactConstMeta,
         argValues: [that, contactHex, limit],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppMessagesFromContactConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppMessagesFromContactConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_messages_from_contact",
         argNames: ["that", "contactHex", "limit"],
       );
 
   @override
-  String crateApiUmbraUmbraAppMyInvite({required UmbraApp that}) {
+  String crateApiNullchatUmbraAppMyInvite({required UmbraApp that}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -1158,18 +1170,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppMyInviteConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppMyInviteConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppMyInviteConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppMyInviteConstMeta =>
       const TaskConstMeta(debugName: "UmbraApp_my_invite", argNames: ["that"]);
 
   @override
-  String crateApiUmbraUmbraAppMyOnion({required UmbraApp that}) {
+  String crateApiNullchatUmbraAppMyOnion({required UmbraApp that}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -1184,18 +1196,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppMyOnionConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppMyOnionConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppMyOnionConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppMyOnionConstMeta =>
       const TaskConstMeta(debugName: "UmbraApp_my_onion", argNames: ["that"]);
 
   @override
-  Uint8List crateApiUmbraUmbraAppMyPicture({required UmbraApp that}) {
+  Uint8List crateApiNullchatUmbraAppMyPicture({required UmbraApp that}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -1210,18 +1222,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_prim_u_8_strict,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppMyPictureConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppMyPictureConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppMyPictureConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppMyPictureConstMeta =>
       const TaskConstMeta(debugName: "UmbraApp_my_picture", argNames: ["that"]);
 
   @override
-  UmbraApp crateApiUmbraUmbraAppOpen({
+  UmbraApp crateApiNullchatUmbraAppOpen({
     required String dir,
     required String passphrase,
   }) {
@@ -1238,20 +1250,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
               sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerUmbraApp,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppOpenConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppOpenConstMeta,
         argValues: [dir, passphrase],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppOpenConstMeta => const TaskConstMeta(
-    debugName: "UmbraApp_open",
-    argNames: ["dir", "passphrase"],
-  );
+  TaskConstMeta get kCrateApiNullchatUmbraAppOpenConstMeta =>
+      const TaskConstMeta(
+        debugName: "UmbraApp_open",
+        argNames: ["dir", "passphrase"],
+      );
 
   @override
-  UmbraApp crateApiUmbraUmbraAppOpenAccount({
+  UmbraApp crateApiNullchatUmbraAppOpenAccount({
     required String root,
     required String id,
     required String passphrase,
@@ -1272,21 +1285,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
               sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerUmbraApp,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppOpenAccountConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppOpenAccountConstMeta,
         argValues: [root, id, passphrase, remember],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppOpenAccountConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppOpenAccountConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_open_account",
         argNames: ["root", "id", "passphrase", "remember"],
       );
 
   @override
-  UmbraApp crateApiUmbraUmbraAppOpenAccountAuto({
+  UmbraApp crateApiNullchatUmbraAppOpenAccountAuto({
     required String root,
     required String id,
   }) {
@@ -1303,21 +1316,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
               sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerUmbraApp,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppOpenAccountAutoConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppOpenAccountAutoConstMeta,
         argValues: [root, id],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppOpenAccountAutoConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppOpenAccountAutoConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_open_account_auto",
         argNames: ["root", "id"],
       );
 
   @override
-  int crateApiUmbraUmbraAppPendingMessages({required UmbraApp that}) {
+  int crateApiNullchatUmbraAppPendingMessages({required UmbraApp that}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -1332,21 +1345,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_u_32,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppPendingMessagesConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppPendingMessagesConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppPendingMessagesConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppPendingMessagesConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_pending_messages",
         argNames: ["that"],
       );
 
   @override
-  void crateApiUmbraUmbraAppRenameContact({
+  void crateApiNullchatUmbraAppRenameContact({
     required UmbraApp that,
     required String contactHex,
     required String name,
@@ -1367,21 +1380,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppRenameContactConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppRenameContactConstMeta,
         argValues: [that, contactHex, name],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppRenameContactConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppRenameContactConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_rename_contact",
         argNames: ["that", "contactHex", "name"],
       );
 
   @override
-  GroupView crateApiUmbraUmbraAppRenameGroup({
+  GroupView crateApiNullchatUmbraAppRenameGroup({
     required UmbraApp that,
     required String groupIdHex,
     required String name,
@@ -1402,21 +1415,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_group_view,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppRenameGroupConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppRenameGroupConstMeta,
         argValues: [that, groupIdHex, name],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppRenameGroupConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppRenameGroupConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_rename_group",
         argNames: ["that", "groupIdHex", "name"],
       );
 
   @override
-  Stream<NetEvent> crateApiUmbraUmbraAppRepairTor({required UmbraApp that}) {
+  Stream<NetEvent> crateApiNullchatUmbraAppRepairTor({required UmbraApp that}) {
     final sink = RustStreamSink<NetEvent>();
     handler.executeSync(
       SyncTask(
@@ -1433,7 +1446,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppRepairTorConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppRepairTorConstMeta,
         argValues: [that, sink],
         apiImpl: this,
       ),
@@ -1441,14 +1454,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return sink.stream;
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppRepairTorConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppRepairTorConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_repair_tor",
         argNames: ["that", "sink"],
       );
 
   @override
-  String crateApiUmbraUmbraAppSafetyNumber({
+  String crateApiNullchatUmbraAppSafetyNumber({
     required UmbraApp that,
     required String contactHex,
   }) {
@@ -1467,21 +1480,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppSafetyNumberConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppSafetyNumberConstMeta,
         argValues: [that, contactHex],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppSafetyNumberConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppSafetyNumberConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_safety_number",
         argNames: ["that", "contactHex"],
       );
 
   @override
-  List<SearchHitView> crateApiUmbraUmbraAppSearchMessages({
+  List<SearchHitView> crateApiNullchatUmbraAppSearchMessages({
     required UmbraApp that,
     required String query,
     required int limit,
@@ -1502,21 +1515,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_list_search_hit_view,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppSearchMessagesConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppSearchMessagesConstMeta,
         argValues: [that, query, limit],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppSearchMessagesConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppSearchMessagesConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_search_messages",
         argNames: ["that", "query", "limit"],
       );
 
   @override
-  void crateApiUmbraUmbraAppSendFile({
+  void crateApiNullchatUmbraAppSendFile({
     required UmbraApp that,
     required String contactHex,
     required String path,
@@ -1537,21 +1550,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppSendFileConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppSendFileConstMeta,
         argValues: [that, contactHex, path],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppSendFileConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppSendFileConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_send_file",
         argNames: ["that", "contactHex", "path"],
       );
 
   @override
-  void crateApiUmbraUmbraAppSendGroupMessage({
+  void crateApiNullchatUmbraAppSendGroupMessage({
     required UmbraApp that,
     required String groupIdHex,
     required String text,
@@ -1574,21 +1587,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppSendGroupMessageConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppSendGroupMessageConstMeta,
         argValues: [that, groupIdHex, text, now],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppSendGroupMessageConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppSendGroupMessageConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_send_group_message",
         argNames: ["that", "groupIdHex", "text", "now"],
       );
 
   @override
-  void crateApiUmbraUmbraAppSendOverNetwork({
+  void crateApiNullchatUmbraAppSendOverNetwork({
     required UmbraApp that,
     required String contactHex,
     required String text,
@@ -1611,21 +1624,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppSendOverNetworkConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppSendOverNetworkConstMeta,
         argValues: [that, contactHex, text, now],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppSendOverNetworkConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppSendOverNetworkConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_send_over_network",
         argNames: ["that", "contactHex", "text", "now"],
       );
 
   @override
-  void crateApiUmbraUmbraAppSetAutologin({
+  void crateApiNullchatUmbraAppSetAutologin({
     required UmbraApp that,
     required String passphrase,
     required bool enabled,
@@ -1646,21 +1659,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppSetAutologinConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppSetAutologinConstMeta,
         argValues: [that, passphrase, enabled],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppSetAutologinConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppSetAutologinConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_set_autologin",
         argNames: ["that", "passphrase", "enabled"],
       );
 
   @override
-  void crateApiUmbraUmbraAppSetContactSaved({
+  void crateApiNullchatUmbraAppSetContactSaved({
     required UmbraApp that,
     required String contactHex,
     required bool saved,
@@ -1681,21 +1694,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppSetContactSavedConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppSetContactSavedConstMeta,
         argValues: [that, contactHex, saved],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppSetContactSavedConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppSetContactSavedConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_set_contact_saved",
         argNames: ["that", "contactHex", "saved"],
       );
 
   @override
-  void crateApiUmbraUmbraAppSetContactStatus({
+  void crateApiNullchatUmbraAppSetContactStatus({
     required UmbraApp that,
     required String contactHex,
     required int status,
@@ -1716,21 +1729,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppSetContactStatusConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppSetContactStatusConstMeta,
         argValues: [that, contactHex, status],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppSetContactStatusConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppSetContactStatusConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_set_contact_status",
         argNames: ["that", "contactHex", "status"],
       );
 
   @override
-  void crateApiUmbraUmbraAppSetCustomBridges({
+  void crateApiNullchatUmbraAppSetCustomBridges({
     required UmbraApp that,
     required String text,
   }) {
@@ -1749,21 +1762,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppSetCustomBridgesConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppSetCustomBridgesConstMeta,
         argValues: [that, text],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppSetCustomBridgesConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppSetCustomBridgesConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_set_custom_bridges",
         argNames: ["that", "text"],
       );
 
   @override
-  void crateApiUmbraUmbraAppSetDuressPassphrase({
+  void crateApiNullchatUmbraAppSetDuressPassphrase({
     required UmbraApp that,
     required String kind,
     required String passphrase,
@@ -1784,21 +1797,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppSetDuressPassphraseConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppSetDuressPassphraseConstMeta,
         argValues: [that, kind, passphrase],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppSetDuressPassphraseConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppSetDuressPassphraseConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_set_duress_passphrase",
         argNames: ["that", "kind", "passphrase"],
       );
 
   @override
-  void crateApiUmbraUmbraAppSetMyPicture({
+  void crateApiNullchatUmbraAppSetMyPicture({
     required UmbraApp that,
     required List<int> bytes,
   }) {
@@ -1817,21 +1830,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppSetMyPictureConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppSetMyPictureConstMeta,
         argValues: [that, bytes],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppSetMyPictureConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppSetMyPictureConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_set_my_picture",
         argNames: ["that", "bytes"],
       );
 
   @override
-  void crateApiUmbraUmbraAppSetVerified({
+  void crateApiNullchatUmbraAppSetVerified({
     required UmbraApp that,
     required String contactHex,
     required bool verified,
@@ -1852,21 +1865,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: sse_decode_String,
         ),
-        constMeta: kCrateApiUmbraUmbraAppSetVerifiedConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppSetVerifiedConstMeta,
         argValues: [that, contactHex, verified],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppSetVerifiedConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppSetVerifiedConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_set_verified",
         argNames: ["that", "contactHex", "verified"],
       );
 
   @override
-  Stream<NetEvent> crateApiUmbraUmbraAppStartNetwork({required UmbraApp that}) {
+  Stream<NetEvent> crateApiNullchatUmbraAppStartNetwork({
+    required UmbraApp that,
+  }) {
     final sink = RustStreamSink<NetEvent>();
     unawaited(
       handler.executeNormal(
@@ -1889,7 +1904,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             decodeSuccessData: sse_decode_unit,
             decodeErrorData: null,
           ),
-          constMeta: kCrateApiUmbraUmbraAppStartNetworkConstMeta,
+          constMeta: kCrateApiNullchatUmbraAppStartNetworkConstMeta,
           argValues: [that, sink],
           apiImpl: this,
         ),
@@ -1898,14 +1913,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return sink.stream;
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppStartNetworkConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppStartNetworkConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_start_network",
         argNames: ["that", "sink"],
       );
 
   @override
-  String crateApiUmbraUmbraAppUserCode({required UmbraApp that}) {
+  String crateApiNullchatUmbraAppUserCode({required UmbraApp that}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -1920,18 +1935,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppUserCodeConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppUserCodeConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppUserCodeConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppUserCodeConstMeta =>
       const TaskConstMeta(debugName: "UmbraApp_user_code", argNames: ["that"]);
 
   @override
-  String crateApiUmbraUmbraAppUsername({required UmbraApp that}) {
+  String crateApiNullchatUmbraAppUsername({required UmbraApp that}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -1946,18 +1961,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraUmbraAppUsernameConstMeta,
+        constMeta: kCrateApiNullchatUmbraAppUsernameConstMeta,
         argValues: [that],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraUmbraAppUsernameConstMeta =>
+  TaskConstMeta get kCrateApiNullchatUmbraAppUsernameConstMeta =>
       const TaskConstMeta(debugName: "UmbraApp_username", argNames: ["that"]);
 
   @override
-  String crateApiUmbraAppVersion() {
+  String crateApiNullchatAppVersion() {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -1968,14 +1983,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraAppVersionConstMeta,
+        constMeta: kCrateApiNullchatAppVersionConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraAppVersionConstMeta =>
+  TaskConstMeta get kCrateApiNullchatAppVersionConstMeta =>
       const TaskConstMeta(debugName: "app_version", argNames: []);
 
   @override
@@ -2029,7 +2044,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "init_app", argNames: []);
 
   @override
-  void crateApiUmbraInstallUpdate() {
+  void crateApiNullchatInstallUpdate() {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -2040,18 +2055,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraInstallUpdateConstMeta,
+        constMeta: kCrateApiNullchatInstallUpdateConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraInstallUpdateConstMeta =>
+  TaskConstMeta get kCrateApiNullchatInstallUpdateConstMeta =>
       const TaskConstMeta(debugName: "install_update", argNames: []);
 
   @override
-  String crateApiUmbraOfferedUpdate() {
+  String crateApiNullchatOfferedUpdate() {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -2062,18 +2077,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_String,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraOfferedUpdateConstMeta,
+        constMeta: kCrateApiNullchatOfferedUpdateConstMeta,
         argValues: [],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraOfferedUpdateConstMeta =>
+  TaskConstMeta get kCrateApiNullchatOfferedUpdateConstMeta =>
       const TaskConstMeta(debugName: "offered_update", argNames: []);
 
   @override
-  void crateApiUmbraSetNativeDir({required String path}) {
+  void crateApiNullchatSetNativeDir({required String path}) {
     return handler.executeSync(
       SyncTask(
         callFfi: () {
@@ -2085,14 +2100,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeSuccessData: sse_decode_unit,
           decodeErrorData: null,
         ),
-        constMeta: kCrateApiUmbraSetNativeDirConstMeta,
+        constMeta: kCrateApiNullchatSetNativeDirConstMeta,
         argValues: [path],
         apiImpl: this,
       ),
     );
   }
 
-  TaskConstMeta get kCrateApiUmbraSetNativeDirConstMeta =>
+  TaskConstMeta get kCrateApiNullchatSetNativeDirConstMeta =>
       const TaskConstMeta(debugName: "set_native_dir", argNames: ["path"]);
 
   RustArcIncrementStrongCountFnType
@@ -3029,7 +3044,7 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
 
   /// Add a contact from a pasted `umbra1:` invite. Returns the parsed contact.
   ContactView addContact({required String inviteCode, required BigInt now}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppAddContact(
+      RustLib.instance.api.crateApiNullchatUmbraAppAddContact(
         that: this,
         inviteCode: inviteCode,
         now: now,
@@ -3039,7 +3054,7 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
   GroupView addGroupMember({
     required String groupIdHex,
     required String contactHex,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppAddGroupMember(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppAddGroupMember(
     that: this,
     groupIdHex: groupIdHex,
     contactHex: contactHex,
@@ -3050,7 +3065,7 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
     required bool outgoing,
     required BigInt sentAt,
     required String body,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppAddMessage(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppAddMessage(
     that: this,
     contactHex: contactHex,
     outgoing: outgoing,
@@ -3060,31 +3075,31 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
 
   /// Whether this account signs in automatically.
   bool autologinEnabled() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppAutologinEnabled(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppAutologinEnabled(that: this);
 
   /// Turn a duress passphrase off again. Needs the passphrase itself, since
   /// that is the only thing that can reach its rows.
   String clearDuressPassphrase({required String passphrase}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppClearDuressPassphrase(
+      RustLib.instance.api.crateApiNullchatUmbraAppClearDuressPassphrase(
         that: this,
         passphrase: passphrase,
       );
 
   /// Dial a stored contact over Tor and run the verified handshake.
   void connectPeer({required String contactHex}) => RustLib.instance.api
-      .crateApiUmbraUmbraAppConnectPeer(that: this, contactHex: contactHex);
+      .crateApiNullchatUmbraAppConnectPeer(that: this, contactHex: contactHex);
 
   /// Does this contact have a post-quantum identity? Used by the UI to say so
   /// rather than implying protection a pre-1.9 contact does not have.
   bool contactIsPostQuantum({required String contactHex}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppContactIsPostQuantum(
+      RustLib.instance.api.crateApiNullchatUmbraAppContactIsPostQuantum(
         that: this,
         contactHex: contactHex,
       );
 
   /// Path to a contact's cached picture, or empty if we have none.
   String contactPicturePath({required String contactHex}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppContactPicturePath(
+      RustLib.instance.api.crateApiNullchatUmbraAppContactPicturePath(
         that: this,
         contactHex: contactHex,
       );
@@ -3095,17 +3110,17 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
     required String name,
     required List<String> memberHexes,
     required BigInt now,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppCreateGroup(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppCreateGroup(
     that: this,
     name: name,
     memberHexes: memberHexes,
     now: now,
   );
 
-  /// Bridges the user pasted themselves, or empty when Umbra's own list is in
+  /// Bridges the user pasted themselves, or empty when NullChat's own list is in
   /// use. Stored next to the account's Tor data, where the daemon reads it.
   String customBridges() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppCustomBridges(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppCustomBridges(that: this);
 
   /// Which duress passphrases this account has, as far as *we* can tell.
   ///
@@ -3113,11 +3128,11 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
   /// duress profile cannot see it, and neither can anyone without this
   /// passphrase.
   List<String> duressConfigured() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppDuressConfigured(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppDuressConfigured(that: this);
 
   /// Where finished incoming files are stored.
   String filesDir() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppFilesDir(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppFilesDir(that: this);
 
   /// Write a conversation into the decoy profile, so it is not suspiciously
   /// empty. Called from the real account, which is the only place that knows
@@ -3127,7 +3142,7 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
     required String contactName,
     required List<String> lines,
     required BigInt startAt,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppFillDecoy(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppFillDecoy(
     that: this,
     passphrase: passphrase,
     contactName: contactName,
@@ -3136,32 +3151,32 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
   );
 
   String identityHex() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppIdentityHex(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppIdentityHex(that: this);
 
   /// Leave a group: tell the others we are gone, then drop it locally with
   /// its whole history.
   void leaveGroup({required String groupIdHex}) => RustLib.instance.api
-      .crateApiUmbraUmbraAppLeaveGroup(that: this, groupIdHex: groupIdHex);
+      .crateApiNullchatUmbraAppLeaveGroup(that: this, groupIdHex: groupIdHex);
 
   List<ContactView> listContacts() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppListContacts(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppListContacts(that: this);
 
   List<GroupMessageView> listGroupMessages({
     required String groupIdHex,
     required int limit,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppListGroupMessages(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppListGroupMessages(
     that: this,
     groupIdHex: groupIdHex,
     limit: limit,
   );
 
   List<GroupView> listGroups() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppListGroups(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppListGroups(that: this);
 
   List<MessageView> listMessages({
     required String contactHex,
     required int limit,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppListMessages(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppListMessages(
     that: this,
     contactHex: contactHex,
     limit: limit,
@@ -3171,7 +3186,7 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
   List<SearchHitView> messagesFromContact({
     required String contactHex,
     required int limit,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppMessagesFromContact(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppMessagesFromContact(
     that: this,
     contactHex: contactHex,
     limit: limit,
@@ -3180,32 +3195,32 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
   /// A shareable `umbra1:` invite carrying our identity, username and live
   /// onion address. Empty until the onion service is up.
   String myInvite() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppMyInvite(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppMyInvite(that: this);
 
   /// Our onion address, or empty while the network is still starting.
   String myOnion() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppMyOnion(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppMyOnion(that: this);
 
   /// Our profile picture bytes (empty when none is set).
   Uint8List myPicture() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppMyPicture(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppMyPicture(that: this);
 
   /// How many messages are still waiting for their peer.
   int pendingMessages() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppPendingMessages(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppPendingMessages(that: this);
 
   /// Give a contact the name you know them by.
   void renameContact({required String contactHex, required String name}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppRenameContact(
+      RustLib.instance.api.crateApiNullchatUmbraAppRenameContact(
         that: this,
         contactHex: contactHex,
         name: name,
       );
 
   /// Rename a group. The new name travels with the roster, so everyone sees
-  /// it (a group has no owner â€” see `docs/THREAT_MODEL.md`).
+  /// it (a group has no owner — see `docs/THREAT_MODEL.md`).
   GroupView renameGroup({required String groupIdHex, required String name}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppRenameGroup(
+      RustLib.instance.api.crateApiNullchatUmbraAppRenameGroup(
         that: this,
         groupIdHex: groupIdHex,
         name: name,
@@ -3213,11 +3228,11 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
 
   /// Throw away Tor's cached directory data and start the network again.
   ///
-  /// The identity and the onion address are kept â€” only what Tor can fetch
+  /// The identity and the onion address are kept — only what Tor can fetch
   /// again is deleted. This is the manual version of the repair the app
   /// already tries by itself when a bootstrap stalls.
   Stream<NetEvent> repairTor() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppRepairTor(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppRepairTor(that: this);
 
   /// The 60 digits this contact and I must both see, in groups of five.
   ///
@@ -3225,14 +3240,14 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
   /// two identity keys, so reading it aloud over a channel an attacker would
   /// have to control *as well* is what rules out a swapped invite.
   String safetyNumber({required String contactHex}) => RustLib.instance.api
-      .crateApiUmbraUmbraAppSafetyNumber(that: this, contactHex: contactHex);
+      .crateApiNullchatUmbraAppSafetyNumber(that: this, contactHex: contactHex);
 
   /// Search every conversation for text. Both kinds of message are covered;
   /// newest first.
   List<SearchHitView> searchMessages({
     required String query,
     required int limit,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppSearchMessages(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppSearchMessages(
     that: this,
     query: query,
     limit: limit,
@@ -3241,7 +3256,7 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
   /// Send a file to a connected contact: read it, split it into chunks and
   /// push each one through the encrypted session. Progress arrives as events.
   void sendFile({required String contactHex, required String path}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppSendFile(
+      RustLib.instance.api.crateApiNullchatUmbraAppSendFile(
         that: this,
         contactHex: contactHex,
         path: path,
@@ -3253,7 +3268,7 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
     required String groupIdHex,
     required String text,
     required BigInt now,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppSendGroupMessage(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppSendGroupMessage(
     that: this,
     groupIdHex: groupIdHex,
     text: text,
@@ -3261,13 +3276,13 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
   );
 
   /// Store a message and send it. If the contact is not reachable it waits in
-  /// the encrypted outbox and goes out by itself once they appear â€” closing
+  /// the encrypted outbox and goes out by itself once they appear — closing
   /// the app does not lose it.
   void sendOverNetwork({
     required String contactHex,
     required String text,
     required BigInt now,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppSendOverNetwork(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppSendOverNetwork(
     that: this,
     contactHex: contactHex,
     text: text,
@@ -3276,7 +3291,7 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
 
   /// Turn auto sign-in on (needs the passphrase) or off for this account.
   void setAutologin({required String passphrase, required bool enabled}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppSetAutologin(
+      RustLib.instance.api.crateApiNullchatUmbraAppSetAutologin(
         that: this,
         passphrase: passphrase,
         enabled: enabled,
@@ -3284,7 +3299,7 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
 
   /// Keep a contact in the address book (or drop them from it).
   void setContactSaved({required String contactHex, required bool saved}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppSetContactSaved(
+      RustLib.instance.api.crateApiNullchatUmbraAppSetContactSaved(
         that: this,
         contactHex: contactHex,
         saved: saved,
@@ -3293,7 +3308,7 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
   /// Accept a waiting conversation (1), or block the contact (2). Blocking
   /// also drops whatever they still have queued with us.
   void setContactStatus({required String contactHex, required int status}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppSetContactStatus(
+      RustLib.instance.api.crateApiNullchatUmbraAppSetContactStatus(
         that: this,
         contactHex: contactHex,
         status: status,
@@ -3302,7 +3317,7 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
   /// Replace (or, with empty text, drop) the user's own bridge lines. Takes
   /// effect the next time Tor starts.
   void setCustomBridges({required String text}) => RustLib.instance.api
-      .crateApiUmbraUmbraAppSetCustomBridges(that: this, text: text);
+      .crateApiNullchatUmbraAppSetCustomBridges(that: this, text: text);
 
   /// Add a second passphrase to this account.
   ///
@@ -3316,7 +3331,7 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
   void setDuressPassphrase({
     required String kind,
     required String passphrase,
-  }) => RustLib.instance.api.crateApiUmbraUmbraAppSetDuressPassphrase(
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppSetDuressPassphrase(
     that: this,
     kind: kind,
     passphrase: passphrase,
@@ -3325,12 +3340,12 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
   /// Set our profile picture (raw image bytes, stored encrypted) and push it
   /// to everyone we are connected to.
   void setMyPicture({required List<int> bytes}) => RustLib.instance.api
-      .crateApiUmbraUmbraAppSetMyPicture(that: this, bytes: bytes);
+      .crateApiNullchatUmbraAppSetMyPicture(that: this, bytes: bytes);
 
   /// Record that the user compared the number and it matched (or take it
-  /// back). Nothing in the protocol may call this â€” only a person can.
+  /// back). Nothing in the protocol may call this — only a person can.
   void setVerified({required String contactHex, required bool verified}) =>
-      RustLib.instance.api.crateApiUmbraUmbraAppSetVerified(
+      RustLib.instance.api.crateApiNullchatUmbraAppSetVerified(
         that: this,
         contactHex: contactHex,
         verified: verified,
@@ -3338,13 +3353,13 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
 
   /// Start the Tor node: bootstrap (directly, falling back to bridges when
   /// the network blocks Tor), host our onion service, and accept incoming
-  /// peers. Returns immediately â€” all progress arrives as [`NetEvent`]s.
+  /// peers. Returns immediately — all progress arrives as [`NetEvent`]s.
   Stream<NetEvent> startNetwork() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppStartNetwork(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppStartNetwork(that: this);
 
   String userCode() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppUserCode(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppUserCode(that: this);
 
   String username() =>
-      RustLib.instance.api.crateApiUmbraUmbraAppUsername(that: this);
+      RustLib.instance.api.crateApiNullchatUmbraAppUsername(that: this);
 }

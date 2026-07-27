@@ -6,17 +6,17 @@
 
 import 'dart:io';
 
-import 'package:path_provider/path_provider.dart';
 
+import 'app_dir.dart';
 import 'background.dart';
 
 class Autostart {
   static const _key = r'HKCU\Software\Microsoft\Windows\CurrentVersion\Run';
-  static const _valueName = 'Umbra';
+  static const _valueName = 'NullChat';
 
   static bool get supported => Platform.isWindows;
 
-  /// Turn auto-start on the first time Umbra runs on this computer.
+  /// Turn auto-start on the first time NullChat runs on this computer.
   ///
   /// A messenger nobody can reach is not much of a messenger, so the default is
   /// "on" — but only as a starting point: the marker file means a user who
@@ -24,7 +24,7 @@ class Autostart {
   static Future<void> enableByDefaultOnce() async {
     if (!supported) return;
     try {
-      final dir = await getApplicationSupportDirectory();
+      final dir = Directory(await AppDir.path());
       final marker = File('${dir.path}${Platform.pathSeparator}autostart.configured');
       if (await marker.exists()) return;
       await set(true);

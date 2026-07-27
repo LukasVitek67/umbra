@@ -1660,6 +1660,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "nullchat-cli"
+version = "0.0.1"
+dependencies = [
+ "getrandom 0.2.17",
+ "nullchat-core",
+]
+
+[[package]]
+name = "nullchat-core"
+version = "0.0.1"
+dependencies = [
+ "argon2",
+ "base64",
+ "chacha20poly1305",
+ "ed25519-dalek",
+ "futures",
+ "getrandom 0.2.17",
+ "hmac 0.12.1",
+ "libsignal-protocol",
+ "ml-dsa",
+ "rand 0.9.5",
+ "rusqlite",
+ "sha2 0.10.9",
+ "vodozemac",
+ "zeroize",
+]
+
+[[package]]
+name = "nullchat-transport"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "nullchat-core",
+ "tokio",
+]
+
+[[package]]
 name = "num-bigint"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2182,20 +2219,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust_lib_umbra"
+name = "rust_lib_nullchat"
 version = "1.9.1"
 dependencies = [
  "base64",
  "flutter_rust_bridge",
  "getrandom 0.2.17",
+ "nullchat-core",
+ "nullchat-transport",
  "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tokio",
  "tokio-rustls",
- "umbra-core",
- "umbra-transport",
  "webpki-roots 0.26.11",
  "zeroize",
  "zip",
@@ -2685,43 +2722,6 @@ name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
-
-[[package]]
-name = "umbra-cli"
-version = "0.0.1"
-dependencies = [
- "getrandom 0.2.17",
- "umbra-core",
-]
-
-[[package]]
-name = "umbra-core"
-version = "0.0.1"
-dependencies = [
- "argon2",
- "base64",
- "chacha20poly1305",
- "ed25519-dalek",
- "futures",
- "getrandom 0.2.17",
- "hmac 0.12.1",
- "libsignal-protocol",
- "ml-dsa",
- "rand 0.9.5",
- "rusqlite",
- "sha2 0.10.9",
- "vodozemac",
- "zeroize",
-]
-
-[[package]]
-name = "umbra-transport"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "tokio",
- "umbra-core",
-]
 
 [[package]]
 name = "unicode-ident"

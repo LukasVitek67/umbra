@@ -11,7 +11,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
-import 'src/rust/api/umbra.dart';
+import 'src/rust/api/nullchat.dart';
 
 const _channel = MethodChannel('org.umbra/native');
 

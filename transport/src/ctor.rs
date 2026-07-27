@@ -2,7 +2,7 @@
 //! Tor onion transport driven by the official `tor` daemon (C-Tor).
 //!
 //! This is the same approach Briar, OnionShare and Tor Browser take: bundle the
-//! mature, audited Tor implementation and drive it as a child process. Umbra
+//! mature, audited Tor implementation and drive it as a child process. NullChat
 //! adds no trust — Tor only carries bytes that are already end-to-end encrypted
 //! by [`crate::Session`].
 //!
@@ -94,7 +94,7 @@ fn beside_exe(name: &str) -> Option<PathBuf> {
 
 /// Where we remember the daemon we started ourselves.
 fn pid_file(tor_data: &Path) -> PathBuf {
-    tor_data.join("umbra-tor.pid")
+    tor_data.join("nullchat-tor.pid")
 }
 
 /// Is the process with this id still a running `tor`?
@@ -126,7 +126,7 @@ fn process_is_tor(pid: u32) -> bool {
     }
 }
 
-/// End a `tor` that a previous run of Umbra left behind.
+/// End a `tor` that a previous run of NullChat left behind.
 ///
 /// This is the single most common way the app got stuck: Tor refuses to share
 /// its data directory, waits five seconds for the other one to go away, and
@@ -596,7 +596,7 @@ struct Inner {
     tx: mpsc::UnboundedSender<Incoming>,
 }
 
-/// A running Umbra node on Tor: our onion service plus live peer sessions.
+/// A running NullChat node on Tor: our onion service plus live peer sessions.
 #[derive(Clone)]
 pub struct TorService {
     inner: Arc<Mutex<Inner>>,
@@ -621,7 +621,7 @@ impl TorService {
         // A **direct** connection is what works on an ordinary network, and it
         // is what Tor Browser does by default. Bridges exist for censorship and
         // are slower and less reliable everywhere else — the public ones we ship
-        // are also the first a censor blocks, so most of them are dead. Umbra
+        // are also the first a censor blocks, so most of them are dead. NullChat
         // used to force bridges on every single start, for no better reason than
         // that the file was bundled next to the executable; that is where the
         // hung "Connecting to Tor" screen came from.
@@ -938,7 +938,7 @@ mod tests {
     /// test process surviving to the assertion is the result.
     #[test]
     fn a_pid_that_is_not_tor_is_left_alone() {
-        let dir = std::env::temp_dir().join(format!("umbra-pid-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nullchat-pid-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(pid_file(&dir), std::process::id().to_string()).unwrap();
 
@@ -953,7 +953,7 @@ mod tests {
 
     #[test]
     fn a_damaged_pid_file_is_not_a_crash() {
-        let dir = std::env::temp_dir().join(format!("umbra-pidjunk-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nullchat-pidjunk-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(pid_file(&dir), "not a number").unwrap();
         kill_orphan_tor(&dir, &|_: &str| {});
@@ -966,7 +966,7 @@ mod tests {
 
     #[test]
     fn a_bridge_file_keeps_only_real_lines() {
-        let dir = std::env::temp_dir().join(format!("umbra-bridges-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nullchat-bridges-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("bridges.txt");
         std::fs::write(&path, "# a comment\n\n  obfs4 1.2.3.4:9001 CERT\n\n").unwrap();

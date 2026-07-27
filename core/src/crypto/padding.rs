@@ -98,7 +98,7 @@ fn is_valid_frame_len(n: usize) -> bool {
 ///
 /// # Example
 /// ```
-/// use umbra_core::crypto::padding::{pad, unpad, BUCKETS};
+/// use nullchat_core::crypto::padding::{pad, unpad, BUCKETS};
 /// let frame = pad(b"hi").unwrap();
 /// assert_eq!(frame.len(), BUCKETS[0]); // 2 bytes -> 256-byte frame
 /// assert_eq!(unpad(&frame).unwrap(), b"hi");

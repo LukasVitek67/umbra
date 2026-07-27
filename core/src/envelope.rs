@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Typed payloads carried *inside* the encrypted session.
 //!
-//! Everything here travels through [`umbra_transport::Session`], so it is
+//! Everything here travels through [`nullchat_transport::Session`], so it is
 //! already end-to-end encrypted, authenticated, length-padded and onion-routed
 //! before it hits the network. This module only decides what the bytes *mean*:
 //! plain text, a profile (name + picture), or a file split into chunks.

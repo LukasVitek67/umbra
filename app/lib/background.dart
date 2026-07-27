@@ -4,7 +4,7 @@
 //
 // A messenger that only works while its window is open is not a messenger: the
 // other side can reach you exactly when you happen to be looking at the screen.
-// So Umbra starts with Windows into the tray, keeps Tor and the onion service
+// So NullChat starts with Windows into the tray, keeps Tor and the onion service
 // running there, and the window is just a view onto it — closing the window
 // hides it instead of quitting. Quitting is an explicit choice in the tray menu
 // (or from Settings), because after that nobody can deliver anything to you.
@@ -45,7 +45,7 @@ class BackgroundMode with WindowListener, TrayListener {
       const WindowOptions(
         size: Size(1280, 820),
         minimumSize: Size(720, 560),
-        title: 'Umbra',
+        title: 'NullChat',
       ),
       () async {
         if (startHidden) {
@@ -81,10 +81,14 @@ class BackgroundMode with WindowListener, TrayListener {
 
   Future<void> _setUpTray() async {
     try {
+      // A bundled asset, not a path into the source tree. The old value pointed
+      // at `windows/runner/resources/app_icon.ico`, which exists only when
+      // running from a checkout — in a release build there was nothing there,
+      // which is why the tray entry had no icon at all.
       await trayManager.setIcon(
-        Platform.isWindows ? 'windows/runner/resources/app_icon.ico' : 'assets/tray_icon.png',
+        Platform.isWindows ? 'assets/tray/tray.ico' : 'assets/tray/tray.png',
       );
-      await trayManager.setToolTip('Umbra');
+      await trayManager.setToolTip('NullChat');
       await _refreshMenu();
     } catch (_) {
       // No tray (some Linux desktops): the app still runs, just without it.
@@ -126,7 +130,7 @@ class BackgroundMode with WindowListener, TrayListener {
 
   @override
   void onWindowClose() {
-    // The window is a view, not the app: closing it puts Umbra in the tray so
+    // The window is a view, not the app: closing it puts NullChat in the tray so
     // messages keep arriving.
     hide();
   }

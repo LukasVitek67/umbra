@@ -1,4 +1,4 @@
-# Umbra — stav vývoje
+# NullChat — stav vývoje
 
 Poctivý přehled: co je **ověřené** (běží + testy) vs. **napsané, ale neověřené**.
 Datum: 2026-07-25.
@@ -16,7 +16,7 @@ Datum: 2026-07-25.
 | `core::group` | skupinový roster: verzování, přidání/odebrání, merge | 5 testů |
 | `core::envelope` | rámce vč. `GROUP_TEXT` / `GROUP_INFO` (roster = pozvánka) | 7 testů |
 | `transport` (session) | MITM-odolný handshake + rámcování + obousměrné zprávy | 2 testy |
-| **umbra-chat (CLI)** | **dva procesy si píšou E2E-šifrovaně přes TCP** | ruční, ověřeno |
+| **nullchat-peer (CLI)** | **dva procesy si píšou E2E-šifrovaně přes TCP** | ruční, ověřeno |
 | **GUI ↔ jádro** | onboarding tvoří reálný klíč, šifrovaná perzistence, odemknutí frází | ruční, ověřeno |
 
 **58 automatických testů, 0 fail.** Vše audited open-source crates, žádné domácí krypto.
@@ -114,12 +114,12 @@ procesy.
 - `GetLastError` přes Dart FFI nejde věřit (runtime ho stihne přepsat), takže se
   existence mutexu zjišťuje jeho otevřením
 - když výměna souborů při aktualizaci selže, hláška teď říká proč („běží ještě
-  jiná Umbra?"), místo holé chyby systému
+  jiná NullChat?"), místo holé chyby systému
 - ověřeno: první instance běží, druhá skončí, `instance.log` to zapíše
 
 ## 🔐 1.4.0 — šifrování přešlo na Signal protokol
 Sezení už nestaví Olm (vodozemac), ale **`libsignal-protocol` přímo od Signalu**
-(AGPL-3.0, stejná licence jako Umbra). Krypto opět nepíšeme sami.
+(AGPL-3.0, stejná licence jako NullChat). Krypto opět nepíšeme sami.
 
 - **PQXDH** při navázání sezení: ke klasickému X25519 se přimíchá post-kvantový
   KEM (Kyber1024), takže odposlechnutý provoz neotevře ani kvantový počítač
@@ -156,7 +156,7 @@ Android build **existuje a sestaví se**; na reálném telefonu zatím neověře
   `tor-android` připnutý na 0.4.8.22, protože 0.4.9.x chce compileSdk 37
 
 ## 🖥️ 1.3.0 — běh na pozadí (jako WhatsApp)
-- start s Windows zapisuje `"umbra.exe" --background`; runner s tímto přepínačem
+- start s Windows zapisuje `"nullchat.exe" --background`; runner s tímto přepínačem
   okno **vůbec neukáže** (`Win32Window::Create(show=false)`) a appka naběhne do
   systémové lišty — Tor a onion služba běží, uživatel nic nevidí
 - zavření okna appku **neukončí**, jen schová (`SetQuitOnClose(false)`); ukončit
@@ -247,7 +247,7 @@ neměl kam volat, takže jsme pro protějšek byli trvale nedostupní.
 ## 🔄 Aktualizace (25. 7. 2026)
 - appka se ptá GitHubu na nejnovější vydání **přes vlastní Tor okruh** (SOCKS
   port běžícího `tor.exe`) — kontrola aktualizací tedy neprozradí IP ani to,
-  že běží Umbra. TLS přes rustls + vlastní CA roots (ne systémové úložiště).
+  že běží NullChat. TLS přes rustls + vlastní CA roots (ne systémové úložiště).
 - nainstaluje se **jen archiv podepsaný Ed25519 klíčem autora**; veřejný klíč je
   zakompilovaný v `app/rust/src/updater.rs`, soukromý je mimo repo.
 - kontrola 90 s po startu a pak každých 30 min; stažení → ověření podpisu →
@@ -259,9 +259,9 @@ neměl kam volat, takže jsme pro protějšek byli trvale nedostupní.
 - repo: <https://github.com/LukasVitek67/umbra>
 
 ## 📦 Distribuce
-`dist/Umbra.zip` (62 MB) — hotový balíček k odeslání: `umbra.exe` + knihovny,
+`dist/NullChat.zip` (62 MB) — hotový balíček k odeslání: `nullchat.exe` + knihovny,
 **`tor.exe`**, `lyrebird.exe` (obfs4/snowflake), `bridges.txt` (oficiální mosty
-Tor Browseru), `umbra-diagnostika.exe` a `CTI-MNE.txt` s návodem.
+Tor Browseru), `nullchat-diagnostika.exe` a `CTI-MNE.txt` s návodem.
 
 ## ⏳ Známá omezení
 - **Oba musí být online zároveň** — bez serveru neexistuje doručení „na později".

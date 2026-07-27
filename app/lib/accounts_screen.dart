@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 
 import 'l10n.dart';
 import 'mock.dart';
-import 'src/rust/api/umbra.dart';
+import 'src/rust/api/nullchat.dart';
 import 'theme.dart';
 
 class AccountPickerScreen extends StatefulWidget {

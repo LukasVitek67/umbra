@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Umbra transport: the session handshake and framed message protocol that
+//! NullChat transport: the session handshake and framed message protocol that
 //! carries the Double Ratchet over any byte stream (TCP now, Tor onion next).
 //!
 //! # Handshake (MITM-resistant)
@@ -20,10 +20,10 @@
 
 use anyhow::{anyhow, bail, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use umbra_core::crypto::padding::{pad, unpad};
-use umbra_core::crypto::pq::{self, HybridIdentity, PQ_PUBLIC_LEN, PQ_SIGNATURE_LEN};
-use umbra_core::crypto::signal::{PublishedBundle, SignalAccount};
-use umbra_core::identity::{self, Keypair};
+use nullchat_core::crypto::padding::{pad, unpad};
+use nullchat_core::crypto::pq::{self, HybridIdentity, PQ_PUBLIC_LEN, PQ_SIGNATURE_LEN};
+use nullchat_core::crypto::signal::{PublishedBundle, SignalAccount};
+use nullchat_core::identity::{self, Keypair};
 
 /// Ed25519 (64) plus ML-DSA-65 (3309).
 const HYBRID_SIG_LEN: usize = 64 + PQ_SIGNATURE_LEN;
@@ -356,7 +356,7 @@ where
         ));
     }
     if &magic != HELLO_MAGIC_HYBRID {
-        bail!("not an Umbra peer");
+        bail!("not an NullChat peer");
     }
 
     // Fresh Signal keys for this connection, signed by our long-term identity

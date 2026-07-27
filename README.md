@@ -3,11 +3,11 @@
 
 <img src="docs/big-sister.gif" alt="BIG SISTER IS WATCHING YOU" width="320">
 
-### She is always watching. Umbra is what she cannot read.
+### She is always watching. NullChat is what she cannot read.
 
 </div>
 
-# Umbra
+# NullChat
 
 [![CI](https://github.com/LukasVitek67/umbra/actions/workflows/ci.yml/badge.svg)](https://github.com/LukasVitek67/umbra/actions/workflows/ci.yml)
 [![Dependency audit](https://github.com/LukasVitek67/umbra/actions/workflows/ci.yml/badge.svg?event=schedule)](https://github.com/LukasVitek67/umbra/actions/workflows/ci.yml)
@@ -21,13 +21,13 @@ Signal's own `libsignal`) and carried over **Tor onion services**, so there is
 no server to subpoena, no directory of users, and nothing in the middle that
 could hand anything over — because it never had it.
 
-> ⚠️ **Experimental. Unaudited. Do not rely on Umbra to protect anyone whose
+> ⚠️ **Experimental. Unaudited. Do not rely on NullChat to protect anyone whose
 > safety depends on it until it has passed an independent security audit
 > (planned, Phase 5).** See [`SECURITY.md`](SECURITY.md).
 
 ## Why
 
-Umbra is built to resist mass communication surveillance (e.g. the EU "chat
+NullChat is built to resist mass communication surveillance (e.g. the EU "chat
 control" / CSAR client-side-scanning proposals). It has **no central server** to
 locate, seize, or wiretap — the failure mode that took down centrally-hosted
 "secure" services. Every running instance is its own node.
@@ -80,18 +80,18 @@ Vertical, compiling-and-tested slices, one at a time. Current detail:
 Needs **Rust**, the **Flutter SDK** and **VS Build Tools** (Desktop C++ + CMake).
 
 ```bash
-cargo test -p umbra-core          # core test suite
+cargo test -p nullchat-core          # core test suite
 cd app && flutter build windows --release
 ```
 
 A finished build needs `tor.exe`, `lyrebird.exe` and `bridges.txt` next to
-`umbra.exe` — take them from a release zip, or from the Tor Project's
+`nullchat.exe` — take them from a release zip, or from the Tor Project's
 [Tor Expert Bundle](https://www.torproject.org/download/tor/).
 
 ## Updates
 
 The app asks GitHub for the newest release **over its own Tor circuit**, so the
-check does not reveal who is running Umbra. An archive is installed only if it
+check does not reveal who is running NullChat. An archive is installed only if it
 carries a valid Ed25519 signature made with the author's key (the public half is
 compiled into the app), and the swap never happens under a running conversation —
 the app tells you to restart.

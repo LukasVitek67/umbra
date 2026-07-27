@@ -5,7 +5,7 @@
 //!
 //! 1. **The check goes through Tor.** Asking GitHub "is there a newer build?"
 //!    over the clearnet would tell GitHub (and every observer on the way) your
-//!    IP address and that you run Umbra — exactly what the app exists to avoid.
+//!    IP address and that you run NullChat — exactly what the app exists to avoid.
 //!    Every request here is dialled through the running tor daemon's SOCKS
 //!    port, so the update check is as anonymous as the messaging.
 //! 2. **Only the author's builds are installed.** The zip must carry a valid
@@ -27,15 +27,15 @@ use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_rustls::TlsConnector;
-use umbra_core::identity::verify as ed25519_verify;
-use umbra_transport::ctor::socks5_connect_isolated;
+use nullchat_core::identity::verify as ed25519_verify;
+use nullchat_transport::ctor::socks5_connect_isolated;
 
 /// Where releases live. Public on purpose: the updater needs no token, so the
 /// binary carries no secret an attacker could pull out of it.
 pub const REPO: &str = "LukasVitek67/umbra";
 
 /// Ed25519 public key (hex) that release archives must be signed with.
-/// The matching private key is generated with `umbra-sign keygen` and stays
+/// The matching private key is generated with `nullchat-sign keygen` and stays
 /// with the author — it is never in this repository.
 pub const UPDATE_PUBKEY_HEX: &str =
     "89fec22189550db91adda520386ee2810725d95d8e21e71e31d9f5f7ff512e00";
@@ -256,10 +256,10 @@ async fn latest_via_redirect(socks_port: u16) -> Result<Release, String> {
     // follow from the version alone.
     Ok(Release {
         zip_url: Some(format!(
-            "https://github.com/{REPO}/releases/download/{tag}/Umbra-{version}.zip"
+            "https://github.com/{REPO}/releases/download/{tag}/NullChat-{version}.zip"
         )),
         sig_url: Some(format!(
-            "https://github.com/{REPO}/releases/download/{tag}/Umbra-{version}.zip.sig"
+            "https://github.com/{REPO}/releases/download/{tag}/NullChat-{version}.zip.sig"
         )),
         notes_url: Some(format!(
             "https://github.com/{REPO}/releases/download/{tag}/NOTES-{version}.md"
@@ -450,7 +450,7 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 
 /// Unpack a verified zip next to the running app.
 ///
-/// Windows will not let us overwrite the running `umbra.exe`, but it does let
+/// Windows will not let us overwrite the running `nullchat.exe`, but it does let
 /// us *rename* it — so the old binary is moved aside and the new one takes its
 /// place. The process keeps running on the old code until it is restarted.
 fn install(zip: &[u8], install_dir: &Path, version: &str) -> Result<(), String> {
@@ -505,7 +505,7 @@ fn swap_in(staging: &Path, install_dir: &Path) -> Result<(), String> {
         if target.exists() {
             // A file that is currently in use (our own .exe/.dll) cannot be
             // overwritten, but it can be moved out of the way — unless *another*
-            // copy of Umbra is running and holding it, which is worth saying
+            // copy of NullChat is running and holding it, which is worth saying
             // plainly instead of failing with a bare OS error.
             let old = target.with_extension(format!(
                 "{}.old",
@@ -514,7 +514,7 @@ fn swap_in(staging: &Path, install_dir: &Path) -> Result<(), String> {
             let _ = std::fs::remove_file(&old);
             std::fs::rename(&target, &old).map_err(|e| {
                 format!(
-                    "nelze nahradit {}: {e} — běží ještě jiná Umbra? Zavři ji a zkus to znovu.",
+                    "nelze nahradit {}: {e} — běží ještě jiná NullChat? Zavři ji a zkus to znovu.",
                     target.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
                 )
             })?;
@@ -627,7 +627,7 @@ async fn request_progress(
     match &first {
         Ok((403, _, _)) | Ok((429, _, _)) | Err(_) => {
             // A label Tor has not seen before means a fresh exit.
-            let tag = format!("umbra-{}", now_tag());
+            let tag = format!("nullchat-{}", now_tag());
             match request_on_circuit(socks_port, host, path, &tag, size_hint, on_progress).await {
                 Ok(second) => Ok(second),
                 Err(_) => first,
@@ -680,7 +680,7 @@ async fn request_on_circuit(
     .map_err(|e| format!("TLS selhalo: {e}"))?;
 
     let req = format!(
-        "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: umbra-updater\r\n\
+        "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: nullchat-updater\r\n\
          Accept: application/octet-stream, application/vnd.github+json\r\n\
          Accept-Encoding: identity\r\nConnection: close\r\n\r\n"
     );
@@ -834,7 +834,7 @@ mod tests {
 
     #[test]
     fn a_tampered_archive_fails_verification() {
-        let kp = umbra_core::identity::Keypair::generate().unwrap();
+        let kp = nullchat_core::identity::Keypair::generate().unwrap();
         let zip = b"pretend this is a release";
         let sig = kp.sign(zip);
         // Signed by a key that is not the one baked in: must be refused.

@@ -17,11 +17,11 @@ You can expect:
 There is no bug bounty. This is a one-person project without funding, and
 promising money it does not have would be worse than saying so.
 
-## What Umbra has and has not been through
+## What NullChat has and has not been through
 
 Stated plainly, because getting this wrong could put someone in danger.
 
-**Umbra has never been independently audited.** No security firm has reviewed
+**NullChat has never been independently audited.** No security firm has reviewed
 this code. For comparison, Briar — the closest comparable project — has had two
 independent audits (Cure53 in 2017, Radically Open Security in 2024). If you
 need a messenger whose cryptography strangers have checked, use one of those
@@ -54,7 +54,7 @@ importantly, verifying that nothing ever leaves the machine outside Tor.
 
 These are design limits, not bugs, and they are documented rather than hidden:
 
-- `docs/THREAT_MODEL.md` — what Umbra protects, and what it does not
+- `docs/THREAT_MODEL.md` — what NullChat protects, and what it does not
 - `docs/DURESS.md` — where emergency passphrases stop working
 - Groups use a flat roster: any member can add or remove anyone. A hostile
   member is not defended against yet.

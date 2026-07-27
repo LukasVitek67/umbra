@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// What Umbra is made of, and under what terms.
+// What NullChat is made of, and under what terms.
 //
 // Two reasons this screen exists. The legal one: several of these licences ask
 // that their notice travels with the program, so shipping the app without them
@@ -8,7 +8,7 @@
 // they will never read, and the least it can do is say plainly whose code it is
 // running — the cryptography, the Tor daemon, all of it.
 //
-// The list below covers what Umbra ships and depends on directly. The complete
+// The list below covers what NullChat ships and depends on directly. The complete
 // transitive list (every crate and package, with its licence) lives in
 // THIRD-PARTY.md next to the source, and the exact texts of the Dart/Flutter
 // licences are one tap away in "Package licences" (Flutter's own registry).
@@ -27,12 +27,12 @@ class LicenseSection {
   final List<LicenseEntry> entries;
 }
 
-/// Everything Umbra ships or links against, grouped the way a reader thinks
+/// Everything NullChat ships or links against, grouped the way a reader thinks
 /// about it rather than the way a build system does.
 const List<LicenseSection> kLicenses = [
-  LicenseSection('Umbra', [
+  LicenseSection('NullChat', [
     LicenseEntry(
-      'Umbra',
+      'NullChat',
       'AGPL-3.0-or-later',
       'This app. Copyleft: anyone who runs a modified version must be able to get its source.',
       url: 'https://github.com/LukasVitek67/umbra',
@@ -63,7 +63,7 @@ const List<LicenseSection> kLicenses = [
     LicenseEntry(
       'Tor (tor.exe / libtor.so)',
       'BSD-3-Clause',
-      'The onion router. Umbra ships the official daemon and drives it; it does not reimplement Tor.',
+      'The onion router. NullChat ships the official daemon and drives it; it does not reimplement Tor.',
       url: 'https://www.torproject.org/',
     ),
     LicenseEntry('lyrebird (obfs4, snowflake)', 'BSD-3-Clause',

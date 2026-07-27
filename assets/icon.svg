@@ -1,0 +1,21 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!--
+  The NullChat mark: Ø, the empty set.
+
+  Redrawn as geometry rather than scaled from the original bitmap, because an
+  icon has to survive being 16 pixels wide in a system tray and 1024 wide on a
+  desktop. A JPEG cannot do both; a circle and a line can.
+
+  Proportions follow the source image: a heavy circle with a slash that runs
+  past it on both sides, at 45°, with the stroke ends cut square.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Rounded square, as asked for: this is what a desktop launcher shows. -->
+  <rect width="512" height="512" rx="112" ry="112" fill="#000000"/>
+  <g stroke="#ffffff" fill="none" stroke-width="34">
+    <circle cx="256" cy="256" r="150"/>
+    <!-- The slash overshoots the circle, which is what makes it read as Ø
+         rather than as a crossed-out circle. -->
+    <line x1="140" y1="372" x2="372" y2="140" stroke-linecap="butt"/>
+  </g>
+</svg>

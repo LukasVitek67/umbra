@@ -5,7 +5,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * Umbra's Android entry point.
+ * NullChat's Android entry point.
  *
  * The only job beyond the standard Flutter activity is telling the app where
  * the native library folder is. Android refuses to execute a file the app wrote

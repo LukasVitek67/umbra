@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 [package]
-name = "umbra-transport"
+name = "nullchat-transport"
 version = "0.0.1"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Tor onion transport for Umbra: drives the bundled tor daemon, hosts an onion service and dials peers through SOCKS5 — works through NAT, no server."
+description = "Tor onion transport for NullChat: drives the bundled tor daemon, hosts an onion service and dials peers through SOCKS5 — works through NAT, no server."
 
 [dependencies]
-umbra-core = { path = "../core" }
+nullchat-core = { path = "../core" }
 tokio = { version = "1", features = [
     "rt-multi-thread",
     "macros",
@@ -26,9 +26,9 @@ anyhow = "1"
 # reliably through the same bridges. This is also what Briar and OnionShare do.
 
 [[bin]]
-name = "umbra-tor-probe"
+name = "nullchat-tor-probe"
 path = "src/main.rs"
 
 [[bin]]
-name = "umbra-chat"
-path = "src/bin/umbra-chat.rs"
+name = "nullchat-peer"
+path = "src/bin/nullchat-peer.rs"

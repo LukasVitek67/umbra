@@ -40,7 +40,7 @@ It is self-certified, which is both why it is achievable and why it is not an
 audit — it says "this project follows good practice", never "this code is
 secure". Presenting it as the latter would be dishonest.
 
-**Where Umbra stands against the *passing* criteria** (assessed against the
+**Where NullChat stands against the *passing* criteria** (assessed against the
 current repository):
 
 | Criterion | Status |
@@ -75,7 +75,7 @@ cryptography.
 
 ### 3. An independent audit — the only one that means "reviewed"
 
-This is what Briar has and Umbra does not. Two routes:
+This is what Briar has and NullChat does not. Two routes:
 
 - **Pay for it.** Cure53, Radically Open Security, Trail of Bits, NCC Group.
   A review of this size is realistically tens of thousands of euros.
@@ -84,7 +84,7 @@ This is what Briar has and Umbra does not. Two routes:
   audits for open-source projects. Both fund work in the public interest and
   cost the project nothing but the application — and both expect a project with
   real users and a maintained codebase, so this is worth applying for *after*
-  Umbra has been used by more than its author.
+  NullChat has been used by more than its author.
 
 ## A worked example of getting this wrong
 
@@ -94,15 +94,15 @@ SPDX headers in source files — and no `CONTRIBUTING.md`. Both were written dow
 as satisfied because they *felt* satisfied, and the check happened afterwards.
 
 That is the failure mode this whole page is about, in miniature. The missing
-licence was not a formality either: Umbra links against libsignal, which is
+licence was not a formality either: NullChat links against libsignal, which is
 AGPL-3.0 and requires the full licence text to be distributed with anything
-built on it. Umbra had been shipping releases without it.
+built on it. NullChat had been shipping releases without it.
 
 Check first, then claim. Including here.
 
 ## The rule
 
 Publish what can be checked, and name what has not been done in the same breath.
-The `SECURITY.md` in this repository opens by saying Umbra has never been
+The `SECURITY.md` in this repository opens by saying NullChat has never been
 audited and points people at Briar if they need reviewed software today. That
 sentence is worth more to a person at risk than every badge on this page.
