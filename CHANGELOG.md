@@ -8,6 +8,25 @@ person who wrote the code. Newest first.
 
 Umbra is experimental and has not been independently audited.
 
+## 1.9.1
+
+- **Fixed: Czech text in the app was mangled.** Error messages showed
+  `Na tomto poÄŤĂ­taÄŤi nenĂ­...` instead of readable Czech — a build mistake
+  that double-encoded four source files. Cosmetic, but it was in 1.9.0.
+- **You can talk to people who have not updated yet.** Until now a 1.9.x app
+  and a 1.8.x app simply could not connect. The version is now agreed in the
+  opening greeting, and a current app falls back to the older handshake when the
+  other side cannot do better. Such a conversation is marked **"Older version"**
+  with an explanation: it is still end-to-end encrypted, but signed with Ed25519
+  alone, without post-quantum protection.
+  - The fallback cannot be abused. It happens **only** when the peer hangs up
+    without answering — never after a signature has failed to verify. Otherwise
+    someone able to interfere with your connection could force the weaker
+    handshake at will, which would undo the whole point of the stronger one.
+- Security testing is written down in `docs/SECURITY_TESTING.md`, including a
+  suite of ~140 000 malformed inputs run against every parser a hostile peer can
+  reach, and an honest list of what is still missing.
+
 ## 1.9.0
 
 - **Post-quantum identity.** Umbra already resisted a future quantum computer
