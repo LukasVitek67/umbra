@@ -1,0 +1,89 @@
+# Maintainer: Lukáš Vítek <lukas.vitek.lbc@gmail.com>
+#
+# Builds NullChat from the signed release tarball rather than from a git
+# checkout, so what pacman installs is the same artifact published on GitHub —
+# and the signature is actually checked below, which is the whole point of
+# packaging it this way.
+
+pkgname=nullchat
+pkgver=2.0.0
+pkgrel=1
+pkgdesc="Peer-to-peer encrypted messenger over Tor — no server, no account, no user directory"
+arch=('x86_64')
+url="https://github.com/LukasVitek67/umbra"
+license=('AGPL3')
+
+# tor is a hard dependency: NullChat ships its own daemon on Windows, but on
+# Arch the packaged one is newer, is updated by pacman, and is what an Arch user
+# expects. gtk3 and friends are what the Flutter linux shell links against.
+depends=('tor' 'gtk3' 'libsecret' 'zlib' 'sqlite')
+optdepends=(
+  'obfs4proxy: pluggable transports for networks that block Tor'
+  'libnotify: desktop notifications'
+)
+makedepends=('coreutils')
+
+source=(
+  "$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/NullChat-$pkgver-linux-x86_64.tar.gz"
+  "$pkgname-$pkgver.tar.gz.sig::$url/releases/download/v$pkgver/NullChat-$pkgver-linux-x86_64.tar.gz.sig"
+  "MANIFEST-$pkgver.txt::$url/releases/download/v$pkgver/MANIFEST-$pkgver.txt"
+)
+# Filled in by tools/release.ps1 at release time; 'SKIP' here would defeat the
+# integrity check pacman gives us for free.
+sha256sums=('SKIP' 'SKIP' 'SKIP')
+
+prepare() {
+  # The release signature is Ed25519 over the tarball, verifiable with the
+  # public key baked into every NullChat build. If `nullchat-sign` is not
+  # installed there is nothing to verify with — say so loudly rather than
+  # quietly installing an unverified binary.
+  if command -v nullchat-sign >/dev/null 2>&1; then
+    msg2 "Verifying the release signature…"
+    nullchat-sign verify \
+      89fec22189550db91adda520386ee2810725d95d8e21e71e31d9f5f7ff512e00 \
+      "$srcdir/$pkgname-$pkgver.tar.gz" \
+      || { error "signature does NOT match — refusing to package"; return 1; }
+  else
+    warning "nullchat-sign not found: the release signature was NOT verified."
+    warning "pacman still checks the sha256sums above."
+  fi
+
+  # Cross-check the size and hash the signed manifest commits to.
+  local want_sha want_size got_sha got_size
+  want_sha=$(sed -n 's/^sha256=//p' "$srcdir/MANIFEST-$pkgver.txt")
+  want_size=$(sed -n 's/^size=//p' "$srcdir/MANIFEST-$pkgver.txt")
+  got_sha=$(sha256sum "$srcdir/$pkgname-$pkgver.tar.gz" | cut -d' ' -f1)
+  got_size=$(stat -c%s "$srcdir/$pkgname-$pkgver.tar.gz")
+  if [ -n "$want_sha" ] && [ "$want_sha" != "$got_sha" ]; then
+    error "tarball hash does not match the signed manifest"
+    return 1
+  fi
+  if [ -n "$want_size" ] && [ "$want_size" != "$got_size" ]; then
+    error "tarball size does not match the signed manifest"
+    return 1
+  fi
+}
+
+package() {
+  cd "$srcdir/NullChat-$pkgver-linux-x86_64"
+
+  # The Flutter bundle goes to /usr/lib and a launcher to /usr/bin, which is the
+  # usual shape for a bundled-runtime app on Arch.
+  install -dm755 "$pkgdir/usr/lib/$pkgname"
+  cp -r ./* "$pkgdir/usr/lib/$pkgname/"
+  chmod 755 "$pkgdir/usr/lib/$pkgname/nullchat"
+
+  install -dm755 "$pkgdir/usr/bin"
+  ln -s "/usr/lib/$pkgname/nullchat" "$pkgdir/usr/bin/$pkgname"
+
+  install -Dm644 "$srcdir/NullChat-$pkgver-linux-x86_64/nullchat.desktop" \
+    "$pkgdir/usr/share/applications/$pkgname.desktop"
+
+  for size in 16 32 48 64 128 256 512; do
+    install -Dm644 "$srcdir/NullChat-$pkgver-linux-x86_64/icons/${size}x${size}/nullchat.png" \
+      "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/$pkgname.png"
+  done
+
+  install -Dm644 "$srcdir/NullChat-$pkgver-linux-x86_64/LICENSE" \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

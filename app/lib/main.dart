@@ -548,6 +548,24 @@ class _HomeShellState extends State<HomeShell> {
             ],
           );
 
+          // On a phone a side rail eats a fifth of the width and puts the
+          // controls where a thumb cannot reach them. Below this width the
+          // navigation moves to the bottom, which is also where every other
+          // mobile app keeps it.
+          final phone = constraints.maxWidth < 600;
+
+          if (phone) {
+            final open = _index == 0 ? _conversation(embedded: false) : null;
+            return Column(
+              children: [
+                Expanded(child: open ?? _section()),
+                // Hidden while a conversation is open: the keyboard is up, the
+                // screen is short, and the way back is the app bar's arrow.
+                if (open == null) const _BottomBar(),
+              ],
+            );
+          }
+
           if (!wide) {
             // Narrow window: the conversation covers the list while it is open.
             final open = _index == 0 ? _conversation(embedded: false) : null;
@@ -575,6 +593,129 @@ class _HomeShellState extends State<HomeShell> {
             ],
           );
         },
+    );
+  }
+}
+
+/// Navigation for phones: at the bottom, where a thumb reaches.
+///
+/// Settings does not get an entry of its own here. It lives under the profile,
+/// which is where people look for "my stuff" on a phone, and it keeps the bar
+/// to three targets — a four-target bar on a narrow screen is how mis-taps
+/// happen.
+class _BottomBar extends StatelessWidget {
+  const _BottomBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: appState,
+      builder: (context, _) {
+        final index = appState.railSection;
+        return Container(
+          decoration: BoxDecoration(
+            color: UmbraColors.surface,
+            border: Border(top: BorderSide(color: UmbraColors.border)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: 62,
+              child: Row(
+                children: [
+                  _BottomItem(
+                    icon: Icons.forum_outlined,
+                    selectedIcon: Icons.forum,
+                    label: L.t('nav.chats'),
+                    selected: index == 0,
+                    onTap: () => appState.railSection = 0,
+                  ),
+                  _BottomItem(
+                    icon: Icons.contacts_outlined,
+                    selectedIcon: Icons.contacts,
+                    label: L.t('contacts.title'),
+                    selected: index == 1,
+                    onTap: () => appState.railSection = 1,
+                  ),
+                  _BottomItem(
+                    icon: Icons.person_outline,
+                    selectedIcon: Icons.person,
+                    label: L.t('nav.profile'),
+                    selected: index == 2,
+                    onTap: () => appState.railSection = 2,
+                    // The one place an update has to be noticeable without
+                    // taking a slot in the bar.
+                    dot: appState.updateAvailableVersion != null ||
+                        appState.updateReadyVersion != null,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _BottomItem extends StatelessWidget {
+  const _BottomItem({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.dot = false,
+  });
+
+  final IconData icon;
+  final IconData selectedIcon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool dot;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? UmbraColors.accent : UmbraColors.textMuted;
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(selected ? selectedIcon : icon, size: 22, color: color),
+                if (dot)
+                  Positioned(
+                    right: -3,
+                    top: -2,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: UmbraColors.accent,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: UmbraColors.surface, width: 1.5),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 3),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=NullChat
+GenericName=Encrypted messenger
+Comment=Peer-to-peer encrypted messaging over Tor. No server, no account, no directory.
+Comment[cs]=Šifrované P2P zprávy přes Tor. Žádný server, žádná registrace, žádný adresář.
+Exec=nullchat %U
+Icon=nullchat
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+Keywords=chat;messenger;tor;onion;encryption;privacy;p2p;
+StartupNotify=true
+StartupWMClass=nullchat
+SingleMainWindow=true

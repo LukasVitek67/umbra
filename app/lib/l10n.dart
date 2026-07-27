@@ -75,6 +75,7 @@ class L {
       'nav.chats': 'Chats',
       'nav.devices': 'Devices',
       'nav.settings': 'Settings',
+      'nav.profile': 'Profile',
       'connecting.title': 'Connecting to Tor',
       'connecting.subtitle':
           'NullChat needs a Tor connection before it can reach anyone. Nothing here needs your attention — it just takes a while.',
@@ -411,6 +412,7 @@ class L {
       'nav.chats': 'Chaty',
       'nav.devices': 'Zařízení',
       'nav.settings': 'Nastavení',
+      'nav.profile': 'Profil',
       'connecting.title': 'Připojuji se k Toru',
       'connecting.subtitle':
           'NullChat potřebuje spojení se sítí Tor, než na někoho dosáhne. Nic nemusíš dělat — jen to chvíli trvá.',
