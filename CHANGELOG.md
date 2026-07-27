@@ -8,6 +8,30 @@ person who wrote the code. Newest first.
 
 Umbra is experimental and has not been independently audited.
 
+## 1.7.1
+
+Findings from a full read of the application. See `docs/HARDENING.md`.
+
+- **The app's own log file was storing your messages in readable form.** Every
+  event was written to `umbra-app.log` together with its content — so message
+  text, contacts' names and their onion addresses sat unencrypted next to the
+  database, readable without your passphrase. Encrypting the database while this
+  file existed protected very little. The log now records only what kind of
+  event happened and how big it was, identifies peers by a label that is random
+  per run, and is emptied at every start, which also disposes of what older
+  versions wrote.
+- **Incoming files are now bounded and attributed.** A file offer is refused
+  above 4 GB, no more than 16 transfers run at once, a sender that streams more
+  than it promised is cut off, and — this one mattered — a file chunk is only
+  accepted from the peer that offered that transfer. Previously anyone who
+  guessed a transfer id could append data to a file you were receiving from
+  somebody else.
+- **File names arriving from the network are properly sanitised**: `..`, control
+  characters, Windows device names like `CON` and `NUL`, and trailing dots are
+  all defused, so a chosen name cannot write outside your downloads folder.
+- Profile pictures from contacts are capped at 8 MB instead of being written to
+  disk at whatever size the sender chose.
+
 ## 1.7.0
 
 - **The local database no longer reveals who you talk to.** Until now the

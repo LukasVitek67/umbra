@@ -87,6 +87,30 @@ static SOCKS: Mutex<Option<u16>> = Mutex::new(None);
 static LOGPATH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// Append one line to the diagnostic log. Best effort: never fails the caller.
+/// A label that tells two peers apart *within one run* and means nothing
+/// outside it.
+///
+/// Debugging needs to know that two events concern different people. Nobody
+/// needs a file that names them. The salt is drawn once per process, so the
+/// same contact gets a different label after a restart and two logs cannot be
+/// lined up against each other.
+fn peer_tag(peer_hex: &str) -> String {
+    static SALT: Mutex<Option<[u8; 16]>> = Mutex::new(None);
+    let salt = {
+        let mut g = SALT.lock().unwrap();
+        *g.get_or_insert_with(|| {
+            let mut s = [0u8; 16];
+            let _ = getrandom::getrandom(&mut s);
+            s
+        })
+    };
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(salt);
+    h.update(peer_hex.as_bytes());
+    hex(&h.finalize()[..3])
+}
+
 fn log_line(text: &str) {
     let path = { LOGPATH.lock().unwrap().clone() };
     let Some(path) = path else { return };
@@ -214,7 +238,7 @@ fn dial_once(peer_hex: String, onion: String) {
     rt().spawn(async move {
         let svc = SERVICE.lock().unwrap().clone();
         if let (Some(svc), Some(pk)) = (svc, unhex(&peer_hex)) {
-            log_line(&format!("dial start peer={} onion={onion}", &peer_hex[..12.min(peer_hex.len())]));
+            log_line(&format!("dial start peer={}", peer_tag(&peer_hex)));
             match svc.connect(onion, pk).await {
                 Ok(()) => log_line("dial ok"),
                 Err(e) => {
@@ -324,7 +348,13 @@ pub fn set_native_dir(path: String) {
 
 /// Push an event to the UI (no-op before the network is started).
 fn emit(kind: &str, data: &str, peer_hex: &str) {
-    log_line(&format!("{kind} peer={} {data}", &peer_hex.chars().take(12).collect::<String>()));
+    // Only the shape of the event, never its content.
+    //
+    // This line used to be `{kind} peer={12 hex of identity} {data}`, which put
+    // message text, contact names and onion addresses into a plain file sitting
+    // next to the encrypted database — readable without the passphrase, which
+    // undoes everything the database does to protect them.
+    log_line(&format!("{kind} peer={} {} B", peer_tag(peer_hex), data.len()));
     if let Some(tx) = EVENTS.lock().unwrap().as_ref() {
         let _ = tx.send(NetEvent {
             kind: kind.to_string(),
@@ -763,7 +793,13 @@ impl UmbraApp {
             }
         }
 
-        *LOGPATH.lock().unwrap() = Some(dir.join("umbra-app.log"));
+        // Start every run with an empty log. Builds up to 1.7.0 wrote message
+        // text, contact names and onion addresses into this file in the clear,
+        // so the old contents are a liability sitting next to the encrypted
+        // database — and truncating also stops the file growing without end.
+        let log_path = dir.join("umbra-app.log");
+        let _ = std::fs::write(&log_path, b"");
+        *LOGPATH.lock().unwrap() = Some(log_path);
         *FILES_DIR.lock().unwrap() = Some(dir.join("files"));
         let _ = std::fs::create_dir_all(dir.join("files"));
         {
@@ -1493,9 +1529,28 @@ fn broadcast_group_info(group: &Group, me: &[u8; 32]) {
 static MY_PROFILE: Mutex<Option<(String, Vec<u8>)>> = Mutex::new(None);
 /// Where finished incoming files are written.
 static FILES_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
-/// Partially received files: id → (name, size, handle, received bytes).
-static INCOMING_FILES: Mutex<Option<HashMap<[u8; 16], (String, u64, PathBuf, u64)>>> =
-    Mutex::new(None);
+/// Largest file we will accept from a peer. Anything bigger is refused at the
+/// offer, before a single byte is written.
+const MAX_INCOMING_FILE: u64 = 4 * 1024 * 1024 * 1024;
+/// Largest profile picture we will store. A peer used to be able to hand us an
+/// image of any size and have it written straight to disk.
+const MAX_PICTURE: usize = 8 * 1024 * 1024;
+/// How many transfers may be in flight at once, across all peers.
+const MAX_TRANSFERS: usize = 16;
+
+/// A transfer in progress.
+struct Incoming {
+    /// Who is sending it. A chunk from anyone else is refused — without this,
+    /// knowing a transfer id was enough to write into someone else's file.
+    peer_hex: String,
+    name: String,
+    size: u64,
+    part: PathBuf,
+    received: u64,
+}
+
+/// Partially received files, keyed by transfer id.
+static INCOMING_FILES: Mutex<Option<HashMap<[u8; 16], Incoming>>> = Mutex::new(None);
 
 /// Send our name and picture so the peer can show them.
 async fn send_profile(peer_hex: &str) {
@@ -1626,7 +1681,8 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
         }
         Payload::Profile { name, picture } => {
             // Cache the picture next to the app data; the UI reads it by path.
-            if !picture.is_empty() {
+            // Bounded: a peer chooses this size, and it lands straight on disk.
+            if !picture.is_empty() && picture.len() <= MAX_PICTURE {
                 if let Some(dir) = FILES_DIR.lock().unwrap().clone() {
                     let p = dir.join(format!("avatar-{peer_hex}.img"));
                     let _ = std::fs::write(&p, &picture);
@@ -1636,28 +1692,59 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
             emit("profile", &name, peer_hex);
         }
         Payload::FileOffer { id, name, size } => {
+            if size > MAX_INCOMING_FILE {
+                log_line("file offer refused: too large");
+                return;
+            }
             let Some(dir) = FILES_DIR.lock().unwrap().clone() else { return };
             let _ = std::fs::create_dir_all(&dir);
-            let safe: String = name
-                .chars()
-                .map(|c| if r#"\/:*?"<>|"#.contains(c) { '_' } else { c })
-                .collect();
+            let safe = safe_file_name(&name);
             let part = dir.join(format!("{}.part", hex(&id)));
-            let _ = std::fs::write(&part, b"");
-            INCOMING_FILES
-                .lock()
-                .unwrap()
-                .get_or_insert_with(HashMap::new)
-                .insert(id, (safe.clone(), size, part, 0));
+            {
+                let mut g = INCOMING_FILES.lock().unwrap();
+                let map = g.get_or_insert_with(HashMap::new);
+                // A peer that keeps offering files must not be able to open an
+                // unbounded number of part-files on our disk.
+                if map.len() >= MAX_TRANSFERS && !map.contains_key(&id) {
+                    log_line("file offer refused: too many transfers in flight");
+                    return;
+                }
+                let _ = std::fs::write(&part, b"");
+                map.insert(
+                    id,
+                    Incoming {
+                        peer_hex: peer_hex.to_string(),
+                        name: safe.clone(),
+                        size,
+                        part,
+                        received: 0,
+                    },
+                );
+            }
             emit("file_start", &format!("{safe}|{size}"), peer_hex);
         }
         Payload::FileChunk { id, seq: _, data } => {
             let entry = {
                 let mut g = INCOMING_FILES.lock().unwrap();
-                g.as_mut().and_then(|m| m.get_mut(&id).map(|e| {
-                    e.3 += data.len() as u64;
-                    (e.2.clone(), e.3, e.1)
-                }))
+                match g.as_mut().and_then(|m| m.get_mut(&id)) {
+                    // Only the peer who offered this transfer may add to it.
+                    Some(e) if e.peer_hex == peer_hex => {
+                        // Never write more than was offered: without this a
+                        // sender could keep streaming until the disk was full.
+                        if e.received + data.len() as u64 > e.size {
+                            log_line("file chunk refused: more data than the offer promised");
+                            None
+                        } else {
+                            e.received += data.len() as u64;
+                            Some((e.part.clone(), e.received, e.size))
+                        }
+                    }
+                    Some(_) => {
+                        log_line("file chunk refused: not the peer that offered it");
+                        None
+                    }
+                    None => None,
+                }
             };
             if let Some((part, received, total)) = entry {
                 use std::io::Write;
@@ -1731,8 +1818,16 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
             );
         }
         Payload::FileEnd { id } => {
-            let entry = { INCOMING_FILES.lock().unwrap().as_mut().and_then(|m| m.remove(&id)) };
-            if let Some((name, _size, part, _got)) = entry {
+            let entry = {
+                let mut g = INCOMING_FILES.lock().unwrap();
+                match g.as_mut().and_then(|m| m.get(&id)) {
+                    Some(e) if e.peer_hex == peer_hex => {
+                        g.as_mut().and_then(|m| m.remove(&id))
+                    }
+                    _ => None,
+                }
+            };
+            if let Some(Incoming { name, part, .. }) = entry {
                 let dir = part.parent().map(|p| p.to_path_buf()).unwrap_or_default();
                 let mut final_path = dir.join(&name);
                 let mut n = 1;
@@ -1749,6 +1844,41 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
 
 fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// Turn a name chosen by someone else into one that is safe to create inside
+/// our own downloads folder.
+///
+/// The sender picks this string, so it is treated as hostile: separators and
+/// control characters go, `..` cannot escape the folder, Windows' reserved
+/// device names are pushed aside, and trailing dots and spaces — which Windows
+/// silently strips, and which can therefore make two names collide — are cut.
+fn safe_file_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if r#"\/:*?"<>|"#.contains(c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim().trim_end_matches(['.', ' ']).trim();
+    // Keep it well inside every filesystem's limit, counting bytes not chars.
+    let mut cleaned: String = cleaned.chars().take(120).collect();
+    if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
+        cleaned = "soubor".to_string();
+    }
+    const RESERVED: [&str; 22] = [
+        "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7",
+        "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+    ];
+    let stem = cleaned.split('.').next().unwrap_or("").to_ascii_lowercase();
+    if RESERVED.contains(&stem.as_str()) {
+        cleaned = format!("_{cleaned}");
+    }
+    cleaned
 }
 
 /// How a new account records the KDF settings it was created with.
@@ -1809,4 +1939,60 @@ fn unhex(s: &str) -> Option<[u8; 32]> {
         out[i] = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).ok()?;
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The sender picks the file name, so it is attacker-controlled input.
+    #[test]
+    fn a_hostile_file_name_cannot_escape_the_download_folder() {
+        for evil in [
+            "../../../../Windows/System32/evil.dll",
+            r"..\..\autorun.inf",
+            "/etc/passwd",
+            "..",
+            ".",
+            "",
+            "   ",
+        ] {
+            let safe = safe_file_name(evil);
+            assert!(!safe.contains('/'), "{evil} kept a forward slash: {safe}");
+            assert!(!safe.contains('\\'), "{evil} kept a backslash: {safe}");
+            assert_ne!(safe, "..");
+            assert_ne!(safe, ".");
+            assert!(!safe.is_empty());
+            // The decisive property: joining it onto the folder stays inside it.
+            let base = std::path::Path::new("C:/umbra/files");
+            let joined = base.join(&safe);
+            assert_eq!(joined.parent(), Some(base), "{evil} escaped to {joined:?}");
+        }
+    }
+
+    #[test]
+    fn windows_device_names_and_trailing_dots_are_defused() {
+        // "CON" and friends are devices, not files, on Windows.
+        assert_eq!(safe_file_name("CON"), "_CON");
+        assert_eq!(safe_file_name("nul.txt"), "_nul.txt");
+        // Windows silently strips these, so two names could collide.
+        assert_eq!(safe_file_name("report.pdf..."), "report.pdf");
+        assert_eq!(safe_file_name("spaced.txt  "), "spaced.txt");
+        // Ordinary names are left alone, accents and all.
+        assert_eq!(safe_file_name("Zpráva 2026.pdf"), "Zpráva 2026.pdf");
+        // Control characters cannot sneak through either.
+        assert_eq!(safe_file_name("a\u{7}b.txt"), "a_b.txt");
+    }
+
+    /// The log must be able to tell two peers apart without naming either.
+    #[test]
+    fn a_peer_tag_hides_the_identity_it_stands_for() {
+        let a = "aa".repeat(32);
+        let b = "bb".repeat(32);
+        assert_eq!(peer_tag(&a), peer_tag(&a), "stable within a run");
+        assert_ne!(peer_tag(&a), peer_tag(&b), "different peers stay distinct");
+        // Nothing of the identity itself survives into the label.
+        assert!(!a.contains(&peer_tag(&a)));
+        assert_eq!(peer_tag(&a).len(), 6);
+    }
 }
