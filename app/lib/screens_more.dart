@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import 'autostart.dart';
 import 'l10n.dart';
+import 'duress.dart';
 import 'licenses.dart';
 import 'notifications.dart';
 import 'mock.dart';
@@ -420,6 +421,10 @@ class SettingsScreen extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: _DuressEntry(),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
               child: _LicensesEntry(),
             ),
             Padding(
@@ -639,6 +644,53 @@ class _NotificationsPanelState extends State<_NotificationsPanel> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A second (or third) way into this account that does something else.
+class _DuressEntry extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: appState,
+      builder: (context, _) {
+        final set = appState.duressConfigured;
+        return InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => showDuressScreen(context),
+          child: Panel(
+            child: Row(
+              children: [
+                Icon(Icons.shield_outlined, color: UmbraColors.textMuted),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(L.t('duress.title'),
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 3),
+                      Text(
+                        set.isEmpty
+                            ? L.t('duress.none')
+                            : L.t('duress.count')
+                                .replaceAll('{n}', set.length.toString()),
+                        style: TextStyle(
+                            color: set.isEmpty
+                                ? UmbraColors.textMuted
+                                : UmbraColors.accent,
+                            fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: UmbraColors.textMuted),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

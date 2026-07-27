@@ -8,6 +8,33 @@ person who wrote the code. Newest first.
 
 Umbra is experimental and has not been independently audited.
 
+## 1.8.0
+
+- **Emergency passphrases.** One account can now answer to more than one
+  passphrase, and you choose which — none, either, or both:
+  - a **decoy** opens a separate history with its own contacts and messages,
+    which you fill with ordinary conversation yourself. Your real conversations
+    are not merely hidden from it: they are unreachable, and searching from the
+    decoy finds nothing of them.
+  - **destroy on entry** wipes everything it cannot read and then opens as a
+    brand-new account. It cannot be undone and asks nothing first.
+
+  Nothing in the file records how many passphrases it answers to. A passphrase
+  becomes a key, the key opens rows, and a row it cannot open is treated as
+  *absent* rather than as an error — so a second history leaves no field saying
+  it exists. The wipe overwrites sealed values with random bytes of the same
+  length and leaves the rows in place, so the file keeps its size and its row
+  counts and nothing about it looks freshly emptied.
+
+  Read `docs/DURESS.md` before relying on this. The most important limit: none
+  of it helps against someone who copied the disk **before** you typed the
+  passphrase, and no software can change that.
+
+- **Notifications stop going to Windows once an emergency passphrase is set.**
+  Windows keeps its own copy of every notification it displays, in a database
+  outside this app's reach that no passphrase of ours can clear. Umbra now draws
+  its own notices inside its own window instead, leaving nothing behind.
+
 ## 1.7.1
 
 - **You can now verify who you are actually talking to.** Every conversation

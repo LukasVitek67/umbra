@@ -252,6 +252,61 @@ class L {
       'common.cancel': 'Cancel',
       'common.save': 'Save',
       'common.close': 'Close',
+      'duress.title': 'Emergency passphrases',
+      'duress.intro':
+          'This account can answer to more than one passphrase. Set neither, '
+          'one, or both — nothing in the file records how many there are, and '
+          'Umbra behaves identically whichever you type.',
+      'duress.decoy.title': 'Decoy account',
+      'duress.decoy.body':
+          'Opens a separate history with its own contacts and messages. Your '
+          'real conversations are not hidden from view — they are unreachable '
+          'from it, and searching finds nothing of them. Fill it with ordinary '
+          'conversation so it does not look staged.',
+      'duress.wipe.title': 'Destroy on entry',
+      'duress.wipe.body':
+          'Destroys everything it cannot read and then opens as a brand-new '
+          'account. This cannot be undone and there is no confirmation — that '
+          'is the point. The file keeps its size, so nothing about it looks '
+          'freshly emptied.',
+      'duress.set': 'Set',
+      'duress.none': 'None set — one passphrase opens this account',
+      'duress.count': '{n} set',
+      'duress.setUp': 'Set up',
+      'duress.remove': 'Remove',
+      'duress.fill': 'Fill with conversation',
+      'duress.pickHint':
+          'At least 12 characters, and different from your real one. Pick '
+          'something you can type calmly under pressure without thinking.',
+      'duress.newPhrase': 'Emergency passphrase',
+      'duress.repeat': 'Type it again',
+      'duress.mismatch': 'The two entries are not the same.',
+      'duress.removeHint':
+          'Type the emergency passphrase you want to remove. It is the only '
+          'thing that can reach what it created.',
+      'duress.thatPhrase': 'That emergency passphrase',
+      'duress.decoyPhrase': 'Decoy passphrase',
+      'duress.fillHint':
+          'Written into the decoy account, spread over the past weeks. Add a '
+          'few conversations, and open the decoy occasionally — a history whose '
+          'every message was written in one afternoon convinces nobody.',
+      'duress.fillWho': "The other person's name",
+      'duress.fillLines': 'One message per line (alternating sides)',
+      'duress.fillEmpty': 'Enter a name and at least one message.',
+      'duress.fillDone': 'Added {n} messages.',
+      'duress.limits.title': 'Where this stops working',
+      'duress.limits.body':
+          'It cannot help against anyone who copied the disk BEFORE you typed '
+          'the passphrase — comparing the two copies shows what changed, and '
+          'nothing running afterwards can prevent that. It cannot hide a decoy '
+          'that is obviously empty, a passphrase of a visibly different length, '
+          'or traces left elsewhere on the computer: the Windows page file, '
+          'backup software, or thumbnails.',
+      'duress.notifications':
+          'Notifications are no longer handed to Windows while an emergency '
+          'passphrase is set. Windows keeps its own copy of every notice it '
+          'shows, in a database no passphrase of ours can reach, so Umbra now '
+          'draws them itself inside its own window.',
       'waiting.title': 'Waiting for you',
       'waiting.help':
           'People you have not talked to before. Read what they wrote, then let them in or block them.',
@@ -521,6 +576,62 @@ class L {
       'common.cancel': 'Zrušit',
       'common.save': 'Uložit',
       'common.close': 'Zavřít',
+      'duress.title': 'Nouzové fráze',
+      'duress.intro':
+          'Tento účet může odpovídat víc než jedné frázi. Nastav žádnou, jednu '
+          'nebo obě — v souboru není nikde napsáno, kolik jich je, a Umbra se '
+          'chová úplně stejně, ať zadáš kteroukoli.',
+      'duress.decoy.title': 'Nastrčený účet',
+      'duress.decoy.body':
+          'Otevře oddělenou historii s vlastními kontakty a zprávami. Tvoje '
+          'skutečné konverzace z něj nejsou jen schované — jsou nedosažitelné '
+          'a vyhledávání z nich nenajde nic. Vyplň ho běžným povídáním, ať '
+          'nevypadá naaranžovaně.',
+      'duress.wipe.title': 'Smazat po zadání',
+      'duress.wipe.body':
+          'Zničí všechno, co nedokáže přečíst, a otevře se jako úplně nový '
+          'účet. Nejde to vzít zpět a nic se nepotvrzuje — právě o to jde. '
+          'Soubor si drží velikost, takže na něm není nic, co by vypadalo '
+          'čerstvě vyprázdněně.',
+      'duress.set': 'Nastaveno',
+      'duress.none': 'Žádná — účet otevírá jedna fráze',
+      'duress.count': 'Nastaveno: {n}',
+      'duress.setUp': 'Nastavit',
+      'duress.remove': 'Zrušit',
+      'duress.fill': 'Vyplnit konverzací',
+      'duress.pickHint':
+          'Aspoň 12 znaků a jiná než ta skutečná. Zvol něco, co pod tlakem '
+          'napíšeš klidně a bez přemýšlení.',
+      'duress.newPhrase': 'Nouzová fráze',
+      'duress.repeat': 'Napiš ji znovu',
+      'duress.mismatch': 'Zadání se neshodují.',
+      'duress.removeHint':
+          'Napiš nouzovou frázi, kterou chceš zrušit. Je to jediné, co se '
+          'dostane k tomu, co vytvořila.',
+      'duress.thatPhrase': 'Ta nouzová fráze',
+      'duress.decoyPhrase': 'Fráze nastrčeného účtu',
+      'duress.fillHint':
+          'Zapíše se do nastrčeného účtu a rozprostře se do minulých týdnů. '
+          'Přidej několik konverzací a občas si nastrčený účet otevři — '
+          'historie, jejíž každá zpráva vznikla během jednoho odpoledne, '
+          'nepřesvědčí nikoho.',
+      'duress.fillWho': 'Jméno protějšku',
+      'duress.fillLines': 'Jedna zpráva na řádek (střídají se strany)',
+      'duress.fillEmpty': 'Zadej jméno a aspoň jednu zprávu.',
+      'duress.fillDone': 'Přidáno {n} zpráv.',
+      'duress.limits.title': 'Kde to přestává fungovat',
+      'duress.limits.body':
+          'Nepomůže proti nikomu, kdo si zkopíroval disk DŘÍV, než jsi frázi '
+          'zadal — porovnáním obou kopií je vidět, co se změnilo, a nic, co '
+          'poběží potom, tomu nezabrání. Neschová nastrčený účet, který je '
+          'očividně prázdný, frázi zjevně jiné délky, ani stopy jinde v '
+          'počítači: stránkovací soubor Windows, zálohovací program nebo '
+          'náhledy obrázků.',
+      'duress.notifications':
+          'Dokud je nastavená nouzová fráze, oznámení se nepředávají Windows. '
+          'Windows si každé zobrazené oznámení ukládá do vlastní databáze, kam '
+          'žádná naše fráze nedosáhne, takže si je Umbra kreslí sama ve svém '
+          'okně.',
       'waiting.title': 'Nevyřízené',
       'waiting.help':
           'Lidé, se kterými sis ještě nepsal. Přečti si, co poslali, a pak je pusť dál, nebo zablokuj.',

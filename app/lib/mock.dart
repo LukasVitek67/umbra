@@ -356,6 +356,10 @@ class AppState extends ChangeNotifier {
     userCode = app.userCode();
     identityFingerprint = _group(app.identityHex());
     hasIdentity = true;
+    // Before anything can arrive: an account with duress passphrases must never
+    // hand a notification to Windows, which would keep its own copy.
+    _applyNotificationPolicy();
+    Notifications.inApp = showInAppNotice;
     _reloadContacts();
     _reloadGroups();
     _startNetwork(app);
@@ -1078,6 +1082,78 @@ class AppState extends ChangeNotifier {
 
   /// A shareable `umbra1:` invite (empty until our onion address is ready).
   String myInvite() => _app?.myInvite() ?? '';
+
+  // --- duress passphrases (docs/DURESS.md) ---
+
+  /// Which duress passphrases this account has set, e.g. `['decoy']`.
+  List<String> get duressConfigured => _app?.duressConfigured() ?? const [];
+
+  /// Add a second passphrase: `'decoy'` or `'wipe'`.
+  ///
+  /// Setting one also stops Umbra handing notifications to Windows, which keeps
+  /// its own copy of them in a database no passphrase of ours can reach.
+  String? setDuressPassphrase(String kind, String passphrase) {
+    try {
+      _app?.setDuressPassphrase(kind: kind, passphrase: passphrase);
+      _applyNotificationPolicy();
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return _clean(e);
+    }
+  }
+
+  /// Turn one off again. Needs the passphrase itself — nothing else can reach
+  /// its rows.
+  String? clearDuressPassphrase(String passphrase) {
+    try {
+      _app?.clearDuressPassphrase(passphrase: passphrase);
+      _applyNotificationPolicy();
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return _clean(e);
+    }
+  }
+
+  /// Put a believable conversation into the decoy account.
+  String? fillDecoy(String passphrase, String contactName, List<String> lines) {
+    try {
+      _app?.fillDecoy(
+        passphrase: passphrase,
+        contactName: contactName,
+        lines: lines,
+        startAt: BigInt.from(
+            DateTime.now().subtract(const Duration(days: 40)).millisecondsSinceEpoch ~/ 1000),
+      );
+      notifyListeners();
+      return null;
+    } catch (e) {
+      return _clean(e);
+    }
+  }
+
+  /// An account with duress passphrases must not leave notifications in the
+  /// operating system's own history, so Umbra draws them itself instead.
+  void _applyNotificationPolicy() {
+    Notifications.useSystemNotifications = duressConfigured.isEmpty;
+  }
+
+  /// A notice Umbra draws itself. Cleared after a few seconds.
+  ({String title, String body})? inAppNotice;
+  int _noticeSeq = 0;
+
+  void showInAppNotice(String title, String body) {
+    inAppNotice = (title: title, body: body);
+    final seq = ++_noticeSeq;
+    notifyListeners();
+    Future.delayed(const Duration(seconds: 6), () {
+      if (_noticeSeq == seq) {
+        inAppNotice = null;
+        notifyListeners();
+      }
+    });
+  }
 
   /// The 60 digits this contact and I must both read, in groups of five.
   String safetyNumber(String contactHex) =>

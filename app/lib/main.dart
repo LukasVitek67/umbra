@@ -409,6 +409,53 @@ class _HomeShellState extends State<HomeShell> {
       child: Scaffold(
       body: Column(
         children: [
+          // Umbra's own notification. Used when handing one to Windows is not
+          // acceptable, because Windows keeps a copy of everything it shows in
+          // a database outside this app's reach (see docs/DURESS.md).
+          ListenableBuilder(
+            listenable: appState,
+            builder: (context, _) {
+              final notice = appState.inAppNotice;
+              return AnimatedSize(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                child: notice == null
+                    ? const SizedBox(width: double.infinity)
+                    : Container(
+                        width: double.infinity,
+                        color: UmbraColors.accent.withValues(alpha: 0.14),
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        child: Row(
+                          children: [
+                            Icon(Icons.mark_email_unread_outlined,
+                                size: 16, color: UmbraColors.accent),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(notice.title,
+                                      style: TextStyle(
+                                          color: UmbraColors.textPrimary,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600)),
+                                  if (notice.body.isNotEmpty)
+                                    Text(notice.body,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                            color: UmbraColors.textMuted,
+                                            fontSize: 12)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+              );
+            },
+          ),
           // A finished update is worth one line at the top; it needs a restart
           // and the user should not have to find that in Settings.
           ListenableBuilder(

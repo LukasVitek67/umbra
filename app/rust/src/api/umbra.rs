@@ -20,8 +20,10 @@ use umbra_core::invite::Invite;
 use umbra_core::safety;
 use umbra_core::group::{Group, GroupMember};
 use umbra_core::store::{
-    Contact, ContactStatus, Direction, MessageState, NewGroupMessage, NewMessage, Store,
+    Contact, ContactStatus, Direction, MessageState, NewGroupMessage, NewMessage, ProfileKind,
+    Store,
 };
+use zeroize::Zeroizing;
 use umbra_transport::ctor::TorService;
 
 use crate::accounts::{self, AccountEntry};
@@ -529,12 +531,20 @@ impl UmbraApp {
             .map_err(|e| e.to_string())?;
         let store = Store::open(&dir.join("umbra.db"), &key).map_err(|e| e.to_string())?;
 
+        // A duress passphrase destroys everything it cannot read and then
+        // carries on as an ordinary sign-in. This happens here, before anything
+        // is shown, so there is no separate code path a bystander could notice
+        // and nothing for the UI to give away. See docs/DURESS.md.
+        if store.profile_kind() == ProfileKind::Wipe {
+            let _ = store.destroy_unreadable();
+        }
+
         // A wrong passphrase derives a wrong key, so the stored secret fails to
         // decrypt. Say that plainly instead of leaking a storage-level error.
         let seed = store
             .get_secret("identity_seed")
             .map_err(|_| "Špatná přístupová fráze.".to_string())?
-            .ok_or_else(|| "V databázi není žádná identita.".to_string())?;
+            .ok_or_else(|| "Špatná přístupová fráze.".to_string())?;
         let seed32: [u8; 32] = seed
             .as_slice()
             .try_into()
@@ -1159,6 +1169,151 @@ impl UmbraApp {
                 verified: c.verified,
             })
             .collect())
+    }
+
+    // --- duress passphrases (see docs/DURESS.md) ---------------------------
+
+    /// Derive the key one more passphrase would produce for this account.
+    fn duress_key(&self, passphrase: &str) -> Result<Zeroizing<[u8; 32]>, String> {
+        let dir = { self.inner.lock().unwrap().dir.clone() };
+        let salt = std::fs::read(dir.join("umbra.salt")).map_err(|e| e.to_string())?;
+        let (m, t, p) = read_kdf(&dir);
+        keystore::derive_store_key_with(passphrase.as_bytes(), &salt, m, t, p)
+            .map_err(|e| e.to_string())
+    }
+
+    /// Add a second passphrase to this account.
+    ///
+    /// `kind` is `"decoy"` (its own separate history) or `"wipe"` (destroys
+    /// everything it cannot read, then behaves like a new account). Both are
+    /// optional and independent.
+    ///
+    /// The new passphrase gets its own identity and its own rows in the same
+    /// file. Nothing records that it exists except a note sealed under *this*
+    /// passphrase, so the file itself never says how many it answers to.
+    #[frb(sync)]
+    pub fn set_duress_passphrase(&self, kind: String, passphrase: String) -> Result<(), String> {
+        let profile = match kind.as_str() {
+            "decoy" => ProfileKind::Decoy,
+            "wipe" => ProfileKind::Wipe,
+            _ => return Err("neznámý druh nouzové fráze".to_string()),
+        };
+        if passphrase.trim().len() < 12 {
+            return Err("Nouzová fráze musí mít aspoň 12 znaků.".to_string());
+        }
+        let key = self.duress_key(&passphrase)?;
+        let dir = { self.inner.lock().unwrap().dir.clone() };
+        let store = Store::open(&dir.join("umbra.db"), &key).map_err(|e| e.to_string())?;
+
+        // Refuse a passphrase this account already answers to. Without this
+        // check, reusing the real passphrase would mark the *real* profile as
+        // "wipe" and destroy everything at the next sign-in.
+        if store.get_secret("identity_seed").map_err(|e| e.to_string())?.is_some() {
+            return Err("Tuto frázi už tento účet používá. Zvol jinou.".to_string());
+        }
+
+        // Its own identity, so the decoy behaves like a real, usable account.
+        let account = Keypair::generate().map_err(|e| e.to_string())?;
+        store
+            .put_secret("identity_seed", &*account.secret_seed())
+            .map_err(|e| e.to_string())?;
+        store.put_secret("username", b"").map_err(|e| e.to_string())?;
+        store.set_profile_kind(profile).map_err(|e| e.to_string())?;
+
+        // Remembered only for us, so Settings can show what is configured.
+        let g = self.inner.lock().unwrap();
+        g.store
+            .put_secret(&format!("duress.{kind}"), b"1")
+            .map_err(|e| e.to_string())
+    }
+
+    /// Which duress passphrases this account has, as far as *we* can tell.
+    ///
+    /// Returns e.g. `["decoy"]`. This is a note we wrote for ourselves; a
+    /// duress profile cannot see it, and neither can anyone without this
+    /// passphrase.
+    #[frb(sync)]
+    pub fn duress_configured(&self) -> Vec<String> {
+        let g = self.inner.lock().unwrap();
+        ["decoy", "wipe"]
+            .into_iter()
+            .filter(|k| {
+                g.store
+                    .get_secret(&format!("duress.{k}"))
+                    .ok()
+                    .flatten()
+                    .is_some()
+            })
+            .map(|k| k.to_string())
+            .collect()
+    }
+
+    /// Turn a duress passphrase off again. Needs the passphrase itself, since
+    /// that is the only thing that can reach its rows.
+    #[frb(sync)]
+    pub fn clear_duress_passphrase(&self, passphrase: String) -> Result<String, String> {
+        let key = self.duress_key(&passphrase)?;
+        let dir = { self.inner.lock().unwrap().dir.clone() };
+        let store = Store::open(&dir.join("umbra.db"), &key).map_err(|e| e.to_string())?;
+        let kind = store.profile_kind();
+        // Never let this be pointed at the real account.
+        if kind == ProfileKind::Normal {
+            return Err("Tato fráze není nouzová.".to_string());
+        }
+        // Removing the identity is what stops it opening; the rest of its rows
+        // stay behind as unreadable noise, which is exactly what everything
+        // else in the file looks like anyway.
+        store.delete_secret("identity_seed").map_err(|e| e.to_string())?;
+        store.delete_secret("profile.kind").map_err(|e| e.to_string())?;
+        let name = if kind == ProfileKind::Decoy { "decoy" } else { "wipe" };
+        let g = self.inner.lock().unwrap();
+        g.store.delete_secret(&format!("duress.{name}")).map_err(|e| e.to_string())?;
+        Ok(name.to_string())
+    }
+
+    /// Write a conversation into the decoy profile, so it is not suspiciously
+    /// empty. Called from the real account, which is the only place that knows
+    /// both passphrases.
+    #[frb(sync)]
+    pub fn fill_decoy(
+        &self,
+        passphrase: String,
+        contact_name: String,
+        lines: Vec<String>,
+        start_at: u64,
+    ) -> Result<(), String> {
+        let key = self.duress_key(&passphrase)?;
+        let dir = { self.inner.lock().unwrap().dir.clone() };
+        let store = Store::open(&dir.join("umbra.db"), &key).map_err(|e| e.to_string())?;
+        if store.profile_kind() != ProfileKind::Decoy {
+            return Err("Tato fráze nepatří nastrčenému účtu.".to_string());
+        }
+        let mut identity = [0u8; 32];
+        getrandom::getrandom(&mut identity).map_err(|_| "RNG failed".to_string())?;
+        store
+            .upsert_contact(&Contact {
+                identity_pubkey: identity,
+                display_name: contact_name.trim().to_string(),
+                onion_addr: String::new(),
+                added_at: start_at,
+                status: ContactStatus::Accepted,
+                saved: true,
+                verified: false,
+            })
+            .map_err(|e| e.to_string())?;
+        // Spread them over time: a history where every message shares one
+        // timestamp is not a history anyone will believe.
+        for (i, line) in lines.iter().enumerate() {
+            store
+                .insert_message(&NewMessage {
+                    contact_pubkey: identity,
+                    direction: if i % 2 == 0 { Direction::Incoming } else { Direction::Outgoing },
+                    sent_at: start_at + (i as u64) * 900,
+                    body: line.as_bytes(),
+                })
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 
     /// The 60 digits this contact and I must both see, in groups of five.

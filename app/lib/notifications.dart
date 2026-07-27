@@ -38,6 +38,20 @@ class Notifications {
   /// for an account that signs in automatically.
   static bool showContent = false;
 
+  /// When false, nothing is ever handed to the operating system.
+  ///
+  /// Windows keeps every notification it displays in its own database under
+  /// `%LOCALAPPDATA%\Microsoft\Windows\Notifications`, where it survives long
+  /// after the message is gone — and a duress passphrase cannot reach it,
+  /// because it is not Umbra's file. So an account with duress passphrases set
+  /// switches this off and Umbra draws its own, in its own window, leaving
+  /// nothing behind. See `docs/DURESS.md`.
+  static bool useSystemNotifications = true;
+
+  /// Called instead of the OS when [useSystemNotifications] is false. The UI
+  /// installs this and draws the notice itself.
+  static void Function(String title, String body)? inApp;
+
   static bool get supported => Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
   static Future<void> init() async {
@@ -82,19 +96,20 @@ class Notifications {
     required bool detailed,
     bool preview = true,
   }) async {
-    if (!_ready) return;
     if (windowFocused && openConversation == conversationId) return;
+    final title = detailed && preview
+        ? '$from → @$account'
+        : L.t('notif.newFor').replaceAll('{account}', account);
+    final text = detailed && preview ? body : '';
+
+    // Umbra's own notice, drawn by Umbra, recorded nowhere.
+    if (!useSystemNotifications) {
+      inApp?.call(title, text);
+      return;
+    }
+    if (!_ready) return;
     try {
-      final n = detailed && preview
-          ? LocalNotification(
-              title: '$from → @$account',
-              body: body,
-            )
-          : LocalNotification(
-              title: L.t('notif.newFor').replaceAll('{account}', account),
-              body: '',
-            );
-      await n.show();
+      await LocalNotification(title: title, body: text).show();
     } catch (_) {}
   }
 }

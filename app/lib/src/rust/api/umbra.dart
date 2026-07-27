@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `emit`, `flush_pending`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `read_kdf`, `remember_group_routes`, `remember_peer`, `rt`, `safe_file_name`, `send_or_queue`, `send_profile`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
+// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `duress_key`, `emit`, `flush_pending`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `read_kdf`, `remember_group_routes`, `remember_peer`, `rt`, `safe_file_name`, `send_or_queue`, `send_profile`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Incoming`, `Inner`, `Pending`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 
@@ -48,6 +48,10 @@ abstract class UmbraApp implements RustOpaqueInterface {
 
   /// Whether this account signs in automatically.
   bool autologinEnabled();
+
+  /// Turn a duress passphrase off again. Needs the passphrase itself, since
+  /// that is the only thing that can reach its rows.
+  String clearDuressPassphrase({required String passphrase});
 
   /// Dial a stored contact over Tor and run the verified handshake.
   void connectPeer({required String contactHex});
@@ -92,12 +96,29 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// use. Stored next to the account's Tor data, where the daemon reads it.
   String customBridges();
 
+  /// Which duress passphrases this account has, as far as *we* can tell.
+  ///
+  /// Returns e.g. `["decoy"]`. This is a note we wrote for ourselves; a
+  /// duress profile cannot see it, and neither can anyone without this
+  /// passphrase.
+  List<String> duressConfigured();
+
   /// Whether an identity already exists at `dir`.
   static bool exists({required String dir}) =>
       RustLib.instance.api.crateApiUmbraUmbraAppExists(dir: dir);
 
   /// Where finished incoming files are stored.
   String filesDir();
+
+  /// Write a conversation into the decoy profile, so it is not suspiciously
+  /// empty. Called from the real account, which is the only place that knows
+  /// both passphrases.
+  void fillDecoy({
+    required String passphrase,
+    required String contactName,
+    required List<String> lines,
+    required BigInt startAt,
+  });
 
   /// Delete an account and everything it stored on this computer.
   static void forgetAccount({required String root, required String id}) =>
@@ -238,6 +259,17 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// Replace (or, with empty text, drop) the user's own bridge lines. Takes
   /// effect the next time Tor starts.
   void setCustomBridges({required String text});
+
+  /// Add a second passphrase to this account.
+  ///
+  /// `kind` is `"decoy"` (its own separate history) or `"wipe"` (destroys
+  /// everything it cannot read, then behaves like a new account). Both are
+  /// optional and independent.
+  ///
+  /// The new passphrase gets its own identity and its own rows in the same
+  /// file. Nothing records that it exists except a note sealed under *this*
+  /// passphrase, so the file itself never says how many it answers to.
+  void setDuressPassphrase({required String kind, required String passphrase});
 
   /// Set our profile picture (raw image bytes, stored encrypted) and push it
   /// to everyone we are connected to.
