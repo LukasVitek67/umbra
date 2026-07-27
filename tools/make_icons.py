@@ -1,70 +1,91 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""Draw the NullChat mark and write every icon the project needs.
+"""Build every icon the project needs from the artwork in assets/mark.png.
 
-The mark is Ø — the empty set. It is drawn as geometry rather than scaled from
-the original image, because the same shape has to hold up at 16 px in a system
-tray and at 1024 px on a desktop. Everything is rendered at 8x and downsampled,
-which is what keeps the diagonal clean at small sizes.
+The mark is the user's own image, not a redrawing of it. Three things are done
+to it and nothing else:
+
+* **Squared.** The source is 553x468; icons are square. The mark is centred on
+  a black canvas rather than stretched, so its proportions are untouched.
+* **Cleaned.** It arrived as a JPEG, so the edges carry compression noise —
+  grey pixels that turn into visible mush when the image is scaled down to
+  16 px. The artwork is pure black and white, so a threshold restores exactly
+  the intended shape and costs nothing.
+* **Rounded**, as asked, for the launcher icons.
 
 Run:  python tools/make_icons.py
 """
 
 from __future__ import annotations
 
-import struct
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
-BLACK = (0, 0, 0, 255)
-WHITE = (255, 255, 255, 255)
+SOURCE = ROOT / "assets" / "mark.png"
 
-# Supersampling factor. 8 is generous, but these are generated once and a
-# ragged diagonal is the first thing that makes an icon look amateur.
-SS = 8
+# Everything is built from one high-resolution master, so each size is a clean
+# downsample rather than a separate approximation.
+MASTER = 1024
 
 
-def draw_mark(size: int, rounded: bool, transparent_bg: bool = False) -> Image.Image:
-    """The Ø mark at `size` pixels square.
+def load_master() -> Image.Image:
+    """The artwork, squared, de-JPEGed, at MASTER x MASTER."""
+    src = Image.open(SOURCE).convert("L")
 
-    `rounded` gives the launcher icon its rounded square; a tray icon is drawn
-    on transparency instead, because the system draws its own background and a
-    black tile would sit in the taskbar like a hole.
-    """
-    s = size * SS
-    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
+    # Centre on a square black canvas — never stretch, that would distort the
+    # circle into an ellipse.
+    side = max(src.size)
+    square = Image.new("L", (side, side), 0)
+    square.paste(src, ((side - src.width) // 2, (side - src.height) // 2))
 
-    if not transparent_bg:
-        if rounded:
-            # Radius follows the source: soft, not a squircle.
-            d.rounded_rectangle([0, 0, s - 1, s - 1], radius=int(s * 0.219), fill=BLACK)
-        else:
-            d.rectangle([0, 0, s - 1, s - 1], fill=BLACK)
+    # Order matters here, and the obvious order is wrong.
+    #
+    # Thresholding first — while the circle is only ~300 px across — bakes the
+    # JPEG's ringing into the outline: every place the compressor smeared an
+    # edge becomes a permanent bump, and enlarging magnifies it.
+    #
+    # So: enlarge first, letting LANCZOS interpolate the smeared edge into a
+    # smooth ramp; then threshold at high resolution, where one pixel of error
+    # is a quarter of a pixel in the finished icon; then come back down with
+    # anti-aliasing.
+    big = square.resize((MASTER * 4, MASTER * 4), Image.LANCZOS)
+    big = big.filter(ImageFilter.GaussianBlur(radius=MASTER * 4 / 400))
+    big = big.point(lambda p: 255 if p > 128 else 0, mode="L")
+    master = big.resize((MASTER, MASTER), Image.LANCZOS)
 
-    stroke = max(1, int(s * 0.066))
-    radius = s * 0.293
-    cx = cy = s / 2
-    fg = WHITE if not transparent_bg else WHITE
+    # `master` is the coverage of white over black, greys included, so using it
+    # as the paste mask keeps those soft edges instead of discarding them.
+    rgba = Image.new("RGBA", master.size, (0, 0, 0, 255))
+    white = Image.new("RGBA", master.size, (255, 255, 255, 255))
+    rgba.paste(white, mask=master)
+    return rgba
 
-    d.ellipse(
-        [cx - radius, cy - radius, cx + radius, cy + radius],
-        outline=fg,
-        width=stroke,
+
+MASTER_IMG: Image.Image | None = None
+
+
+def mark(size: int, rounded: bool) -> Image.Image:
+    global MASTER_IMG
+    if MASTER_IMG is None:
+        MASTER_IMG = load_master()
+
+    img = MASTER_IMG.resize((size, size), Image.LANCZOS)
+    if not rounded:
+        return img
+
+    # Rounded corners, done at 4x so the curve is not jagged at small sizes.
+    scale = 4
+    mask = Image.new("L", (size * scale, size * scale), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        [0, 0, size * scale - 1, size * scale - 1],
+        radius=int(size * scale * 0.219),
+        fill=255,
     )
-    # The slash overshoots the circle on both sides — that overshoot is what
-    # makes it read as Ø rather than as a circle with a line through it, and it
-    # has to be generous: at 0.226 the ends barely cleared the stroke and the
-    # mark looked like a "no entry" sign.
-    over = s * 0.30
-    d.line(
-        [cx - over, cy + over, cx + over, cy - over],
-        fill=fg,
-        width=stroke,
-    )
-
-    return img.resize((size, size), Image.LANCZOS)
+    mask = mask.resize((size, size), Image.LANCZOS)
+    out = img.copy()
+    out.putalpha(mask)
+    return out
 
 
 def write_png(img: Image.Image, path: Path) -> None:
@@ -73,39 +94,28 @@ def write_png(img: Image.Image, path: Path) -> None:
     print(f"  {path.relative_to(ROOT)}  ({img.width}x{img.height})")
 
 
-def write_ico(path: Path) -> None:
-    """A Windows .ico holding every size Explorer might ask for."""
-    sizes = [16, 24, 32, 48, 64, 128, 256]
-    images = [draw_mark(n, rounded=True) for n in sizes]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    images[-1].save(path, format="ICO", sizes=[(n, n) for n in sizes])
-    print(f"  {path.relative_to(ROOT)}  ({', '.join(str(n) for n in sizes)})")
-
-
 def main() -> None:
     print("desktop / launcher:")
     for n in (16, 32, 48, 64, 128, 256, 512, 1024):
-        write_png(draw_mark(n, rounded=True), ROOT / "assets" / "icon" / f"icon-{n}.png")
+        write_png(mark(n, rounded=True), ROOT / "assets" / "icon" / f"icon-{n}.png")
 
     print("windows:")
-    write_ico(ROOT / "app" / "windows" / "runner" / "resources" / "app_icon.ico")
+    sizes = [16, 24, 32, 48, 64, 128, 256]
+    ico = ROOT / "app" / "windows" / "runner" / "resources" / "app_icon.ico"
+    ico.parent.mkdir(parents=True, exist_ok=True)
+    mark(256, rounded=True).save(ico, format="ICO", sizes=[(n, n) for n in sizes])
+    print(f"  {ico.relative_to(ROOT)}  ({', '.join(map(str, sizes))})")
 
-    # Tray icons keep the black tile on purpose. A white mark on transparency
-    # looks tidier on a dark taskbar and is *invisible* on a light one — and
-    # Windows lets the user choose. A tile is always legible on both.
+    # The tray keeps the black tile: a white mark on transparency looks tidy on
+    # a dark taskbar and is invisible on a light one, and Windows lets the user
+    # pick either.
     print("tray:")
     for n in (16, 24, 32, 48):
-        write_png(
-            draw_mark(n, rounded=True),
-            ROOT / "app" / "assets" / "tray" / f"tray-{n}.png",
-        )
-    # window_manager/tray_manager wants one file; 32 is the usual ask on Windows.
-    write_png(draw_mark(32, rounded=True), ROOT / "app" / "assets" / "tray" / "tray.png")
-    # Windows tray accepts .ico and looks crisper with one.
+        write_png(mark(n, rounded=True), ROOT / "app" / "assets" / "tray" / f"tray-{n}.png")
+    write_png(mark(32, rounded=True), ROOT / "app" / "assets" / "tray" / "tray.png")
     tray_sizes = [16, 24, 32, 48]
-    tray_imgs = [draw_mark(n, rounded=True) for n in tray_sizes]
     tray_ico = ROOT / "app" / "assets" / "tray" / "tray.ico"
-    tray_imgs[-1].save(tray_ico, format="ICO", sizes=[(n, n) for n in tray_sizes])
+    mark(48, rounded=True).save(tray_ico, format="ICO", sizes=[(n, n) for n in tray_sizes])
     print(f"  {tray_ico.relative_to(ROOT)}")
 
     print("android:")
@@ -118,17 +128,17 @@ def main() -> None:
     }
     base = ROOT / "app" / "android" / "app" / "src" / "main" / "res"
     for folder, n in android.items():
-        write_png(draw_mark(n, rounded=True), base / folder / "ic_launcher.png")
+        write_png(mark(n, rounded=True), base / folder / "ic_launcher.png")
 
     print("linux:")
     for n in (16, 32, 48, 64, 128, 256, 512):
         write_png(
-            draw_mark(n, rounded=True),
+            mark(n, rounded=True),
             ROOT / "packaging" / "linux" / "icons" / f"{n}x{n}" / "nullchat.png",
         )
 
-    print("in-app (the mark shown on the connecting screen etc.):")
-    write_png(draw_mark(512, rounded=True), ROOT / "app" / "assets" / "logo.png")
+    print("in-app:")
+    write_png(mark(512, rounded=True), ROOT / "app" / "assets" / "logo.png")
 
     print("\ndone")
 
