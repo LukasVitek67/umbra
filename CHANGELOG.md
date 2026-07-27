@@ -10,6 +10,15 @@ Umbra is experimental and has not been independently audited.
 
 ## 1.7.1
 
+- **You can now verify who you are actually talking to.** Every conversation
+  shows a **safety number** — 60 digits derived from both identity keys. Read
+  them to each other over a phone call where you know the voice, or standing
+  side by side; if they match, nobody is in the middle. Until now nothing could
+  catch a swapped invite: replace it while it travels and every signature still
+  verifies, you are simply talking to somebody else. The badge in the
+  conversation header says *Verified* or *Not verified* and opens the number.
+  Only you can set it — nothing in the protocol can mark a contact verified.
+
 Findings from a full read of the application. See `docs/HARDENING.md`.
 
 - **The app's own log file was storing your messages in readable form.** Every

@@ -61,7 +61,15 @@ at 8 MiB.
 
 ## Open — worth doing, in this order
 
-### A. There is no way to verify a contact — high
+### A. ~~There is no way to verify a contact~~ — **done**
+
+Shipped: `core/src/safety.rs` derives 60 digits from both identity keys (5200
+rounds of SHA-512 per identity, version mixed in, halves sorted so both sides
+compute the same string). Stored as `contacts.verified`, set only by an explicit
+human answer, shown as a badge that opens the number and explains what to do
+with it. What follows is the original finding, kept for the record.
+
+### A-original. There is no way to verify a contact — high
 
 The invite (`umbra1:…`) carries an identity key, a name and an onion address.
 The handshake proves that whoever answers holds the private half of that
