@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Local encrypted persistence.
 //!
 //! # Design (and its documented tradeoff)
@@ -13,20 +13,20 @@
 //!
 //! # Routing columns: blind index
 //!
-//! Columns SQL has to match and sort on cannot be sealed â€” a query cannot look
+//! Columns SQL has to match and sort on cannot be sealed — a query cannot look
 //! inside ciphertext. They used to hold the raw values, which meant a stolen
 //! file handed over the whole social graph without the passphrase: every
 //! contact's identity key, who is in which group, who wrote what.
 //!
 //! They now hold a **blind index**: `HMAC-SHA256(key derived from the data key,
 //! value)`. Lookups still work, because a lookup is always *by a value we
-//! already hold* â€” we compute the same index and match on it. The real value
+//! already hold* — we compute the same index and match on it. The real value
 //! lives once, sealed, in [`blind_index`](SCHEMA), and is only recovered when
 //! something needs to be shown.
 //!
 //! What this does and does not buy, stated plainly:
 //!
-//! * Without the passphrase, the identity keys are unrecoverable â€” the index is
+//! * Without the passphrase, the identity keys are unrecoverable — the index is
 //!   a MAC, not an encoding, and the key is per-account. Two seized devices
 //!   cannot be shown to share a contact or a group either, because their index
 //!   keys differ.
@@ -54,7 +54,7 @@ const NONCE_LEN: usize = 24;
 
 /// Marks a database whose routing columns have been converted to blind indexes.
 /// Both a raw key and its index are 32 bytes, so nothing in the data itself
-/// tells the two apart â€” this note is what makes the migration run exactly once.
+/// tells the two apart — this note is what makes the migration run exactly once.
 const BLIND_INDEX_MARK: &str = "schema.blind_index.v1";
 
 /// Domain separator, so the index key cannot coincide with any other use of
@@ -138,7 +138,7 @@ const PROFILE_KIND: &str = "profile.kind";
 ///
 /// One database can answer to several passphrases. Each derives its own key,
 /// each sees only the rows sealed under that key, and **nothing in the file
-/// says how many there are** â€” a row nobody can read looks the same whether it
+/// says how many there are** — a row nobody can read looks the same whether it
 /// belongs to another profile, was overwritten, or never meant anything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileKind {
@@ -241,7 +241,7 @@ pub struct Contact {
     /// said it matched. Only ever set by an explicit human decision.
     pub verified: bool,
     /// Commitment to their post-quantum identity key, from their invite.
-    /// `None` for contacts added before those existed â€” such a conversation is
+    /// `None` for contacts added before those existed — such a conversation is
     /// protected by Ed25519 alone, and the app says so rather than implying
     /// protection it does not have.
     pub pq_fingerprint: Option<[u8; 32]>,
@@ -466,7 +466,7 @@ impl Store {
 
     /// The same, but "I cannot read this" answers `None` instead of failing.
     ///
-    /// One file can hold rows written under more than one passphrase â€” that is
+    /// One file can hold rows written under more than one passphrase — that is
     /// what makes a second, separate history possible without the file showing
     /// that it has one. A row this key cannot open is not damage and not an
     /// error: it is simply not ours, and listing must walk straight past it.
@@ -493,11 +493,11 @@ impl Store {
     /// Convert a database written before the blind index existed.
     ///
     /// Runs once, inside a transaction: either every routing column is an index
-    /// afterwards or the file is untouched. Nothing is lost â€” the raw values
+    /// afterwards or the file is untouched. Nothing is lost — the raw values
     /// move into `blind_index`, sealed.
     fn migrate_blind_index(&self) -> Result<(), StoreError> {
         // Checked *without* decrypting: opening with the wrong key must fail the
-        // way it always did â€” when something is read â€” not here.
+        // way it always did — when something is read — not here.
         let marked: Option<i64> = self
             .conn
             .query_row(
@@ -510,13 +510,13 @@ impl Store {
             return Ok(());
         }
         // Converting with the wrong key would compute indexes nobody can ever
-        // match again â€” the data would still be there and permanently
+        // match again — the data would still be there and permanently
         // unreachable. So before touching anything, prove the key is right.
         if !self.key_opens_existing_data()? {
             return Err(StoreError::Corrupt);
         }
         // A copy of the file as it was, kept beside it. The conversion is a
-        // transaction and should never leave a half-changed database â€” but this
+        // transaction and should never leave a half-changed database — but this
         // rewrites every routing column in someone's whole history, and a
         // one-off backup is a cheap answer to "what if I am wrong".
         self.backup_before_conversion();
@@ -541,7 +541,7 @@ impl Store {
         match converted {
             Ok(()) => {
                 self.conn.execute_batch("COMMIT")?;
-                // Written under its plain name on purpose â€” it is a fact about
+                // Written under its plain name on purpose — it is a fact about
                 // the *file*, not about any one passphrase, and it must be
                 // findable without deriving a key. It says nothing about how
                 // many passphrases the file answers to.
@@ -563,7 +563,7 @@ impl Store {
     ///
     /// Best effort on purpose: an in-memory store has no path, and a full disk
     /// is not a reason to refuse an upgrade that is transactional anyway. The
-    /// copy keeps the same protection as the original â€” it *is* the original,
+    /// copy keeps the same protection as the original — it *is* the original,
     /// with its sealed columns.
     fn backup_before_conversion(&self) {
         let Some(path) = self.conn.path().map(std::path::PathBuf::from) else { return };
@@ -603,7 +603,7 @@ impl Store {
 
     /// Does our key actually open what is already in this file?
     ///
-    /// `true` also when there is nothing sealed yet â€” a database with no data
+    /// `true` also when there is nothing sealed yet — a database with no data
     /// cannot be damaged by converting it.
     fn key_opens_existing_data(&self) -> Result<bool, StoreError> {
         for (table, column) in [
@@ -718,7 +718,7 @@ impl Store {
         Ok(Zeroizing::new(pt))
     }
 
-    // --- secrets (identity seed, roster, session pickles, â€¦) ---
+    // --- secrets (identity seed, roster, session pickles, …) ---
 
     /// Store a named secret (overwrites any existing value).
     ///
@@ -740,7 +740,7 @@ impl Store {
     /// Fetch a named secret, or `None` if absent.
     ///
     /// A row written under a different passphrase is simply *not there* as far
-    /// as this key is concerned â€” not an error, because "the file holds
+    /// as this key is concerned — not an error, because "the file holds
     /// something I cannot read" is exactly what must never be observable.
     pub fn get_secret(&self, name: &str) -> Result<Option<Zeroizing<Vec<u8>>>, StoreError> {
         let blob: Option<Vec<u8>> = self
@@ -754,7 +754,7 @@ impl Store {
         // A value that will not open is treated as absent, exactly like a row
         // belonging to another passphrase. That consistency is the point: after
         // a duress wipe the app must look like a fresh, empty account, not like
-        // a damaged one â€” a "database corrupt" message would announce that
+        // a damaged one — a "database corrupt" message would announce that
         // something used to be there.
         Ok(blob.and_then(|b| self.unseal(&b).ok()))
     }
@@ -779,7 +779,7 @@ impl Store {
     /// Destroy every row this key cannot read, in place.
     ///
     /// Used by a duress passphrase: it does not know the real key, so it cannot
-    /// tell a real row from a decoy one â€” it destroys everything that is not
+    /// tell a real row from a decoy one — it destroys everything that is not
     /// its own. Sealed values are overwritten with random bytes **of the same
     /// length**, and rows are not deleted, so the file keeps its size, its row
     /// counts and its shape. What is gone is the content, and it is gone for
@@ -788,7 +788,7 @@ impl Store {
     /// Returns how many values were overwritten.
     ///
     /// This cannot defeat someone who copied the disk *before* it ran. Nothing
-    /// running on the machine afterwards can â€” see `docs/DURESS.md`.
+    /// running on the machine afterwards can — see `docs/DURESS.md`.
     pub fn destroy_unreadable(&self) -> Result<usize, StoreError> {
         // Every column that holds a sealed value, with its table.
         const SEALED: [(&str, &str); 11] = [
@@ -1012,7 +1012,7 @@ impl Store {
 
     /// Record that the user compared safety numbers with this contact.
     ///
-    /// Only ever called from an explicit human decision â€” nothing in the
+    /// Only ever called from an explicit human decision — nothing in the
     /// protocol may set this, or the badge would stop meaning anything.
     pub fn set_contact_verified(
         &self,
@@ -1088,7 +1088,7 @@ impl Store {
         Ok(out)
     }
 
-    /// Move an outgoing message along (waiting â†’ sent â†’ delivered).
+    /// Move an outgoing message along (waiting → sent → delivered).
     pub fn set_message_state(&self, id: i64, state: MessageState) -> Result<(), StoreError> {
         self.conn.execute(
             "UPDATE messages SET state = ?2 WHERE id = ?1",
@@ -1222,7 +1222,7 @@ impl Store {
     /// Bodies are encrypted at rest, so there is nothing for SQL to match on:
     /// searching means decrypting and comparing here. That is fine for a
     /// personal history and keeps the promise that the database says nothing
-    /// about content â€” a searchable plaintext index would quietly break it.
+    /// about content — a searchable plaintext index would quietly break it.
     pub fn search_messages(&self, query: &str, limit: u32) -> Result<Vec<SearchHit>, StoreError> {
         let needle = query.trim().to_lowercase();
         if needle.is_empty() {
@@ -1311,7 +1311,7 @@ impl Store {
         Ok(hits)
     }
 
-    /// Everything a given person ever sent us â€” in the 1:1 thread and in any
+    /// Everything a given person ever sent us — in the 1:1 thread and in any
     /// group. Used by the contact view, where "what did they write" is the
     /// question, not "where was it written".
     pub fn messages_from(
@@ -1393,7 +1393,7 @@ impl Store {
     /// A conversation started by *them* used to live only in the running app:
     /// the messages were stored, but with nothing in `contacts` the next start
     /// had no way to show the thread, and the keep-alive loop had no address to
-    /// dial â€” so the other side saw us as permanently unreachable. Anything the
+    /// dial — so the other side saw us as permanently unreachable. Anything the
     /// peer later tells us about themselves (name, onion) overwrites the
     /// placeholder written here.
     ///
@@ -1868,7 +1868,7 @@ mod tests {
             contact_pubkey: peer,
             direction: Direction::Outgoing,
             sent_at: 300,
-            body: "necĐľ jineho".as_bytes(),
+            body: "necо jineho".as_bytes(),
         })
         .unwrap();
 
@@ -1973,7 +1973,7 @@ mod tests {
             members: vec![
                 GroupMember {
                     identity: [1u8; 32],
-                    display_name: "LukĂˇĹˇ".into(),
+                    display_name: "Lukáš".into(),
                     onion: "aaa.onion".into(),
                 },
                 GroupMember {
@@ -1993,14 +1993,14 @@ mod tests {
         assert_eq!(s.get_group(&g.id).unwrap().unwrap(), g);
         assert_eq!(s.list_groups().unwrap().len(), 1);
 
-        // A newer roster replaces the members wholesale â€” no leftovers.
+        // A newer roster replaces the members wholesale — no leftovers.
         let mut g2 = g.clone();
-        g2.name = "Rodina a pĹ™ĂˇtelĂ©".into();
+        g2.name = "Rodina a přátelé".into();
         g2.version = 2;
         g2.members.remove(1);
         s.upsert_group(&g2).unwrap();
         let stored = s.get_group(&g.id).unwrap().unwrap();
-        assert_eq!(stored.name, "Rodina a pĹ™ĂˇtelĂ©");
+        assert_eq!(stored.name, "Rodina a přátelé");
         assert_eq!(stored.version, 2);
         assert_eq!(stored.members.len(), 1);
         assert_eq!(stored.created_at, g.created_at); // never rewritten
@@ -2147,7 +2147,7 @@ mod tests {
         assert_eq!(seen[0].display_name, "Nastraceny kontakt");
         assert_eq!(decoy.profile_kind(), ProfileKind::Decoy);
         assert_eq!(&*decoy.get_secret("identity_seed").unwrap().unwrap(), b"a different identity");
-        // The real conversation is not merely hidden from the UI â€” it cannot be
+        // The real conversation is not merely hidden from the UI — it cannot be
         // found by searching either.
         assert!(decoy.search_messages("nikdo", 10).unwrap().is_empty());
         assert!(decoy.message_peers().unwrap().is_empty());
@@ -2195,15 +2195,15 @@ mod tests {
         assert!(real.search_messages("tajna", 10).unwrap().is_empty());
         assert!(real.get_secret("identity_seed").unwrap().is_none());
 
-        // â€¦and the file still looks like a database in use, not like one that
+        // …and the file still looks like a database in use, not like one that
         // has just been emptied: same rows, same size.
         let after = std::fs::metadata(&tmp.0).unwrap().len();
         let rows_after: i64 = real
             .conn
             .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(rows_after, rows_before, "row count changed â€” the wipe is visible");
-        assert_eq!(after, before, "file size changed â€” the wipe is visible");
+        assert_eq!(rows_after, rows_before, "row count changed — the wipe is visible");
+        assert_eq!(after, before, "file size changed — the wipe is visible");
     }
 
     #[test]
@@ -2248,7 +2248,7 @@ mod tests {
         }
 
         // The file on disk must not contain the identity key or the group id
-        // anywhere â€” not in a routing column, not in an index.
+        // anywhere — not in a routing column, not in an index.
         let raw = std::fs::read(&tmp.0).unwrap();
         assert!(
             !raw.windows(peer.len()).any(|w| w == peer),

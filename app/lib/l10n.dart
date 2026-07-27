@@ -101,6 +101,11 @@ class L {
       'safety.isVerified':
           'You confirmed these digits matched. If they ever change, the person '
           'reinstalled Umbra or someone is impersonating them — compare again.',
+      'wire.legacy': 'Older version',
+      'wire.legacyHelp':
+          'This contact runs a version from before post-quantum identities, so '
+          'this conversation is signed with Ed25519 alone. It is still '
+          'end-to-end encrypted. Ask them to update, then swap invites again.',
       'safety.pq':
           'This identity is post-quantum: signed with Ed25519 and ML-DSA-65 '
           'together, so a quantum computer could not impersonate them even '
@@ -433,6 +438,11 @@ class L {
           'Potvrdil jsi, že se číslice shodovaly. Pokud se někdy změní, buď si '
           'ten člověk přeinstaloval Umbru, nebo se za něj někdo vydává — '
           'porovnejte je znovu.',
+      'wire.legacy': 'Starší verze',
+      'wire.legacyHelp':
+          'Tento kontakt má verzi z doby před post-kvantovými identitami, takže '
+          'je tahle konverzace podepsaná jen Ed25519. Pořád je end-to-end '
+          'šifrovaná. Řekni mu, ať aktualizuje, a pak si vyměňte pozvánky znovu.',
       'safety.pq':
           'Tato identita je post-kvantová: podepsaná Ed25519 a ML-DSA-65 '
           'zároveň, takže se za ni kvantový počítač nevydá ani po prolomení '

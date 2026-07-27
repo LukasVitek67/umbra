@@ -30,6 +30,6 @@ pub async fn listen_once(
 ) -> Result<(TcpStream, Session, PeerIdentity)> {
     let listener = TcpListener::bind(bind).await?;
     let (mut stream, _peer_addr) = listener.accept().await?;
-    let (session, peer) = accept(&mut stream, node).await?;
+    let (session, peer, _level) = accept(&mut stream, node).await?;
     Ok((stream, session, peer))
 }

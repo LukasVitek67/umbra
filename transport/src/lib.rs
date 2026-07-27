@@ -23,7 +23,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use umbra_core::crypto::padding::{pad, unpad};
 use umbra_core::crypto::pq::{self, HybridIdentity, PQ_PUBLIC_LEN, PQ_SIGNATURE_LEN};
 use umbra_core::crypto::signal::{PublishedBundle, SignalAccount};
-use umbra_core::identity::Keypair;
+use umbra_core::identity::{self, Keypair};
 
 /// Ed25519 (64) plus ML-DSA-65 (3309).
 const HYBRID_SIG_LEN: usize = 64 + PQ_SIGNATURE_LEN;
@@ -40,7 +40,36 @@ const MAX_FRAME: usize = 1 << 20; // 1 MiB
 /// speak first: a rendezvous stream is only driven end-to-end once the client
 /// side has sent a data cell, so a protocol where the *responder* speaks first
 /// can stall. Sending this greeting primes the circuit.
+///
+/// It is also how the two sides agree on a wire version, and it has to be,
+/// because the responder must know which PREKEY format to send *before* it
+/// hears anything else. `UMB1` is the classical handshake (wire 2, Ed25519
+/// only); `UMB3` is the hybrid one (wire 3, Ed25519 + ML-DSA).
 const HELLO_MAGIC: &[u8; 4] = b"UMB1";
+const HELLO_MAGIC_HYBRID: &[u8; 4] = b"UMB3";
+
+/// Marks the one failure that may be retried without post-quantum signatures:
+/// the peer hung up on the hybrid greeting without ever answering.
+///
+/// This distinction is the whole safety of the fallback. A handshake that got
+/// as far as a *signature that did not verify* must never be retried at a lower
+/// level — that is exactly the downgrade an attacker would engineer, blocking
+/// the strong handshake to force the weak one. Only "they do not speak this at
+/// all" qualifies.
+pub const PEER_REFUSED_HYBRID: &str = "peer does not speak the hybrid handshake";
+
+/// Which handshake a session ended up using.
+///
+/// Worth surfacing rather than hiding: a conversation that fell back to the
+/// classical handshake is protected by Ed25519 alone, and the person having it
+/// deserves to know that instead of assuming the newest guarantees apply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WireLevel {
+    /// Ed25519 only — the other side is too old for post-quantum identities.
+    Classical,
+    /// Ed25519 + ML-DSA-65.
+    Hybrid,
+}
 
 /// A local node: the account identity. The message keys are per-connection —
 /// see [`Session`].
@@ -158,15 +187,60 @@ pub async fn initiate<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    initiate_at(stream, node, peer_ed25519, peer_pq_fingerprint, WireLevel::Hybrid)
+        .await
+        .map(|(s, _)| s)
+}
+
+/// The same, at a chosen wire level, reporting which one was used.
+///
+/// [`WireLevel::Classical`] is the fallback for a peer that has not updated
+/// yet. It is a real downgrade — no post-quantum signatures — so it is never
+/// chosen automatically here: the caller decides, and tells the user.
+pub async fn initiate_at<S>(
+    stream: &mut S,
+    node: &LocalNode,
+    peer_ed25519: [u8; 32],
+    peer_pq_fingerprint: Option<[u8; 32]>,
+    level: WireLevel,
+) -> Result<(Session, WireLevel)>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    if level == WireLevel::Classical {
+        let session = initiate_classical(stream, node, peer_ed25519).await?;
+        return Ok((session, WireLevel::Classical));
+    }
+    let session =
+        initiate_hybrid(stream, node, peer_ed25519, peer_pq_fingerprint).await?;
+    Ok((session, WireLevel::Hybrid))
+}
+
+async fn initiate_hybrid<S>(
+    stream: &mut S,
+    node: &LocalNode,
+    peer_ed25519: [u8; 32],
+    peer_pq_fingerprint: Option<[u8; 32]>,
+) -> Result<Session>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     // Speak first (see HELLO_MAGIC): this both identifies the protocol and
     // primes the Tor rendezvous stream so the responder's reply flows back.
-    stream.write_all(HELLO_MAGIC).await?;
+    stream.write_all(HELLO_MAGIC_HYBRID).await?;
     stream.flush().await?;
 
     // The responder's bundle: their Signal prekeys, their ML-DSA public key,
     // and a signature over both under *both* schemes. Anyone can offer keys;
     // only they can sign them, and breaking one scheme is not enough.
-    let frame = read_frame(stream).await?;
+    //
+    // A peer too old to know `UMB3` hangs up here, before it has said anything.
+    // That, and *only* that, is what may be retried classically — see
+    // [`PEER_REFUSED_HYBRID`].
+    let frame = match read_frame(stream).await {
+        Ok(frame) => frame,
+        Err(e) => bail!("{PEER_REFUSED_HYBRID}: {e}"),
+    };
     let overhead = PQ_PUBLIC_LEN + HYBRID_SIG_LEN;
     if frame.len() <= overhead {
         bail!("bad PREKEY length {}", frame.len());
@@ -217,15 +291,71 @@ where
     Ok(Session { inner })
 }
 
-/// Responder side. Returns the session and the peer's verified identity.
-pub async fn accept<S>(stream: &mut S, node: &mut LocalNode) -> Result<(Session, PeerIdentity)>
+/// The classical handshake, kept so a peer who has not updated can still be
+/// talked to. Ed25519 only: no post-quantum protection at all.
+async fn initiate_classical<S>(
+    stream: &mut S,
+    node: &LocalNode,
+    peer_ed25519: [u8; 32],
+) -> Result<Session>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    // Wait for the initiator's greeting before answering.
+    stream.write_all(HELLO_MAGIC).await?;
+    stream.flush().await?;
+
+    let frame = read_frame(stream).await?;
+    if frame.len() <= 64 {
+        bail!("bad PREKEY length {}", frame.len());
+    }
+    let split = frame.len() - 64;
+    let (bundle_bytes, sig) = frame.split_at(split);
+    let sig: [u8; 64] = sig.try_into().unwrap();
+    if !identity::verify(&peer_ed25519, bundle_bytes, &sig) {
+        bail!("PREKEY signature invalid — possible man-in-the-middle");
+    }
+
+    let mut inner = SignalAccount::new().map_err(|e| anyhow!("session keys: {e}"))?;
+    inner
+        .start_session(&PublishedBundle::from_bytes(bundle_bytes))
+        .map_err(|e| anyhow!("outbound session: {e}"))?;
+
+    let (t, body) = inner.encrypt(&pad(b"").unwrap()).map_err(|e| anyhow!("first message: {e}"))?;
+    let bind_sig = node.account.sign(&body);
+
+    let mut hello = Vec::with_capacity(97 + body.len());
+    hello.extend_from_slice(&node.account.public());
+    hello.extend_from_slice(&bind_sig);
+    hello.push(t);
+    hello.extend_from_slice(&body);
+    write_frame(stream, &hello).await?;
+
+    Ok(Session { inner })
+}
+
+/// Responder side. Returns the session, the peer's verified identity, and which
+/// handshake they were able to speak.
+pub async fn accept<S>(
+    stream: &mut S,
+    node: &mut LocalNode,
+) -> Result<(Session, PeerIdentity, WireLevel)>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    // Wait for the initiator's greeting before answering. Which greeting it is
+    // decides the format of everything that follows, which is why the version
+    // has to live here and not in a later frame.
     let mut magic = [0u8; 4];
     stream.read_exact(&mut magic).await?;
-    if &magic != HELLO_MAGIC {
+    if &magic == HELLO_MAGIC {
+        let (session, peer_ed) = accept_classical(stream, node).await?;
+        return Ok((
+            session,
+            PeerIdentity { ed25519: peer_ed, pq_public: Vec::new() },
+            WireLevel::Classical,
+        ));
+    }
+    if &magic != HELLO_MAGIC_HYBRID {
         bail!("not an Umbra peer");
     }
 
@@ -266,7 +396,44 @@ where
     inner
         .decrypt(t, body)
         .map_err(|e| anyhow!("inbound session: {e}"))?;
-    Ok((Session { inner }, PeerIdentity { ed25519: peer_ed, pq_public: peer_pq }))
+    Ok((
+        Session { inner },
+        PeerIdentity { ed25519: peer_ed, pq_public: peer_pq },
+        WireLevel::Hybrid,
+    ))
+}
+
+/// The classical responder, for peers that greeted us with `UMB1`.
+async fn accept_classical<S>(
+    stream: &mut S,
+    node: &mut LocalNode,
+) -> Result<(Session, [u8; 32])>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let mut inner = SignalAccount::new().map_err(|e| anyhow!("session keys: {e}"))?;
+    let bundle = inner.publish_bundle().map_err(|e| anyhow!("prekey: {e}"))?;
+    let mut prekey = bundle.as_bytes().to_vec();
+    let sig = node.account.sign(bundle.as_bytes());
+    prekey.extend_from_slice(&sig);
+    write_frame(stream, &prekey).await?;
+
+    let hello = read_frame(stream).await?;
+    if hello.len() < 98 {
+        bail!("bad HELLO length {}", hello.len());
+    }
+    let peer_ed: [u8; 32] = hello[0..32].try_into().unwrap();
+    let bind_sig: [u8; 64] = hello[32..96].try_into().unwrap();
+    let t = hello[96];
+    let body = &hello[97..];
+    if !identity::verify(&peer_ed, body, &bind_sig) {
+        bail!("HELLO binding signature invalid — possible man-in-the-middle");
+    }
+
+    inner
+        .decrypt(t, body)
+        .map_err(|e| anyhow!("inbound session: {e}"))?;
+    Ok((Session { inner }, peer_ed))
 }
 
 // --- public frame I/O over an established session --------------------------
@@ -310,7 +477,8 @@ mod tests {
             accept(&mut b, &mut bob),
         );
         let mut alice_s = ra.expect("initiate");
-        let (mut bob_s, peer) = rb.expect("accept");
+        let (mut bob_s, peer, level) = rb.expect("accept");
+        assert_eq!(level, WireLevel::Hybrid, "two current peers use the hybrid handshake");
         assert_eq!(peer.ed25519, alice_ed, "responder learns initiator's real identity");
         assert_eq!(
             peer.pq_public,
@@ -350,6 +518,35 @@ mod tests {
             "initiator must reject a PREKEY not signed by the expected identity"
         );
         responder.abort();
+    }
+
+    /// A peer that only speaks the classical handshake is still reachable, and
+    /// the level is reported so the app can say the conversation is weaker.
+    #[tokio::test]
+    async fn an_old_peer_can_still_be_talked_to_and_it_is_reported() {
+        let alice = LocalNode::generate().unwrap();
+        let mut bob = LocalNode::generate().unwrap();
+        let bob_ed = bob.ed25519();
+
+        let (mut a, mut b) = tokio::io::duplex(1 << 20);
+        let (ra, rb) = tokio::join!(
+            initiate_at(&mut a, &alice, bob_ed, None, WireLevel::Classical),
+            accept(&mut b, &mut bob),
+        );
+        let (mut alice_s, level) = ra.expect("classical initiate");
+        let (mut bob_s, peer, responder_level) = rb.expect("accept");
+
+        assert_eq!(level, WireLevel::Classical);
+        assert_eq!(responder_level, WireLevel::Classical, "the responder knows too");
+        assert_eq!(peer.ed25519, alice.ed25519());
+        assert!(peer.pq_public.is_empty(), "no post-quantum key at this level");
+
+        // And it genuinely works — this is a usable conversation, not a stub.
+        send_message(&mut a, &mut alice_s, b"stara verze, ale funguje").await.unwrap();
+        assert_eq!(
+            recv_message(&mut b, &mut bob_s).await.unwrap(),
+            b"stara verze, ale funguje"
+        );
     }
 
     /// The post-quantum commitment from the invite is enforced. Without this

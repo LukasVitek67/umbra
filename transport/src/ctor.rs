@@ -32,7 +32,10 @@ use tokio::io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex};
 
-use crate::{accept, initiate, read_frame, write_frame, LocalNode, Session};
+use crate::{
+    accept, initiate_at, read_frame, write_frame, LocalNode, Session, WireLevel,
+    PEER_REFUSED_HYBRID,
+};
 
 /// Virtual port our onion service listens on.
 pub const ONION_PORT: u16 = 9735;
@@ -723,7 +726,22 @@ impl TorService {
                     }
                     let mut node = LocalNode::from_seed(&seed);
                     match accept(&mut stream, &mut node).await {
-                        Ok((session, peer)) => {
+                        Ok((session, peer, level)) => {
+                            // Tell the app which handshake this peer managed, so
+                            // a conversation without post-quantum protection is
+                            // visible rather than assumed away.
+                            {
+                                let g = inner2.lock().await;
+                                let _ = g.tx.send(Incoming {
+                                    peer_hex: hex(&peer.ed25519),
+                                    body: match level {
+                                        WireLevel::Hybrid => "hybrid".to_string(),
+                                        WireLevel::Classical => "classical".to_string(),
+                                    },
+                                    bytes: Vec::new(),
+                                    kind: "wire".to_string(),
+                                });
+                            }
                             install_peer(inner2, stream, session, peer.ed25519).await;
                         }
                         Err(e) => {
@@ -774,12 +792,53 @@ impl TorService {
         .with_context(|| format!("nepodařilo se spojit s {host}"))?;
 
         let node = LocalNode::from_seed(&seed);
-        let session = tokio::time::timeout(
+        let attempt = tokio::time::timeout(
             Duration::from_secs(180),
-            initiate(&mut stream, &node, peer_ed, peer_pq_fingerprint),
+            initiate_at(&mut stream, &node, peer_ed, peer_pq_fingerprint, WireLevel::Hybrid),
         )
         .await
-        .map_err(|_| anyhow!("protistrana neodpověděla na handshake"))??;
+        .map_err(|_| anyhow!("protistrana neodpověděla na handshake"))?;
+
+        let (session, level) = match attempt {
+            Ok(ok) => ok,
+            Err(e) if format!("{e:#}").contains(PEER_REFUSED_HYBRID) => {
+                // They run a version from before post-quantum identities.
+                // Talking to them is still worth doing, but it is a genuine
+                // downgrade and the app says so — see the `wire` event below.
+                //
+                // What is deliberately *not* here: any failure that got as far
+                // as a signature check never reaches this branch, so a hostile
+                // network cannot force the weaker handshake by interfering.
+                let mut retry = tokio::time::timeout(
+                    Duration::from_secs(180),
+                    socks5_connect(socks_port, &host, ONION_PORT),
+                )
+                .await
+                .map_err(|_| anyhow!("kontakt neodpovídá"))??;
+                let out = tokio::time::timeout(
+                    Duration::from_secs(180),
+                    initiate_at(&mut retry, &node, peer_ed, None, WireLevel::Classical),
+                )
+                .await
+                .map_err(|_| anyhow!("protistrana neodpověděla na handshake"))??;
+                stream = retry;
+                out
+            }
+            Err(e) => return Err(e),
+        };
+
+        {
+            let g = self.inner.lock().await;
+            let _ = g.tx.send(Incoming {
+                peer_hex: peer_hex.clone(),
+                body: match level {
+                    WireLevel::Hybrid => "hybrid".to_string(),
+                    WireLevel::Classical => "classical".to_string(),
+                },
+                bytes: Vec::new(),
+                kind: "wire".to_string(),
+            });
+        }
         install_peer(self.inner.clone(), stream, session, peer_ed).await;
         Ok(())
     }

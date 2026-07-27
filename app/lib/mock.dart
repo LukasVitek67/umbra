@@ -104,6 +104,11 @@ class Chat {
   /// Local path to the contact's picture, if they sent one.
   String? picturePath;
   bool verified;
+
+  /// True once a live session with them used the hybrid handshake. Null until
+  /// we have connected at all — "unknown" and "old version" are not the same
+  /// thing and must not look the same.
+  bool? postQuantum;
   final List<Message> messages;
   Message? get last => messages.isEmpty ? null : messages.last;
 }
@@ -401,6 +406,12 @@ class AppState extends ChangeNotifier {
           connectedPeers.add(ev.peerHex);
           netStatus = L.t('net.connectedPeer');
           _ensureChat(ev.peerHex);
+          break;
+        // Which handshake this peer could manage. A conversation that fell back
+        // to the classical one has no post-quantum protection, and the person
+        // having it should see that rather than assume the newest guarantees.
+        case 'wire':
+          _ensureChat(ev.peerHex).postQuantum = ev.data == 'hybrid';
           break;
         case 'disconnected':
           connectedPeers.remove(ev.peerHex);

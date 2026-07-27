@@ -1321,6 +1321,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                           icon: const Icon(Icons.link, size: 16),
                           label: Text(L.t('chat.connect')),
                         ),
+                      // A live session that fell back to the classical
+                      // handshake: say it where the conversation is, not in a
+                      // settings screen nobody opens mid-chat.
+                      if (chat.postQuantum == false) ...[
+                        Tooltip(
+                          message: L.t('wire.legacyHelp'),
+                          child: Pill(L.t('wire.legacy'), icon: Icons.warning_amber_rounded),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       const SizedBox(width: 8),
                       // Verified or not, the number is one click away — the
                       // check is only worth having if it is easy to reach.
