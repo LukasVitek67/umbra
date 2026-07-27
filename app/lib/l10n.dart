@@ -101,6 +101,14 @@ class L {
       'safety.isVerified':
           'You confirmed these digits matched. If they ever change, the person '
           'reinstalled Umbra or someone is impersonating them — compare again.',
+      'safety.pq':
+          'This identity is post-quantum: signed with Ed25519 and ML-DSA-65 '
+          'together, so a quantum computer could not impersonate them even '
+          'after breaking the classical half.',
+      'safety.noPq':
+          'This contact was added before post-quantum identities and is '
+          'protected by Ed25519 alone. Swap invites again once you both run '
+          '1.9.0 or later.',
       'safety.confirm': 'The numbers match',
       'safety.unverify': 'Undo verification',
       'chat.verify': 'Verify',
@@ -425,6 +433,14 @@ class L {
           'Potvrdil jsi, že se číslice shodovaly. Pokud se někdy změní, buď si '
           'ten člověk přeinstaloval Umbru, nebo se za něj někdo vydává — '
           'porovnejte je znovu.',
+      'safety.pq':
+          'Tato identita je post-kvantová: podepsaná Ed25519 a ML-DSA-65 '
+          'zároveň, takže se za ni kvantový počítač nevydá ani po prolomení '
+          'té klasické poloviny.',
+      'safety.noPq':
+          'Tento kontakt byl přidán před post-kvantovými identitami a chrání '
+          'ho jen Ed25519. Až budete oba mít 1.9.0 nebo novější, vyměňte si '
+          'pozvánky znovu.',
       'safety.confirm': 'Čísla se shodují',
       'safety.unverify': 'Zrušit ověření',
       'chat.verify': 'Ověřit',

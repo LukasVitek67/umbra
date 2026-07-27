@@ -723,8 +723,8 @@ impl TorService {
                     }
                     let mut node = LocalNode::from_seed(&seed);
                     match accept(&mut stream, &mut node).await {
-                        Ok((session, peer_ed)) => {
-                            install_peer(inner2, stream, session, peer_ed).await;
+                        Ok((session, peer)) => {
+                            install_peer(inner2, stream, session, peer.ed25519).await;
                         }
                         Err(e) => {
                             let g = inner2.lock().await;
@@ -747,7 +747,12 @@ impl TorService {
     }
 
     /// Dial a peer's onion address and run the verified handshake.
-    pub async fn connect(&self, onion: String, peer_ed: [u8; 32]) -> Result<()> {
+    pub async fn connect(
+        &self,
+        onion: String,
+        peer_ed: [u8; 32],
+        peer_pq_fingerprint: Option<[u8; 32]>,
+    ) -> Result<()> {
         let peer_hex = hex(&peer_ed);
         let (seed, socks_port) = {
             let g = self.inner.lock().await;
@@ -771,7 +776,7 @@ impl TorService {
         let node = LocalNode::from_seed(&seed);
         let session = tokio::time::timeout(
             Duration::from_secs(180),
-            initiate(&mut stream, &node, peer_ed),
+            initiate(&mut stream, &node, peer_ed, peer_pq_fingerprint),
         )
         .await
         .map_err(|_| anyhow!("protistrana neodpověděla na handshake"))??;

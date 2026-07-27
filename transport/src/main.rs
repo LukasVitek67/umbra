@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
-//! Two-node test of the Tor onion transport — the real scenario.
+﻿// SPDX-License-Identifier: AGPL-3.0-or-later
+//! Two-node test of the Tor onion transport â€” the real scenario.
 //!
 //! Terminal A:  umbra-tor-probe listen  <datadir-a>
 //!              (prints its .onion address and identity)
@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
     }
     let identity = Keypair::from_seed(&seed).public();
 
-    eprintln!("[*] Spouštím Tor ({})…", data_dir.display());
+    eprintln!("[*] SpouĹˇtĂ­m Tor ({})â€¦", data_dir.display());
     let (svc, mut events) =
         TorService::start(seed, &data_dir, |m| eprintln!("    {m}")).await?;
 
@@ -55,33 +55,33 @@ async fn main() -> Result<()> {
     println!("IDENTITY={}", hex(&identity));
     // A ready-to-paste invite, so this node can be added as a contact in the
     // GUI app and used as the "other person" when testing on one machine.
-    let invite = umbra_core::invite::Invite::new(identity, "Testovací uzel", svc.onion.clone());
+    let invite = umbra_core::invite::Invite::new(identity, "TestovacĂ­ uzel", svc.onion.clone());
     println!("INVITE={}", invite.encode());
     println!();
-    println!("↑ Zkopíruj řádek INVITE (i s 'umbra1:') do aplikace: Chaty → Přidat");
+    println!("â†‘ ZkopĂ­ruj Ĺ™Ăˇdek INVITE (i s 'umbra1:') do aplikace: Chaty â†’ PĹ™idat");
 
     fn frame_name(p: &envelope::Payload) -> &'static str {
         match p {
             envelope::Payload::Text(_) => "text",
             envelope::Payload::Profile { .. } => "profil",
-            envelope::Payload::FileOffer { .. } => "nabídka souboru",
+            envelope::Payload::FileOffer { .. } => "nabĂ­dka souboru",
             envelope::Payload::FileChunk { .. } => "kus souboru",
             envelope::Payload::FileEnd { .. } => "konec souboru",
-            envelope::Payload::GroupText { .. } => "skupinová zpráva",
+            envelope::Payload::GroupText { .. } => "skupinovĂˇ zprĂˇva",
             envelope::Payload::GroupInfo { .. } => "roster skupiny",
-            envelope::Payload::Address { .. } => "adresa protějšku",
-            envelope::Payload::Receipt { .. } => "potvrzení doručení",
+            envelope::Payload::Address { .. } => "adresa protÄ›jĹˇku",
+            envelope::Payload::Receipt { .. } => "potvrzenĂ­ doruÄŤenĂ­",
         }
     }
 
     match mode.as_str() {
         "listen" => {
-            eprintln!("[*] Čekám na spojení… (Ctrl+C ukončí)");
+            eprintln!("[*] ÄŚekĂˇm na spojenĂ­â€¦ (Ctrl+C ukonÄŤĂ­)");
             while let Some(ev) = events.recv().await {
                 if ev.kind == "message" {
                     match envelope::decode(&ev.bytes) {
                         Some(envelope::Payload::Text(t)) => {
-                            eprintln!("[*] ✓ PŘIJATA ZPRÁVA: {t:?}");
+                            eprintln!("[*] âś“ PĹIJATA ZPRĂVA: {t:?}");
                             let _ = svc
                                 .send_bytes(
                                     &ev.peer_hex,
@@ -90,21 +90,21 @@ async fn main() -> Result<()> {
                                 .await;
                         }
                         Some(envelope::Payload::Profile { name, picture }) => {
-                            eprintln!("[*] profil protějšku: {name} ({} B obrázek)", picture.len());
+                            eprintln!("[*] profil protÄ›jĹˇku: {name} ({} B obrĂˇzek)", picture.len());
                         }
                         Some(envelope::Payload::FileOffer { name, size, .. }) => {
-                            eprintln!("[*] příchozí soubor: {name} ({size} B)");
+                            eprintln!("[*] pĹ™Ă­chozĂ­ soubor: {name} ({size} B)");
                         }
                         Some(envelope::Payload::FileChunk { data, .. }) => {
                             eprintln!("[*] kus souboru: {} B", data.len());
                         }
                         Some(envelope::Payload::FileEnd { .. }) => {
-                            eprintln!("[*] ✓ soubor kompletní");
+                            eprintln!("[*] âś“ soubor kompletnĂ­");
                         }
                         // The probe only reports the app-level frames; groups,
                         // addresses and receipts are the app's business.
-                        Some(other) => eprintln!("[*] rámec typu {}", frame_name(&other)),
-                        None => eprintln!("[*] neznámý formát zprávy"),
+                        Some(other) => eprintln!("[*] rĂˇmec typu {}", frame_name(&other)),
+                        None => eprintln!("[*] neznĂˇmĂ˝ formĂˇt zprĂˇvy"),
                     }
                 } else {
                     eprintln!("    [{}] {} {}", ev.kind, ev.peer_hex, ev.body);
@@ -115,7 +115,7 @@ async fn main() -> Result<()> {
             let onion = args.get(3).cloned().unwrap_or_default();
             let peer = args.get(4).and_then(|s| unhex(s));
             let (Some(peer), false) = (peer, onion.is_empty()) else {
-                bail!("použití: dial <datadir> <onion> <identity-hex>");
+                bail!("pouĹľitĂ­: dial <datadir> <onion> <identity-hex>");
             };
 
             // Report events in the background while we dial.
@@ -125,10 +125,10 @@ async fn main() -> Result<()> {
                 }
             });
 
-            eprintln!("[*] Vytáčím {onion}…");
+            eprintln!("[*] VytĂˇÄŤĂ­m {onion}â€¦");
             let mut ok = false;
             for attempt in 1..=4 {
-                match svc.connect(onion.clone(), peer).await {
+                match svc.connect(onion.clone(), peer, None).await {
                     Ok(()) => {
                         ok = true;
                         break;
@@ -140,9 +140,9 @@ async fn main() -> Result<()> {
                 }
             }
             if !ok {
-                bail!("spojení se nepodařilo navázat");
+                bail!("spojenĂ­ se nepodaĹ™ilo navĂˇzat");
             }
-            eprintln!("[*] ✓ Spojeno a ověřeno. Posílám zprávu…");
+            eprintln!("[*] âś“ Spojeno a ovÄ›Ĺ™eno. PosĂ­lĂˇm zprĂˇvuâ€¦");
             svc.send_bytes(&hex(&peer), envelope::encode_text("ahoj pres Tor, tady Umbra"))
                 .await?;
 
@@ -154,15 +154,15 @@ async fn main() -> Result<()> {
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_else(|| "soubor".into());
                 let id = [9u8; 16];
-                eprintln!("[*] posílám soubor {name} ({} B)…", data.len());
+                eprintln!("[*] posĂ­lĂˇm soubor {name} ({} B)â€¦", data.len());
                 svc.send_bytes(&hex(&peer), envelope::encode_file_offer(&id, &name, data.len() as u64)).await?;
                 for (seq, chunk) in data.chunks(envelope::CHUNK).enumerate() {
                     svc.send_bytes(&hex(&peer), envelope::encode_file_chunk(&id, seq as u32, chunk)).await?;
                 }
                 svc.send_bytes(&hex(&peer), envelope::encode_file_end(&id)).await?;
-                eprintln!("[*] ✓ soubor odeslán");
+                eprintln!("[*] âś“ soubor odeslĂˇn");
             }
-            eprintln!("[*] ✓ Odesláno. Čekám 60 s na echo…");
+            eprintln!("[*] âś“ OdeslĂˇno. ÄŚekĂˇm 60 s na echoâ€¦");
             tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
         }
         // Raw byte-level probe: connect through Tor and dump whatever the peer
@@ -171,13 +171,13 @@ async fn main() -> Result<()> {
         "raw" => {
             let onion = args.get(3).cloned().unwrap_or_default();
             let socks = umbra_transport::ctor::socks_port_of(&svc);
-            eprintln!("[*] raw: připojuji se na {onion} (SOCKS {socks})…");
+            eprintln!("[*] raw: pĹ™ipojuji se na {onion} (SOCKS {socks})â€¦");
             let mut stream = tokio::time::timeout(
                 tokio::time::Duration::from_secs(120),
                 umbra_transport::ctor::socks5_connect(socks, &onion, 9735),
             )
             .await??;
-            eprintln!("[*] SOCKS spojení otevřeno, čekám na data (60 s)…");
+            eprintln!("[*] SOCKS spojenĂ­ otevĹ™eno, ÄŤekĂˇm na data (60 s)â€¦");
             use tokio::io::AsyncReadExt;
             let mut buf = vec![0u8; 256];
             match tokio::time::timeout(
@@ -187,17 +187,17 @@ async fn main() -> Result<()> {
             .await
             {
                 Ok(Ok(n)) => {
-                    eprintln!("[*] ✓ PŘIJATO {n} bajtů:");
+                    eprintln!("[*] âś“ PĹIJATO {n} bajtĹŻ:");
                     for chunk in buf[..n].chunks(16) {
                         let h: Vec<String> = chunk.iter().map(|b| format!("{b:02x}")).collect();
                         eprintln!("      {}", h.join(" "));
                     }
                 }
-                Ok(Err(e)) => eprintln!("[*] chyba čtení: {e}"),
-                Err(_) => eprintln!("[*] ✗ nepřišlo nic do 60 s"),
+                Ok(Err(e)) => eprintln!("[*] chyba ÄŤtenĂ­: {e}"),
+                Err(_) => eprintln!("[*] âś— nepĹ™iĹˇlo nic do 60 s"),
             }
         }
-        other => bail!("neznámý režim: {other}"),
+        other => bail!("neznĂˇmĂ˝ reĹľim: {other}"),
     }
     Ok(())
 }

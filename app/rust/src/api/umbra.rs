@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
+﻿// SPDX-License-Identifier: AGPL-3.0-or-later
 //! The real flutter_rust_bridge API: bridges the Flutter UI to the Umbra core
 //! (identity, user codes, invites, and the encrypted local store).
 //!
@@ -17,6 +17,7 @@ use tokio::sync::mpsc;
 use umbra_core::crypto::keystore;
 use umbra_core::identity::{user_code, Keypair};
 use umbra_core::invite::Invite;
+use umbra_core::crypto::pq::HybridIdentity;
 use umbra_core::safety;
 use umbra_core::group::{Group, GroupMember};
 use umbra_core::store::{
@@ -34,7 +35,7 @@ use umbra_core::envelope::{self, Payload};
 /// An event from the network layer, pushed to the UI.
 ///
 /// `kind` is one of:
-/// `"status"` (bootstrapping / connecting…), `"onion"` (our address is ready),
+/// `"status"` (bootstrapping / connectingâ€¦), `"onion"` (our address is ready),
 /// `"connected"` / `"disconnected"` (peer session), `"message"` (incoming text),
 /// `"error"`.
 pub struct NetEvent {
@@ -60,8 +61,23 @@ static SERVICE: Mutex<Option<TorService>> = Mutex::new(None);
 static ONION: Mutex<Option<String>> = Mutex::new(None);
 static EVENTS: Mutex<Option<mpsc::UnboundedSender<NetEvent>>> = Mutex::new(None);
 
-/// Known contacts: identity hex → onion address. Used by the keep-alive loop.
+/// Known contacts: identity hex â†’ onion address. Used by the keep-alive loop.
 static CONTACTS: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+/// Identity hex â†’ the post-quantum commitment from their invite, for the peers
+/// that have one. The dialler checks the key it is offered against this.
+static PQ_FINGERPRINTS: Mutex<Option<HashMap<String, [u8; 32]>>> = Mutex::new(None);
+
+/// The commitment we hold for a peer, if any.
+fn pq_fingerprint_of(peer_hex: &str) -> Option<[u8; 32]> {
+    PQ_FINGERPRINTS.lock().unwrap().as_ref()?.get(peer_hex).copied()
+}
+
+/// Remember a peer's post-quantum commitment for the dialler.
+fn remember_pq_fingerprint(peer_hex: &str, fp: Option<[u8; 32]>) {
+    let Some(fp) = fp else { return };
+    let mut g = PQ_FINGERPRINTS.lock().unwrap();
+    g.get_or_insert_with(HashMap::new).insert(peer_hex.to_string(), fp);
+}
 /// The signed-in account, so payload handlers can persist without going
 /// through Dart. Set when the network starts.
 static APP: Mutex<Option<Arc<Mutex<Inner>>>> = Mutex::new(None);
@@ -242,13 +258,13 @@ fn dial_once(peer_hex: String, onion: String) {
         let svc = SERVICE.lock().unwrap().clone();
         if let (Some(svc), Some(pk)) = (svc, unhex(&peer_hex)) {
             log_line(&format!("dial start peer={}", peer_tag(&peer_hex)));
-            match svc.connect(onion, pk).await {
+            match svc.connect(onion, pk, pq_fingerprint_of(&peer_hex)).await {
                 Ok(()) => log_line("dial ok"),
                 Err(e) => {
                     let text = format!("{e:#}");
                     log_line(&format!("dial FAILED: {text}"));
                     // A signature mismatch means the invite belongs to an
-                    // identity the peer no longer has — say so, it is fixable.
+                    // identity the peer no longer has â€” say so, it is fixable.
                     if text.contains("signature invalid") || text.contains("man-in-the-middle") {
                         emit("error", "stale_invite", &peer_hex);
                     } else {
@@ -295,7 +311,7 @@ fn spawn_keepalive() {
     });
 }
 
-/// The folder the running build lives in — where an update is installed.
+/// The folder the running build lives in â€” where an update is installed.
 fn install_dir() -> Option<PathBuf> {
     std::env::current_exe().ok()?.parent().map(|p| p.to_path_buf())
 }
@@ -319,7 +335,7 @@ fn spawn_updater(socks_port: u16) {
 pub fn install_update() {
     let socks = *SOCKS.lock().unwrap();
     let (Some(socks), Some(dir)) = (socks, install_dir()) else {
-        emit("update_error", "síť ještě neběží", "");
+        emit("update_error", "sĂ­ĹĄ jeĹˇtÄ› nebÄ›ĹľĂ­", "");
         return;
     };
     rt().spawn(async move {
@@ -355,7 +371,7 @@ fn emit(kind: &str, data: &str, peer_hex: &str) {
     //
     // This line used to be `{kind} peer={12 hex of identity} {data}`, which put
     // message text, contact names and onion addresses into a plain file sitting
-    // next to the encrypted database — readable without the passphrase, which
+    // next to the encrypted database â€” readable without the passphrase, which
     // undoes everything the database does to protect them.
     log_line(&format!("{kind} peer={} {} B", peer_tag(peer_hex), data.len()));
     if let Some(tx) = EVENTS.lock().unwrap().as_ref() {
@@ -523,7 +539,7 @@ impl UmbraApp {
         // app would then offer "unlock" forever for an identity that does not
         // exist. Refuse instead, so the UI can fall back to onboarding.
         if !dir.join("umbra.db").exists() || !dir.join("umbra.salt").exists() {
-            return Err("Na tomto počítači není žádná identita.".to_string());
+            return Err("Na tomto poÄŤĂ­taÄŤi nenĂ­ ĹľĂˇdnĂˇ identita.".to_string());
         }
         let salt = std::fs::read(dir.join("umbra.salt")).map_err(|e| e.to_string())?;
         let (m, t, p) = read_kdf(&dir);
@@ -543,8 +559,8 @@ impl UmbraApp {
         // decrypt. Say that plainly instead of leaking a storage-level error.
         let seed = store
             .get_secret("identity_seed")
-            .map_err(|_| "Špatná přístupová fráze.".to_string())?
-            .ok_or_else(|| "Špatná přístupová fráze.".to_string())?;
+            .map_err(|_| "Ĺ patnĂˇ pĹ™Ă­stupovĂˇ frĂˇze.".to_string())?
+            .ok_or_else(|| "Ĺ patnĂˇ pĹ™Ă­stupovĂˇ frĂˇze.".to_string())?;
         let seed32: [u8; 32] = seed
             .as_slice()
             .try_into()
@@ -745,7 +761,11 @@ impl UmbraApp {
             return String::new();
         }
         let g = self.inner.lock().unwrap();
-        Invite::new(g.account.public(), g.username.clone(), onion).encode()
+        // Commit to the post-quantum half as well. 32 bytes, so the invite is
+        // still something you can paste into a chat; the 1952-byte key itself
+        // arrives during the handshake and is checked against this.
+        let pq = HybridIdentity::from_seed(&g.account.secret_seed()).pq_fingerprint();
+        Invite::with_pq(g.account.public(), g.username.clone(), onion, pq).encode()
     }
 
     /// Our onion address, or empty while the network is still starting.
@@ -756,7 +776,7 @@ impl UmbraApp {
 
     /// Start the Tor node: bootstrap (directly, falling back to bridges when
     /// the network blocks Tor), host our onion service, and accept incoming
-    /// peers. Returns immediately — all progress arrives as [`NetEvent`]s.
+    /// peers. Returns immediately â€” all progress arrives as [`NetEvent`]s.
     pub fn start_network(&self, sink: StreamSink<NetEvent>) {
         let (seed, dir) = {
             let g = self.inner.lock().unwrap();
@@ -788,7 +808,9 @@ impl UmbraApp {
                 let c = c.get_or_insert_with(HashMap::new);
                 c.clear();
                 for contact in list {
-                    c.insert(hex(&contact.identity_pubkey), contact.onion_addr);
+                    let peer = hex(&contact.identity_pubkey);
+                    remember_pq_fingerprint(&peer, contact.pq_fingerprint);
+                    c.insert(peer, contact.onion_addr);
                 }
             }
             // Group members are reachable peers too, even when they were never
@@ -809,7 +831,7 @@ impl UmbraApp {
         // Start every run with an empty log. Builds up to 1.7.0 wrote message
         // text, contact names and onion addresses into this file in the clear,
         // so the old contents are a liability sitting next to the encrypted
-        // database — and truncating also stops the file growing without end.
+        // database â€” and truncating also stops the file growing without end.
         let log_path = dir.join("umbra-app.log");
         let _ = std::fs::write(&log_path, b"");
         *LOGPATH.lock().unwrap() = Some(log_path);
@@ -854,7 +876,7 @@ impl UmbraApp {
                         }
                     }
                 }
-                Err(e) => emit("error", &format!("Tor se nepodařilo spustit: {e}"), ""),
+                Err(e) => emit("error", &format!("Tor se nepodaĹ™ilo spustit: {e}"), ""),
             }
         });
     }
@@ -863,7 +885,7 @@ impl UmbraApp {
     #[frb(sync)]
     pub fn connect_peer(&self, contact_hex: String) {
         let Some(pk) = unhex(&contact_hex) else {
-            emit("error", "neplatné ID kontaktu", &contact_hex);
+            emit("error", "neplatnĂ© ID kontaktu", &contact_hex);
             return;
         };
         let onion = {
@@ -877,13 +899,13 @@ impl UmbraApp {
             }
         };
         if onion.is_empty() || !onion.ends_with(".onion") {
-            emit("error", "kontakt nemá platnou onion adresu", &contact_hex);
+            emit("error", "kontakt nemĂˇ platnou onion adresu", &contact_hex);
             return;
         }
         rt().spawn(async move {
             let svc = SERVICE.lock().unwrap().clone();
             let Some(svc) = svc else {
-                emit("error", "síť ještě neběží", "");
+                emit("error", "sĂ­ĹĄ jeĹˇtÄ› nebÄ›ĹľĂ­", "");
                 return;
             };
             // Reaching an onion service is slow and often fails on the first
@@ -892,15 +914,15 @@ impl UmbraApp {
             const ATTEMPTS: u32 = 12;
             for attempt in 1..=ATTEMPTS {
                 emit("status", &format!("connecting|{attempt}|{ATTEMPTS}"), &contact_hex);
-                match svc.connect(onion.clone(), pk).await {
+                match svc.connect(onion.clone(), pk, pq_fingerprint_of(&contact_hex)).await {
                     Ok(()) => return, // "connected" event follows from the session
                     Err(e) => {
                         if attempt == ATTEMPTS {
                             emit(
                                 "error",
                                 &format!(
-                                    "Spojení se nepodařilo navázat: {e}. \
-                                     Protějšek musí mít aplikaci spuštěnou a být online."
+                                    "SpojenĂ­ se nepodaĹ™ilo navĂˇzat: {e}. \
+                                     ProtÄ›jĹˇek musĂ­ mĂ­t aplikaci spuĹˇtÄ›nou a bĂ˝t online."
                                 ),
                                 &contact_hex,
                             );
@@ -977,7 +999,7 @@ impl UmbraApp {
         rt().spawn(async move {
             let svc = SERVICE.lock().unwrap().clone();
             let Some(svc) = svc else {
-                emit("error", "síť ještě neběží", &contact_hex);
+                emit("error", "sĂ­ĹĄ jeĹˇtÄ› nebÄ›ĹľĂ­", &contact_hex);
                 return;
             };
             let p = PathBuf::from(&path);
@@ -988,7 +1010,7 @@ impl UmbraApp {
             let data = match std::fs::read(&p) {
                 Ok(d) => d,
                 Err(e) => {
-                    emit("error", &format!("soubor nelze přečíst: {e}"), &contact_hex);
+                    emit("error", &format!("soubor nelze pĹ™eÄŤĂ­st: {e}"), &contact_hex);
                     return;
                 }
             };
@@ -1015,7 +1037,7 @@ impl UmbraApp {
                     .await
                     .is_err()
                 {
-                    emit("error", "přenos souboru se přerušil", &contact_hex);
+                    emit("error", "pĹ™enos souboru se pĹ™eruĹˇil", &contact_hex);
                     return;
                 }
                 let sent = ((seq + 1) * envelope::CHUNK).min(data.len()) as u64;
@@ -1027,7 +1049,7 @@ impl UmbraApp {
     }
 
     /// Store a message and send it. If the contact is not reachable it waits in
-    /// the encrypted outbox and goes out by itself once they appear — closing
+    /// the encrypted outbox and goes out by itself once they appear â€” closing
     /// the app does not lose it.
     #[frb(sync)]
     pub fn send_over_network(&self, contact_hex: String, text: String, now: u64) -> Result<(), String> {
@@ -1061,7 +1083,7 @@ impl UmbraApp {
 
     /// Throw away Tor's cached directory data and start the network again.
     ///
-    /// The identity and the onion address are kept — only what Tor can fetch
+    /// The identity and the onion address are kept â€” only what Tor can fetch
     /// again is deleted. This is the manual version of the repair the app
     /// already tries by itself when a bootstrap stalls.
     #[frb(sync)]
@@ -1127,8 +1149,10 @@ impl UmbraApp {
                 // not swapped on the way. Only comparing the safety number
                 // does, and that has not happened yet.
                 verified: false,
+                pq_fingerprint: inv.pq_fingerprint,
             })
             .map_err(|e| e.to_string())?;
+        remember_pq_fingerprint(&hex(&inv.identity), inv.pq_fingerprint);
         CONTACTS
             .lock()
             .unwrap()
@@ -1196,10 +1220,10 @@ impl UmbraApp {
         let profile = match kind.as_str() {
             "decoy" => ProfileKind::Decoy,
             "wipe" => ProfileKind::Wipe,
-            _ => return Err("neznámý druh nouzové fráze".to_string()),
+            _ => return Err("neznĂˇmĂ˝ druh nouzovĂ© frĂˇze".to_string()),
         };
         if passphrase.trim().len() < 12 {
-            return Err("Nouzová fráze musí mít aspoň 12 znaků.".to_string());
+            return Err("NouzovĂˇ frĂˇze musĂ­ mĂ­t aspoĹ 12 znakĹŻ.".to_string());
         }
         let key = self.duress_key(&passphrase)?;
         let dir = { self.inner.lock().unwrap().dir.clone() };
@@ -1209,7 +1233,7 @@ impl UmbraApp {
         // check, reusing the real passphrase would mark the *real* profile as
         // "wipe" and destroy everything at the next sign-in.
         if store.get_secret("identity_seed").map_err(|e| e.to_string())?.is_some() {
-            return Err("Tuto frázi už tento účet používá. Zvol jinou.".to_string());
+            return Err("Tuto frĂˇzi uĹľ tento ĂşÄŤet pouĹľĂ­vĂˇ. Zvol jinou.".to_string());
         }
 
         // Its own identity, so the decoy behaves like a real, usable account.
@@ -1258,7 +1282,7 @@ impl UmbraApp {
         let kind = store.profile_kind();
         // Never let this be pointed at the real account.
         if kind == ProfileKind::Normal {
-            return Err("Tato fráze není nouzová.".to_string());
+            return Err("Tato frĂˇze nenĂ­ nouzovĂˇ.".to_string());
         }
         // Removing the identity is what stops it opening; the rest of its rows
         // stay behind as unreadable noise, which is exactly what everything
@@ -1286,7 +1310,7 @@ impl UmbraApp {
         let dir = { self.inner.lock().unwrap().dir.clone() };
         let store = Store::open(&dir.join("umbra.db"), &key).map_err(|e| e.to_string())?;
         if store.profile_kind() != ProfileKind::Decoy {
-            return Err("Tato fráze nepatří nastrčenému účtu.".to_string());
+            return Err("Tato frĂˇze nepatĹ™Ă­ nastrÄŤenĂ©mu ĂşÄŤtu.".to_string());
         }
         let mut identity = [0u8; 32];
         getrandom::getrandom(&mut identity).map_err(|_| "RNG failed".to_string())?;
@@ -1299,6 +1323,7 @@ impl UmbraApp {
                 status: ContactStatus::Accepted,
                 saved: true,
                 verified: false,
+                pq_fingerprint: None,
             })
             .map_err(|e| e.to_string())?;
         // Spread them over time: a history where every message shares one
@@ -1325,14 +1350,42 @@ impl UmbraApp {
     pub fn safety_number(&self, contact_hex: String) -> String {
         let Some(pk) = unhex(&contact_hex) else { return String::new() };
         let g = self.inner.lock().unwrap();
-        safety::grouped(&safety::safety_number(&g.account.public(), &pk))
+        // Covers the post-quantum halves too, so comparing the digits confirms
+        // the whole identity and not just its classical part.
+        let mine = HybridIdentity::from_seed(&g.account.secret_seed()).pq_fingerprint();
+        let theirs = g
+            .store
+            .get_contact(&pk)
+            .ok()
+            .flatten()
+            .and_then(|c| c.pq_fingerprint);
+        safety::grouped(&safety::safety_number_full(
+            &g.account.public(),
+            Some(&mine),
+            &pk,
+            theirs.as_ref(),
+        ))
+    }
+
+    /// Does this contact have a post-quantum identity? Used by the UI to say so
+    /// rather than implying protection a pre-1.9 contact does not have.
+    #[frb(sync)]
+    pub fn contact_is_post_quantum(&self, contact_hex: String) -> bool {
+        let Some(pk) = unhex(&contact_hex) else { return false };
+        let g = self.inner.lock().unwrap();
+        g.store
+            .get_contact(&pk)
+            .ok()
+            .flatten()
+            .and_then(|c| c.pq_fingerprint)
+            .is_some()
     }
 
     /// Record that the user compared the number and it matched (or take it
-    /// back). Nothing in the protocol may call this — only a person can.
+    /// back). Nothing in the protocol may call this â€” only a person can.
     #[frb(sync)]
     pub fn set_verified(&self, contact_hex: String, verified: bool) -> Result<(), String> {
-        let pk = unhex(&contact_hex).ok_or_else(|| "neplatná identita".to_string())?;
+        let pk = unhex(&contact_hex).ok_or_else(|| "neplatnĂˇ identita".to_string())?;
         let g = self.inner.lock().unwrap();
         g.store.set_contact_verified(&pk, verified).map_err(|e| e.to_string())
     }
@@ -1538,7 +1591,7 @@ impl UmbraApp {
     }
 
     /// Rename a group. The new name travels with the roster, so everyone sees
-    /// it (a group has no owner — see `docs/THREAT_MODEL.md`).
+    /// it (a group has no owner â€” see `docs/THREAT_MODEL.md`).
     #[frb(sync)]
     pub fn rename_group(&self, group_id_hex: String, name: String) -> Result<GroupView, String> {
         let gid = unhex16(&group_id_hex).ok_or_else(|| "bad group id".to_string())?;
@@ -1678,7 +1731,7 @@ fn view_of(g: &Group) -> GroupView {
     }
 }
 
-/// Make sure the keep-alive loop can reach every member — group members are
+/// Make sure the keep-alive loop can reach every member â€” group members are
 /// not necessarily contacts of ours.
 fn remember_group_routes(group: &Group) {
     let mut g = CONTACTS.lock().unwrap();
@@ -1725,7 +1778,7 @@ const MAX_TRANSFERS: usize = 16;
 
 /// A transfer in progress.
 struct Incoming {
-    /// Who is sending it. A chunk from anyone else is refused — without this,
+    /// Who is sending it. A chunk from anyone else is refused â€” without this,
     /// knowing a transfer id was enough to write into someone else's file.
     peer_hex: String,
     name: String,
@@ -1761,7 +1814,7 @@ async fn send_profile(peer_hex: &str) {
 /// Everything the UI shows after a restart comes from `contacts`; a peer who
 /// wrote to us first used to have messages in the database and nothing else,
 /// so the whole thread disappeared on the next start and we never dialled them
-/// again. `onion` may be empty — an entry with no address is still a visible
+/// again. `onion` may be empty â€” an entry with no address is still a visible
 /// conversation, and the address arrives with their next [`Payload::Address`].
 fn remember_peer(peer_hex: &str, name: Option<&str>, onion: Option<&str>) {
     let Some(app) = APP.lock().unwrap().clone() else { return };
@@ -1781,6 +1834,7 @@ fn remember_peer(peer_hex: &str, name: Option<&str>, onion: Option<&str>) {
             status: ContactStatus::Waiting,
             saved: false,
             verified: false,
+            pq_fingerprint: None,
         });
         let _ = is_new;
         if let Some(name) = name {
@@ -1829,14 +1883,14 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
             g.store.is_blocked(&pk).unwrap_or(false)
         };
         if blocked {
-            log_line("zpráva od blokovaného kontaktu — zahozena");
+            log_line("zprĂˇva od blokovanĂ©ho kontaktu â€” zahozena");
             return;
         }
     }
     let Some(payload) = envelope::decode(bytes) else {
         // A newer peer speaking a frame we do not know yet is not an error the
         // user can act on; ignoring it keeps the protocol extensible.
-        log_line("payload: neznámý typ rámce — ignoruji (novější verze aplikace?)");
+        log_line("payload: neznĂˇmĂ˝ typ rĂˇmce â€” ignoruji (novÄ›jĹˇĂ­ verze aplikace?)");
         return;
     };
     match payload {
@@ -1959,7 +2013,7 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
                     drop(g);
                     emit("group_message", &format!("{}|{}", hex(&group_id), text), peer_hex);
                 }
-                _ => log_line("group message for an unknown group or from a non-member — dropped"),
+                _ => log_line("group message for an unknown group or from a non-member â€” dropped"),
             }
         }
         Payload::GroupInfo { group: incoming } => {
@@ -1967,7 +2021,7 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
             let Some(sender) = unhex(peer_hex) else { return };
             // Only someone inside the group may hand us its roster.
             if !incoming.has_member(&sender) {
-                log_line("group roster from a non-member — ignored");
+                log_line("group roster from a non-member â€” ignored");
                 return;
             }
             let g = app.lock().unwrap();
@@ -2037,8 +2091,8 @@ fn hex(b: &[u8]) -> String {
 ///
 /// The sender picks this string, so it is treated as hostile: separators and
 /// control characters go, `..` cannot escape the folder, Windows' reserved
-/// device names are pushed aside, and trailing dots and spaces — which Windows
-/// silently strips, and which can therefore make two names collide — are cut.
+/// device names are pushed aside, and trailing dots and spaces â€” which Windows
+/// silently strips, and which can therefore make two names collide â€” are cut.
 fn safe_file_name(name: &str) -> String {
     let cleaned: String = name
         .chars()
@@ -2078,7 +2132,7 @@ fn kdf_line() -> String {
 }
 
 /// The settings an account's database was built with. Accounts made before this
-/// file existed used the old, weaker defaults — and must keep using them, or
+/// file existed used the old, weaker defaults â€” and must keep using them, or
 /// their key would come out different and nothing would decrypt.
 fn read_kdf(dir: &Path) -> (u32, u32, u32) {
     let legacy = (
@@ -2165,7 +2219,7 @@ mod tests {
         assert_eq!(safe_file_name("report.pdf..."), "report.pdf");
         assert_eq!(safe_file_name("spaced.txt  "), "spaced.txt");
         // Ordinary names are left alone, accents and all.
-        assert_eq!(safe_file_name("Zpráva 2026.pdf"), "Zpráva 2026.pdf");
+        assert_eq!(safe_file_name("ZprĂˇva 2026.pdf"), "ZprĂˇva 2026.pdf");
         // Control characters cannot sneak through either.
         assert_eq!(safe_file_name("a\u{7}b.txt"), "a_b.txt");
     }

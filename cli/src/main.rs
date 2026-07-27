@@ -122,6 +122,8 @@ fn demo() {
             added_at: DEMO_EPOCH,
             status: umbra_core::store::ContactStatus::Accepted,
             saved: true,
+            verified: false,
+            pq_fingerprint: None,
         }).unwrap();
         store.insert_message(&NewMessage {
             contact_pubkey: phone.public(),

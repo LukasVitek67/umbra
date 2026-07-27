@@ -45,11 +45,21 @@ const VERSION: u16 = 1;
 const DIGITS_PER_SIDE: usize = 30;
 
 /// One identity's half of the number: 30 digits.
-fn fingerprint(identity: &[u8; 32]) -> String {
+///
+/// `pq` is the commitment to that person's post-quantum key. Mixing it in is
+/// what makes the comparison cover the *whole* identity: without it two people
+/// could read matching digits while their post-quantum halves differed, which
+/// is exactly the substitution the second scheme exists to prevent. Contacts
+/// from before post-quantum identities have none, and their number is computed
+/// the old way — their conversation has no post-quantum protection to confirm.
+fn fingerprint(identity: &[u8; 32], pq: Option<&[u8; 32]>) -> String {
     let mut hash = {
         let mut h = Sha512::new();
         h.update(VERSION.to_be_bytes());
         h.update(identity);
+        if let Some(pq) = pq {
+            h.update(pq);
+        }
         h.finalize().to_vec()
     };
     // Feeding the identity back in every round keeps each iteration bound to
@@ -81,10 +91,25 @@ fn fingerprint(identity: &[u8; 32]) -> String {
 ///
 /// Returned as one run of digits; use [`grouped`] for something readable.
 pub fn safety_number(a: &[u8; 32], b: &[u8; 32]) -> String {
+    safety_number_full(a, None, b, None)
+}
+
+/// The full number, covering both halves of both identities.
+///
+/// Each side passes its own post-quantum commitment and the one it holds for
+/// the other person. Both compute the same digits, because the halves are
+/// sorted by identity key.
+pub fn safety_number_full(
+    a: &[u8; 32],
+    a_pq: Option<&[u8; 32]>,
+    b: &[u8; 32],
+    b_pq: Option<&[u8; 32]>,
+) -> String {
     // Sorted, so both people compute the same string without agreeing on an
     // order first.
-    let (first, second) = if a <= b { (a, b) } else { (b, a) };
-    format!("{}{}", fingerprint(first), fingerprint(second))
+    let ((first, first_pq), (second, second_pq)) =
+        if a <= b { ((a, a_pq), (b, b_pq)) } else { ((b, b_pq), (a, a_pq)) };
+    format!("{}{}", fingerprint(first, first_pq), fingerprint(second, second_pq))
 }
 
 /// The same number in groups of five, for showing on screen and reading aloud.
@@ -144,6 +169,34 @@ mod tests {
         // a < b and a < c, so both numbers open with a's half.
         assert_eq!(&ab[..30], &ac[..30]);
         assert_ne!(&ab[30..], &ac[30..]);
+    }
+
+    /// A swapped post-quantum key changes the digits, so comparing them catches
+    /// it. Without this the second scheme could be substituted unnoticed by two
+    /// people who checked their numbers and believed they were done.
+    #[test]
+    fn the_post_quantum_half_is_part_of_the_number() {
+        let me = [20u8; 32];
+        let friend = [21u8; 32];
+        let my_pq = [0xA0u8; 32];
+        let their_pq = [0xB0u8; 32];
+        let impostor_pq = [0xC0u8; 32];
+
+        let real = safety_number_full(&me, Some(&my_pq), &friend, Some(&their_pq));
+        let swapped = safety_number_full(&me, Some(&my_pq), &friend, Some(&impostor_pq));
+        assert_ne!(real, swapped);
+
+        // Both sides compute the same digits whichever way round they ask.
+        assert_eq!(
+            real,
+            safety_number_full(&friend, Some(&their_pq), &me, Some(&my_pq))
+        );
+
+        // A contact with no post-quantum half keeps the classical number, so
+        // upgrading does not silently invalidate what someone already verified
+        // with a peer who has not upgraded.
+        assert_eq!(safety_number_full(&me, None, &friend, None), safety_number(&me, &friend));
+        assert_ne!(real, safety_number(&me, &friend));
     }
 
     #[test]

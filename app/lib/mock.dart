@@ -1159,6 +1159,10 @@ class AppState extends ChangeNotifier {
   String safetyNumber(String contactHex) =>
       _app?.safetyNumber(contactHex: contactHex) ?? '';
 
+  /// Whether this contact's identity is signed post-quantum as well.
+  bool contactIsPostQuantum(String contactHex) =>
+      _app?.contactIsPostQuantum(contactHex: contactHex) ?? false;
+
   /// Record the user's own answer to "did the numbers match?".
   ///
   /// This used to flip a flag that lived only in memory and was never shown,

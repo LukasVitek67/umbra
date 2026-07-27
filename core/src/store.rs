@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
+﻿// SPDX-License-Identifier: AGPL-3.0-or-later
 //! Local encrypted persistence.
 //!
 //! # Design (and its documented tradeoff)
@@ -13,20 +13,20 @@
 //!
 //! # Routing columns: blind index
 //!
-//! Columns SQL has to match and sort on cannot be sealed — a query cannot look
+//! Columns SQL has to match and sort on cannot be sealed â€” a query cannot look
 //! inside ciphertext. They used to hold the raw values, which meant a stolen
 //! file handed over the whole social graph without the passphrase: every
 //! contact's identity key, who is in which group, who wrote what.
 //!
 //! They now hold a **blind index**: `HMAC-SHA256(key derived from the data key,
 //! value)`. Lookups still work, because a lookup is always *by a value we
-//! already hold* — we compute the same index and match on it. The real value
+//! already hold* â€” we compute the same index and match on it. The real value
 //! lives once, sealed, in [`blind_index`](SCHEMA), and is only recovered when
 //! something needs to be shown.
 //!
 //! What this does and does not buy, stated plainly:
 //!
-//! * Without the passphrase, the identity keys are unrecoverable — the index is
+//! * Without the passphrase, the identity keys are unrecoverable â€” the index is
 //!   a MAC, not an encoding, and the key is per-account. Two seized devices
 //!   cannot be shown to share a contact or a group either, because their index
 //!   keys differ.
@@ -54,7 +54,7 @@ const NONCE_LEN: usize = 24;
 
 /// Marks a database whose routing columns have been converted to blind indexes.
 /// Both a raw key and its index are 32 bytes, so nothing in the data itself
-/// tells the two apart — this note is what makes the migration run exactly once.
+/// tells the two apart â€” this note is what makes the migration run exactly once.
 const BLIND_INDEX_MARK: &str = "schema.blind_index.v1";
 
 /// Domain separator, so the index key cannot coincide with any other use of
@@ -80,7 +80,8 @@ CREATE TABLE IF NOT EXISTS contacts (
     added_at        INTEGER NOT NULL,
     status          INTEGER NOT NULL DEFAULT 1, -- 0 waiting, 1 accepted, 2 blocked
     saved           INTEGER NOT NULL DEFAULT 0, -- kept in the address book
-    verified        INTEGER NOT NULL DEFAULT 0  -- safety number compared in person
+    verified        INTEGER NOT NULL DEFAULT 0, -- safety number compared in person
+    pq_fingerprint  BLOB                        -- sealed; NULL for pre-1.9 contacts
 );
 CREATE TABLE IF NOT EXISTS messages (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -137,7 +138,7 @@ const PROFILE_KIND: &str = "profile.kind";
 ///
 /// One database can answer to several passphrases. Each derives its own key,
 /// each sees only the rows sealed under that key, and **nothing in the file
-/// says how many there are** — a row nobody can read looks the same whether it
+/// says how many there are** â€” a row nobody can read looks the same whether it
 /// belongs to another profile, was overwritten, or never meant anything.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileKind {
@@ -239,6 +240,11 @@ pub struct Contact {
     /// The user compared the safety number with this person out of band and
     /// said it matched. Only ever set by an explicit human decision.
     pub verified: bool,
+    /// Commitment to their post-quantum identity key, from their invite.
+    /// `None` for contacts added before those existed â€” such a conversation is
+    /// protected by Ed25519 alone, and the app says so rather than implying
+    /// protection it does not have.
+    pub pq_fingerprint: Option<[u8; 32]>,
 }
 
 /// How far an outgoing message got.
@@ -460,7 +466,7 @@ impl Store {
 
     /// The same, but "I cannot read this" answers `None` instead of failing.
     ///
-    /// One file can hold rows written under more than one passphrase — that is
+    /// One file can hold rows written under more than one passphrase â€” that is
     /// what makes a second, separate history possible without the file showing
     /// that it has one. A row this key cannot open is not damage and not an
     /// error: it is simply not ours, and listing must walk straight past it.
@@ -472,6 +478,13 @@ impl Store {
         self.value_of(bi).ok().and_then(|v| v.as_slice().try_into().ok())
     }
 
+    /// Open a sealed 32-byte commitment, or `None` if there is none (or it
+    /// belongs to another passphrase).
+    fn unseal_fingerprint(&self, blob: Option<&[u8]>) -> Option<[u8; 32]> {
+        let bytes = self.unseal(blob?).ok()?;
+        bytes.as_slice().try_into().ok()
+    }
+
     fn try_decrypt_string(&self, blob: &[u8]) -> Option<String> {
         let bytes = self.unseal(blob).ok()?;
         String::from_utf8(bytes.to_vec()).ok()
@@ -480,11 +493,11 @@ impl Store {
     /// Convert a database written before the blind index existed.
     ///
     /// Runs once, inside a transaction: either every routing column is an index
-    /// afterwards or the file is untouched. Nothing is lost — the raw values
+    /// afterwards or the file is untouched. Nothing is lost â€” the raw values
     /// move into `blind_index`, sealed.
     fn migrate_blind_index(&self) -> Result<(), StoreError> {
         // Checked *without* decrypting: opening with the wrong key must fail the
-        // way it always did — when something is read — not here.
+        // way it always did â€” when something is read â€” not here.
         let marked: Option<i64> = self
             .conn
             .query_row(
@@ -497,13 +510,13 @@ impl Store {
             return Ok(());
         }
         // Converting with the wrong key would compute indexes nobody can ever
-        // match again — the data would still be there and permanently
+        // match again â€” the data would still be there and permanently
         // unreachable. So before touching anything, prove the key is right.
         if !self.key_opens_existing_data()? {
             return Err(StoreError::Corrupt);
         }
         // A copy of the file as it was, kept beside it. The conversion is a
-        // transaction and should never leave a half-changed database — but this
+        // transaction and should never leave a half-changed database â€” but this
         // rewrites every routing column in someone's whole history, and a
         // one-off backup is a cheap answer to "what if I am wrong".
         self.backup_before_conversion();
@@ -528,7 +541,7 @@ impl Store {
         match converted {
             Ok(()) => {
                 self.conn.execute_batch("COMMIT")?;
-                // Written under its plain name on purpose — it is a fact about
+                // Written under its plain name on purpose â€” it is a fact about
                 // the *file*, not about any one passphrase, and it must be
                 // findable without deriving a key. It says nothing about how
                 // many passphrases the file answers to.
@@ -550,7 +563,7 @@ impl Store {
     ///
     /// Best effort on purpose: an in-memory store has no path, and a full disk
     /// is not a reason to refuse an upgrade that is transactional anyway. The
-    /// copy keeps the same protection as the original — it *is* the original,
+    /// copy keeps the same protection as the original â€” it *is* the original,
     /// with its sealed columns.
     fn backup_before_conversion(&self) {
         let Some(path) = self.conn.path().map(std::path::PathBuf::from) else { return };
@@ -590,7 +603,7 @@ impl Store {
 
     /// Does our key actually open what is already in this file?
     ///
-    /// `true` also when there is nothing sealed yet — a database with no data
+    /// `true` also when there is nothing sealed yet â€” a database with no data
     /// cannot be damaged by converting it.
     fn key_opens_existing_data(&self) -> Result<bool, StoreError> {
         for (table, column) in [
@@ -662,6 +675,11 @@ impl Store {
                 "ALTER TABLE contacts ADD COLUMN verified INTEGER NOT NULL DEFAULT 0",
             )?;
         }
+        // Contacts added before post-quantum identities have none. They keep
+        // working with the classical half alone, which is what they had.
+        if !Self::has_column(conn, "contacts", "pq_fingerprint")? {
+            conn.execute_batch("ALTER TABLE contacts ADD COLUMN pq_fingerprint BLOB")?;
+        }
         Ok(())
     }
 
@@ -700,7 +718,7 @@ impl Store {
         Ok(Zeroizing::new(pt))
     }
 
-    // --- secrets (identity seed, roster, session pickles, …) ---
+    // --- secrets (identity seed, roster, session pickles, â€¦) ---
 
     /// Store a named secret (overwrites any existing value).
     ///
@@ -722,7 +740,7 @@ impl Store {
     /// Fetch a named secret, or `None` if absent.
     ///
     /// A row written under a different passphrase is simply *not there* as far
-    /// as this key is concerned — not an error, because "the file holds
+    /// as this key is concerned â€” not an error, because "the file holds
     /// something I cannot read" is exactly what must never be observable.
     pub fn get_secret(&self, name: &str) -> Result<Option<Zeroizing<Vec<u8>>>, StoreError> {
         let blob: Option<Vec<u8>> = self
@@ -736,7 +754,7 @@ impl Store {
         // A value that will not open is treated as absent, exactly like a row
         // belonging to another passphrase. That consistency is the point: after
         // a duress wipe the app must look like a fresh, empty account, not like
-        // a damaged one — a "database corrupt" message would announce that
+        // a damaged one â€” a "database corrupt" message would announce that
         // something used to be there.
         Ok(blob.and_then(|b| self.unseal(&b).ok()))
     }
@@ -761,7 +779,7 @@ impl Store {
     /// Destroy every row this key cannot read, in place.
     ///
     /// Used by a duress passphrase: it does not know the real key, so it cannot
-    /// tell a real row from a decoy one — it destroys everything that is not
+    /// tell a real row from a decoy one â€” it destroys everything that is not
     /// its own. Sealed values are overwritten with random bytes **of the same
     /// length**, and rows are not deleted, so the file keeps its size, its row
     /// counts and its shape. What is gone is the content, and it is gone for
@@ -770,7 +788,7 @@ impl Store {
     /// Returns how many values were overwritten.
     ///
     /// This cannot defeat someone who copied the disk *before* it ran. Nothing
-    /// running on the machine afterwards can — see `docs/DURESS.md`.
+    /// running on the machine afterwards can â€” see `docs/DURESS.md`.
     pub fn destroy_unreadable(&self) -> Result<usize, StoreError> {
         // Every column that holds a sealed value, with its table.
         const SEALED: [(&str, &str); 11] = [
@@ -846,12 +864,20 @@ impl Store {
         let name = self.seal(c.display_name.as_bytes())?;
         let onion = self.seal(c.onion_addr.as_bytes())?;
         let bi = self.indexed(&c.identity_pubkey)?;
+        let pq = match &c.pq_fingerprint {
+            Some(fp) => Some(self.seal(fp)?),
+            None => None,
+        };
         self.conn.execute(
-            "INSERT INTO contacts(identity_pubkey, display_name, onion_addr, added_at, status, saved, verified)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO contacts(identity_pubkey, display_name, onion_addr, added_at, status, saved, verified, pq_fingerprint)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(identity_pubkey) DO UPDATE SET
                  display_name = excluded.display_name,
-                 onion_addr   = excluded.onion_addr",
+                 onion_addr   = excluded.onion_addr,
+                 -- Never *unset* a commitment we already hold: an update that
+                 -- happens to carry no fingerprint must not silently downgrade
+                 -- the contact to classical-only.
+                 pq_fingerprint = COALESCE(excluded.pq_fingerprint, contacts.pq_fingerprint)",
             params![
                 bi,
                 name,
@@ -859,7 +885,8 @@ impl Store {
                 c.added_at as i64,
                 c.status.to_i64(),
                 c.saved as i64,
-                c.verified as i64
+                c.verified as i64,
+                pq
             ],
         )?;
         Ok(())
@@ -867,18 +894,28 @@ impl Store {
 
     /// Fetch a contact by identity key.
     pub fn get_contact(&self, identity_pubkey: &[u8; 32]) -> Result<Option<Contact>, StoreError> {
-        let row: Option<(Vec<u8>, Vec<u8>, i64, i64, i64, i64)> = self
+        let row: Option<(Vec<u8>, Vec<u8>, i64, i64, i64, i64, Option<Vec<u8>>)> = self
             .conn
             .query_row(
-                "SELECT display_name, onion_addr, added_at, status, saved, verified
+                "SELECT display_name, onion_addr, added_at, status, saved, verified, pq_fingerprint
                  FROM contacts WHERE identity_pubkey = ?1",
                 params![self.bi(identity_pubkey)],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                    ))
+                },
             )
             .optional()?;
         match row {
             None => Ok(None),
-            Some((name_ct, onion_ct, added, status, saved, verified)) => Ok(Some(Contact {
+            Some((name_ct, onion_ct, added, status, saved, verified, pq_ct)) => Ok(Some(Contact {
                 identity_pubkey: *identity_pubkey,
                 display_name: self.decrypt_string(&name_ct)?,
                 onion_addr: self.decrypt_string(&onion_ct)?,
@@ -886,6 +923,7 @@ impl Store {
                 status: ContactStatus::from_i64(status),
                 saved: saved != 0,
                 verified: verified != 0,
+                pq_fingerprint: self.unseal_fingerprint(pq_ct.as_deref()),
             })),
         }
     }
@@ -893,7 +931,8 @@ impl Store {
     /// List all contacts, newest first.
     pub fn list_contacts(&self) -> Result<Vec<Contact>, StoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT identity_pubkey, display_name, onion_addr, added_at, status, saved, verified
+            "SELECT identity_pubkey, display_name, onion_addr, added_at, status, saved, verified,
+                    pq_fingerprint
              FROM contacts ORDER BY added_at DESC",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -905,12 +944,14 @@ impl Store {
                 r.get::<_, i64>(4)?,
                 r.get::<_, i64>(5)?,
                 r.get::<_, i64>(6)?,
+                r.get::<_, Option<Vec<u8>>>(7)?,
             ))
         })?;
-        let found: Vec<(Vec<u8>, Vec<u8>, Vec<u8>, i64, i64, i64, i64)> =
+        #[allow(clippy::type_complexity)]
+        let found: Vec<(Vec<u8>, Vec<u8>, Vec<u8>, i64, i64, i64, i64, Option<Vec<u8>>)> =
             rows.collect::<Result<_, _>>()?;
         let mut out = Vec::new();
-        for (pk, name_ct, onion_ct, added, status, saved, verified) in found {
+        for (pk, name_ct, onion_ct, added, status, saved, verified, pq_ct) in found {
             // Rows belonging to another passphrase are skipped, not reported.
             let (Some(identity_pubkey), Some(display_name), Some(onion_addr)) = (
                 self.try_key32_of(&pk),
@@ -927,6 +968,7 @@ impl Store {
                 status: ContactStatus::from_i64(status),
                 saved: saved != 0,
                 verified: verified != 0,
+                pq_fingerprint: self.unseal_fingerprint(pq_ct.as_deref()),
             });
         }
         Ok(out)
@@ -970,7 +1012,7 @@ impl Store {
 
     /// Record that the user compared safety numbers with this contact.
     ///
-    /// Only ever called from an explicit human decision — nothing in the
+    /// Only ever called from an explicit human decision â€” nothing in the
     /// protocol may set this, or the badge would stop meaning anything.
     pub fn set_contact_verified(
         &self,
@@ -1046,7 +1088,7 @@ impl Store {
         Ok(out)
     }
 
-    /// Move an outgoing message along (waiting → sent → delivered).
+    /// Move an outgoing message along (waiting â†’ sent â†’ delivered).
     pub fn set_message_state(&self, id: i64, state: MessageState) -> Result<(), StoreError> {
         self.conn.execute(
             "UPDATE messages SET state = ?2 WHERE id = ?1",
@@ -1180,7 +1222,7 @@ impl Store {
     /// Bodies are encrypted at rest, so there is nothing for SQL to match on:
     /// searching means decrypting and comparing here. That is fine for a
     /// personal history and keeps the promise that the database says nothing
-    /// about content — a searchable plaintext index would quietly break it.
+    /// about content â€” a searchable plaintext index would quietly break it.
     pub fn search_messages(&self, query: &str, limit: u32) -> Result<Vec<SearchHit>, StoreError> {
         let needle = query.trim().to_lowercase();
         if needle.is_empty() {
@@ -1269,7 +1311,7 @@ impl Store {
         Ok(hits)
     }
 
-    /// Everything a given person ever sent us — in the 1:1 thread and in any
+    /// Everything a given person ever sent us â€” in the 1:1 thread and in any
     /// group. Used by the contact view, where "what did they write" is the
     /// question, not "where was it written".
     pub fn messages_from(
@@ -1351,7 +1393,7 @@ impl Store {
     /// A conversation started by *them* used to live only in the running app:
     /// the messages were stored, but with nothing in `contacts` the next start
     /// had no way to show the thread, and the keep-alive loop had no address to
-    /// dial — so the other side saw us as permanently unreachable. Anything the
+    /// dial â€” so the other side saw us as permanently unreachable. Anything the
     /// peer later tells us about themselves (name, onion) overwrites the
     /// placeholder written here.
     ///
@@ -1374,6 +1416,8 @@ impl Store {
                 // Nobody has compared anything: an old thread proves they talked
                 // to us, not that they are who we think.
                 verified: false,
+                // Learned when they next connect, not invented here.
+                pq_fingerprint: None,
             })?;
             added += 1;
         }
@@ -1596,6 +1640,7 @@ mod tests {
             status: ContactStatus::Accepted,
             saved: false,
             verified: false,
+            pq_fingerprint: None,
         }
     }
 
@@ -1823,7 +1868,7 @@ mod tests {
             contact_pubkey: peer,
             direction: Direction::Outgoing,
             sent_at: 300,
-            body: "necо jineho".as_bytes(),
+            body: "necĐľ jineho".as_bytes(),
         })
         .unwrap();
 
@@ -1928,7 +1973,7 @@ mod tests {
             members: vec![
                 GroupMember {
                     identity: [1u8; 32],
-                    display_name: "Lukáš".into(),
+                    display_name: "LukĂˇĹˇ".into(),
                     onion: "aaa.onion".into(),
                 },
                 GroupMember {
@@ -1948,14 +1993,14 @@ mod tests {
         assert_eq!(s.get_group(&g.id).unwrap().unwrap(), g);
         assert_eq!(s.list_groups().unwrap().len(), 1);
 
-        // A newer roster replaces the members wholesale — no leftovers.
+        // A newer roster replaces the members wholesale â€” no leftovers.
         let mut g2 = g.clone();
-        g2.name = "Rodina a přátelé".into();
+        g2.name = "Rodina a pĹ™ĂˇtelĂ©".into();
         g2.version = 2;
         g2.members.remove(1);
         s.upsert_group(&g2).unwrap();
         let stored = s.get_group(&g.id).unwrap().unwrap();
-        assert_eq!(stored.name, "Rodina a přátelé");
+        assert_eq!(stored.name, "Rodina a pĹ™ĂˇtelĂ©");
         assert_eq!(stored.version, 2);
         assert_eq!(stored.members.len(), 1);
         assert_eq!(stored.created_at, g.created_at); // never rewritten
@@ -2059,6 +2104,7 @@ mod tests {
                 status: ContactStatus::Accepted,
                 saved: true,
                 verified: true,
+                pq_fingerprint: None,
             })
             .unwrap();
             real.insert_message(&NewMessage {
@@ -2081,6 +2127,7 @@ mod tests {
                 status: ContactStatus::Accepted,
                 saved: true,
                 verified: false,
+                pq_fingerprint: None,
             })
             .unwrap();
         }
@@ -2100,7 +2147,7 @@ mod tests {
         assert_eq!(seen[0].display_name, "Nastraceny kontakt");
         assert_eq!(decoy.profile_kind(), ProfileKind::Decoy);
         assert_eq!(&*decoy.get_secret("identity_seed").unwrap().unwrap(), b"a different identity");
-        // The real conversation is not merely hidden from the UI — it cannot be
+        // The real conversation is not merely hidden from the UI â€” it cannot be
         // found by searching either.
         assert!(decoy.search_messages("nikdo", 10).unwrap().is_empty());
         assert!(decoy.message_peers().unwrap().is_empty());
@@ -2148,15 +2195,15 @@ mod tests {
         assert!(real.search_messages("tajna", 10).unwrap().is_empty());
         assert!(real.get_secret("identity_seed").unwrap().is_none());
 
-        // …and the file still looks like a database in use, not like one that
+        // â€¦and the file still looks like a database in use, not like one that
         // has just been emptied: same rows, same size.
         let after = std::fs::metadata(&tmp.0).unwrap().len();
         let rows_after: i64 = real
             .conn
             .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(rows_after, rows_before, "row count changed — the wipe is visible");
-        assert_eq!(after, before, "file size changed — the wipe is visible");
+        assert_eq!(rows_after, rows_before, "row count changed â€” the wipe is visible");
+        assert_eq!(after, before, "file size changed â€” the wipe is visible");
     }
 
     #[test]
@@ -2175,6 +2222,7 @@ mod tests {
                 status: ContactStatus::Accepted,
                 saved: true,
                 verified: false,
+                pq_fingerprint: None,
             })
             .unwrap();
             s.insert_message(&NewMessage {
@@ -2200,7 +2248,7 @@ mod tests {
         }
 
         // The file on disk must not contain the identity key or the group id
-        // anywhere — not in a routing column, not in an index.
+        // anywhere â€” not in a routing column, not in an index.
         let raw = std::fs::read(&tmp.0).unwrap();
         assert!(
             !raw.windows(peer.len()).any(|w| w == peer),

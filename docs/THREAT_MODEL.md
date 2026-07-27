@@ -22,8 +22,13 @@
   recipient's device can decrypt; relays carry opaque ciphertext.
 - **Recorded traffic against a future quantum computer (session setup)** —
   PQXDH mixes a post-quantum KEM (Kyber) into the key agreement, so a session
-  captured today is not opened by a quantum computer built later. The rest of
-  the stack (identity signatures, onion routing) is still classical.
+  captured today is not opened by a quantum computer built later.
+- **Identity against a future quantum computer** (since 1.9.0) — identities are
+  signed with Ed25519 **and** ML-DSA-65 together, and a signature is accepted
+  only if both verify. Breaking the classical half does not let anyone forge an
+  invite, sign a key bundle in your name, or place themselves in the middle of a
+  conversation. Onion routing itself is still classical, as is Tor's own
+  cryptography, which is outside Umbra's control.
 - **Message length** — padded to fixed size buckets before encryption, so
   content can't be inferred from size within a bucket.
 - **Transport metadata (partial)** — onion routing (Tor) hides the network path;

@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `duress_key`, `emit`, `flush_pending`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `read_kdf`, `remember_group_routes`, `remember_peer`, `rt`, `safe_file_name`, `send_or_queue`, `send_profile`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
+// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `duress_key`, `emit`, `flush_pending`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `pq_fingerprint_of`, `read_kdf`, `remember_group_routes`, `remember_peer`, `remember_pq_fingerprint`, `rt`, `safe_file_name`, `send_or_queue`, `send_profile`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Incoming`, `Inner`, `Pending`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 
@@ -55,6 +55,10 @@ abstract class UmbraApp implements RustOpaqueInterface {
 
   /// Dial a stored contact over Tor and run the verified handshake.
   void connectPeer({required String contactHex});
+
+  /// Does this contact have a post-quantum identity? Used by the UI to say so
+  /// rather than implying protection a pre-1.9 contact does not have.
+  bool contactIsPostQuantum({required String contactHex});
 
   /// Path to a contact's cached picture, or empty if we have none.
   String contactPicturePath({required String contactHex});
@@ -201,12 +205,12 @@ abstract class UmbraApp implements RustOpaqueInterface {
   void renameContact({required String contactHex, required String name});
 
   /// Rename a group. The new name travels with the roster, so everyone sees
-  /// it (a group has no owner — see `docs/THREAT_MODEL.md`).
+  /// it (a group has no owner â€” see `docs/THREAT_MODEL.md`).
   GroupView renameGroup({required String groupIdHex, required String name});
 
   /// Throw away Tor's cached directory data and start the network again.
   ///
-  /// The identity and the onion address are kept — only what Tor can fetch
+  /// The identity and the onion address are kept â€” only what Tor can fetch
   /// again is deleted. This is the manual version of the repair the app
   /// already tries by itself when a bootstrap stalls.
   Stream<NetEvent> repairTor();
@@ -238,7 +242,7 @@ abstract class UmbraApp implements RustOpaqueInterface {
   });
 
   /// Store a message and send it. If the contact is not reachable it waits in
-  /// the encrypted outbox and goes out by itself once they appear — closing
+  /// the encrypted outbox and goes out by itself once they appear â€” closing
   /// the app does not lose it.
   void sendOverNetwork({
     required String contactHex,
@@ -276,12 +280,12 @@ abstract class UmbraApp implements RustOpaqueInterface {
   void setMyPicture({required List<int> bytes});
 
   /// Record that the user compared the number and it matched (or take it
-  /// back). Nothing in the protocol may call this — only a person can.
+  /// back). Nothing in the protocol may call this â€” only a person can.
   void setVerified({required String contactHex, required bool verified});
 
   /// Start the Tor node: bootstrap (directly, falling back to bridges when
   /// the network blocks Tor), host our onion service, and accept incoming
-  /// peers. Returns immediately — all progress arrives as [`NetEvent`]s.
+  /// peers. Returns immediately â€” all progress arrives as [`NetEvent`]s.
   Stream<NetEvent> startNetwork();
 
   String userCode();
@@ -504,7 +508,7 @@ class MessageView {
 /// An event from the network layer, pushed to the UI.
 ///
 /// `kind` is one of:
-/// `"status"` (bootstrapping / connecting…), `"onion"` (our address is ready),
+/// `"status"` (bootstrapping / connectingâ€¦), `"onion"` (our address is ready),
 /// `"connected"` / `"disconnected"` (peer session), `"message"` (incoming text),
 /// `"error"`.
 class NetEvent {

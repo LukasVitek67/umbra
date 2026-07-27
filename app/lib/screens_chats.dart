@@ -21,6 +21,7 @@ String _hhmm(DateTime t) =>
 /// screen of digits with a tick box would get ticked without being read.
 void showSafetyNumberDialog(BuildContext context, Chat chat) {
   final number = appState.safetyNumber(chat.contactHex);
+  final postQuantum = appState.contactIsPostQuantum(chat.contactHex);
   showDialog<void>(
     context: context,
     builder: (ctx) => ListenableBuilder(
@@ -61,6 +62,26 @@ void showSafetyNumberDialog(BuildContext context, Chat chat) {
                 ),
               ),
               const SizedBox(height: 14),
+              // Which schemes this identity is signed under. Said plainly,
+              // because "post-quantum" is worth nothing if the contact predates
+              // it and the app lets you assume otherwise.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(postQuantum ? Icons.shield_moon_rounded : Icons.shield_outlined,
+                      size: 16,
+                      color: postQuantum ? UmbraColors.accent : UmbraColors.textMuted),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      postQuantum ? L.t('safety.pq') : L.t('safety.noPq'),
+                      style: TextStyle(
+                          color: UmbraColors.textMuted, fontSize: 12, height: 1.4),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

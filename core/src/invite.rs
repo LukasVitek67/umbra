@@ -18,7 +18,12 @@ use base64::Engine;
 use sha2::{Digest, Sha256};
 
 const PREFIX: &str = "umbra1:";
-const VERSION: u8 = 1;
+
+/// Version 1 carried only the Ed25519 identity. Version 2 adds a commitment to
+/// the post-quantum half — 32 bytes rather than the key's own 1952, because an
+/// invite is something people paste into a chat window.
+const VERSION: u8 = 2;
+const LEGACY_VERSION: u8 = 1;
 const CHECKSUM_LEN: usize = 4;
 
 /// A shareable contact invite.
@@ -30,12 +35,37 @@ pub struct Invite {
     pub username: String,
     /// The inviter's Tor onion service address.
     pub onion: String,
+    /// SHA-256 of the inviter's ML-DSA public key, which the handshake checks
+    /// the real key against. `None` on invites written before this existed —
+    /// such a contact simply has no post-quantum protection, and saying so is
+    /// better than pretending otherwise.
+    pub pq_fingerprint: Option<[u8; 32]>,
 }
 
 impl Invite {
-    /// Build an invite.
+    /// Build an invite with no post-quantum commitment (older callers/tests).
     pub fn new(identity: PublicKey, username: impl Into<String>, onion: impl Into<String>) -> Self {
-        Self { identity, username: username.into(), onion: onion.into() }
+        Self {
+            identity,
+            username: username.into(),
+            onion: onion.into(),
+            pq_fingerprint: None,
+        }
+    }
+
+    /// Build a full invite, committing to the post-quantum identity as well.
+    pub fn with_pq(
+        identity: PublicKey,
+        username: impl Into<String>,
+        onion: impl Into<String>,
+        pq_fingerprint: [u8; 32],
+    ) -> Self {
+        Self {
+            identity,
+            username: username.into(),
+            onion: onion.into(),
+            pq_fingerprint: Some(pq_fingerprint),
+        }
     }
 
     /// The short searchable code for this identity.
@@ -46,10 +76,15 @@ impl Invite {
     /// Encode to a `umbra1:…` string.
     pub fn encode(&self) -> String {
         let mut buf = Vec::new();
-        buf.push(VERSION);
+        // An invite without a post-quantum commitment stays a version 1 invite,
+        // so it keeps working with peers that only understand that.
+        buf.push(if self.pq_fingerprint.is_some() { VERSION } else { LEGACY_VERSION });
         buf.extend_from_slice(&self.identity);
         put_str(&mut buf, &self.username);
         put_str(&mut buf, &self.onion);
+        if let Some(fp) = &self.pq_fingerprint {
+            buf.extend_from_slice(fp);
+        }
         let sum = Sha256::digest(&buf);
         buf.extend_from_slice(&sum[..CHECKSUM_LEN]);
         format!("{PREFIX}{}", URL_SAFE_NO_PAD.encode(&buf))
@@ -76,17 +111,27 @@ impl Invite {
         let mut o = 0usize;
         let version = payload[o];
         o += 1;
-        if version != VERSION {
+        if version != VERSION && version != LEGACY_VERSION {
             return Err(InviteError::BadVersion);
         }
         let identity: PublicKey = payload[o..o + 32].try_into().unwrap();
         o += 32;
         let username = take_str(payload, &mut o)?;
         let onion = take_str(payload, &mut o)?;
+        let pq_fingerprint = if version == VERSION {
+            if o + 32 > payload.len() {
+                return Err(InviteError::BadFormat);
+            }
+            let fp: [u8; 32] = payload[o..o + 32].try_into().unwrap();
+            o += 32;
+            Some(fp)
+        } else {
+            None
+        };
         if o != payload.len() {
             return Err(InviteError::BadFormat); // trailing garbage
         }
-        Ok(Invite { identity, username, onion })
+        Ok(Invite { identity, username, onion, pq_fingerprint })
     }
 }
 
@@ -156,10 +201,35 @@ mod tests {
         assert_eq!(Invite::decode("umbra1:AAAA"), Err(InviteError::BadFormat));
     }
 
+    /// A version-2 invite survives the round trip, and a version-1 one still
+    /// parses — someone's old invite must not stop working because we added a
+    /// post-quantum half.
+    #[test]
+    fn the_post_quantum_commitment_survives_the_round_trip() {
+        let inv = Invite::with_pq([1u8; 32], "alice", "abc.onion", [0xEE; 32]);
+        let decoded = Invite::decode(&inv.encode()).unwrap();
+        assert_eq!(decoded, inv);
+        assert_eq!(decoded.pq_fingerprint, Some([0xEE; 32]));
+
+        // Without one, the invite stays in the old format and still reads back.
+        let old = Invite::new([1u8; 32], "alice", "abc.onion");
+        let decoded = Invite::decode(&old.encode()).unwrap();
+        assert_eq!(decoded.pq_fingerprint, None);
+        assert_eq!(decoded.identity, [1u8; 32]);
+
+        // A truncated commitment is refused rather than half-read.
+        let mut bytes = URL_SAFE_NO_PAD
+            .decode(inv.encode().strip_prefix(PREFIX).unwrap())
+            .unwrap();
+        bytes.truncate(bytes.len() - 10);
+        let broken = format!("{PREFIX}{}", URL_SAFE_NO_PAD.encode(&bytes));
+        assert!(Invite::decode(&broken).is_err());
+    }
+
     #[test]
     fn unknown_version_rejected() {
-        // Hand-craft a well-formed but version-2 invite.
-        let mut buf = vec![2u8];
+        // Hand-craft a well-formed but version-9 invite.
+        let mut buf = vec![9u8];
         buf.extend_from_slice(&[9u8; 32]);
         buf.extend_from_slice(&0u16.to_be_bytes()); // empty username
         buf.extend_from_slice(&0u16.to_be_bytes()); // empty onion

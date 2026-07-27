@@ -8,6 +8,36 @@ person who wrote the code. Newest first.
 
 Umbra is experimental and has not been independently audited.
 
+## 1.9.0
+
+- **Post-quantum identity.** Umbra already resisted a future quantum computer
+  where *confidentiality* was concerned — sessions are set up with PQXDH, so
+  traffic recorded today cannot be opened later. Identity was the hole: every
+  signature saying "this key bundle is mine" was Ed25519, which is exactly what
+  a quantum computer breaks. That would not reveal old messages; it would let
+  someone **become you** — forge an invite, sign a bundle in your name, and sit
+  in the middle of a live conversation.
+
+  Identities are now **hybrid**: Ed25519 *and* ML-DSA-65 (FIPS-204), and a
+  signature counts only when **both** verify. Breaking either scheme is not
+  enough — the same reasoning PQXDH uses for key agreement. As far as we can
+  tell no other messenger does this: Signal's identity keys are still classical
+  and Signal says so, and Briar's are too.
+
+  - Your invite now carries a 32-byte commitment to the post-quantum key, so it
+    stays short enough to paste. The 1952-byte key itself arrives during the
+    handshake and is refused if it does not match what the invite promised.
+  - The safety number covers both halves, so comparing digits confirms the whole
+    identity rather than only its classical part.
+  - Nothing to back up and nothing to re-create: the post-quantum key is derived
+    from the identity seed you already have.
+  - Conversations show whether the other side has a post-quantum identity.
+    A contact added before 1.9.0 is protected by Ed25519 alone until you swap
+    invites again, and the app says so instead of implying otherwise.
+
+- **This changes the wire format** (version 2 → 3): 1.8.x and 1.9.x cannot talk
+  to each other. Both sides need to update, as with 1.4.0.
+
 ## 1.8.0
 
 - **Emergency passphrases.** One account can now answer to more than one

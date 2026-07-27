@@ -33,4 +33,8 @@ pub mod store;
 /// Bumped to 2 when sessions moved from Olm to the Signal protocol (PQXDH +
 /// Double Ratchet): the handshake frames changed shape, so a 1.x peer and a
 /// 2.x peer cannot talk. Both sides update through the in-app updater.
-pub const WIRE_VERSION: u16 = 2;
+/// Bumped to 3 when identities became hybrid (Ed25519 + ML-DSA-65): the PREKEY
+/// and HELLO frames carry a post-quantum key and a signature under both
+/// schemes, so a 2.x peer and a 3.x peer cannot talk. Both sides update through
+/// the in-app updater.
+pub const WIRE_VERSION: u16 = 3;
