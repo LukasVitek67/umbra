@@ -13,6 +13,101 @@ import 'theme.dart';
 String _hhmm(DateTime t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
+/// Show the safety number and let the user say whether it matched.
+///
+/// This is the only check in Umbra that needs a person. Everything else proves
+/// that the other end holds the key named in the invite; only this proves the
+/// invite was theirs. So the dialog says what to do and why, in words — a
+/// screen of digits with a tick box would get ticked without being read.
+void showSafetyNumberDialog(BuildContext context, Chat chat) {
+  final number = appState.safetyNumber(chat.contactHex);
+  showDialog<void>(
+    context: context,
+    builder: (ctx) => ListenableBuilder(
+      listenable: appState,
+      builder: (ctx, _) => AlertDialog(
+        backgroundColor: UmbraColors.surfaceHigh,
+        title: Text(L.t('safety.title').replaceAll('{name}', chat.name)),
+        content: SizedBox(
+          width: 460,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                L.t('safety.how'),
+                style: TextStyle(
+                    color: UmbraColors.textMuted, fontSize: 13, height: 1.45),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: UmbraColors.surface,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: UmbraColors.border),
+                ),
+                child: SelectableText(
+                  number,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 17,
+                    height: 1.8,
+                    letterSpacing: 1.5,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    chat.verified ? Icons.verified_user : Icons.info_outline,
+                    size: 16,
+                    color: chat.verified ? UmbraColors.accent : UmbraColors.textMuted,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      chat.verified ? L.t('safety.isVerified') : L.t('safety.warning'),
+                      style: TextStyle(
+                        color: chat.verified ? UmbraColors.accent : UmbraColors.textMuted,
+                        fontSize: 12,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(L.t('common.close')),
+          ),
+          if (chat.verified)
+            TextButton(
+              onPressed: () => appState.setVerified(chat, false),
+              child: Text(L.t('safety.unverify'),
+                  style: TextStyle(color: UmbraColors.danger)),
+            )
+          else
+            FilledButton.icon(
+              onPressed: () => appState.setVerified(chat, true),
+              icon: const Icon(Icons.check, size: 18),
+              label: Text(L.t('safety.confirm')),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
 void showAddContact(BuildContext context) {
   showDialog<void>(
     context: context,
@@ -1206,7 +1301,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                           label: Text(L.t('chat.connect')),
                         ),
                       const SizedBox(width: 8),
-                      if (chat.verified) Pill(L.t('chat.verified'), icon: Icons.verified_user),
+                      // Verified or not, the number is one click away — the
+                      // check is only worth having if it is easy to reach.
+                      InkWell(
+                        onTap: () => showSafetyNumberDialog(context, chat),
+                        borderRadius: BorderRadius.circular(999),
+                        child: chat.verified
+                            ? Pill(L.t('chat.verified'), icon: Icons.verified_user)
+                            : Pill(L.t('chat.unverified'), icon: Icons.help_outline),
+                      ),
                     ],
                   ),
                 ),

@@ -17,6 +17,7 @@ use tokio::sync::mpsc;
 use umbra_core::crypto::keystore;
 use umbra_core::identity::{user_code, Keypair};
 use umbra_core::invite::Invite;
+use umbra_core::safety;
 use umbra_core::group::{Group, GroupMember};
 use umbra_core::store::{
     Contact, ContactStatus, Direction, MessageState, NewGroupMessage, NewMessage, Store,
@@ -383,6 +384,8 @@ pub struct ContactView {
     pub status: u8,
     /// Kept in the address book.
     pub saved: bool,
+    /// The user compared safety numbers with them and said it matched.
+    pub verified: bool,
 }
 
 /// A stored message, flattened for the UI.
@@ -1110,6 +1113,10 @@ impl UmbraApp {
                 // approve, and someone worth adding is worth keeping.
                 status: ContactStatus::Accepted,
                 saved: true,
+                // Pasting an invite says where it came from, not that it was
+                // not swapped on the way. Only comparing the safety number
+                // does, and that has not happened yet.
+                verified: false,
             })
             .map_err(|e| e.to_string())?;
         CONTACTS
@@ -1125,6 +1132,7 @@ impl UmbraApp {
             added_at: now,
             status: 1,
             saved: true,
+            verified: false,
         })
     }
 
@@ -1148,8 +1156,30 @@ impl UmbraApp {
                     ContactStatus::Blocked => 2,
                 },
                 saved: c.saved,
+                verified: c.verified,
             })
             .collect())
+    }
+
+    /// The 60 digits this contact and I must both see, in groups of five.
+    ///
+    /// Empty when we have no such contact. Both sides compute it from the same
+    /// two identity keys, so reading it aloud over a channel an attacker would
+    /// have to control *as well* is what rules out a swapped invite.
+    #[frb(sync)]
+    pub fn safety_number(&self, contact_hex: String) -> String {
+        let Some(pk) = unhex(&contact_hex) else { return String::new() };
+        let g = self.inner.lock().unwrap();
+        safety::grouped(&safety::safety_number(&g.account.public(), &pk))
+    }
+
+    /// Record that the user compared the number and it matched (or take it
+    /// back). Nothing in the protocol may call this — only a person can.
+    #[frb(sync)]
+    pub fn set_verified(&self, contact_hex: String, verified: bool) -> Result<(), String> {
+        let pk = unhex(&contact_hex).ok_or_else(|| "neplatná identita".to_string())?;
+        let g = self.inner.lock().unwrap();
+        g.store.set_contact_verified(&pk, verified).map_err(|e| e.to_string())
     }
 
     /// Search every conversation for text. Both kinds of message are covered;
@@ -1595,6 +1625,7 @@ fn remember_peer(peer_hex: &str, name: Option<&str>, onion: Option<&str>) {
             // user's decision instead of appearing among real conversations.
             status: ContactStatus::Waiting,
             saved: false,
+            verified: false,
         });
         let _ = is_new;
         if let Some(name) = name {

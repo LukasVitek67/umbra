@@ -6,8 +6,8 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `emit`, `flush_pending`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `pending_count`, `read_kdf`, `remember_group_routes`, `remember_peer`, `rt`, `send_or_queue`, `send_profile`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Inner`, `Pending`
+// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `emit`, `flush_pending`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `read_kdf`, `remember_group_routes`, `remember_peer`, `rt`, `safe_file_name`, `send_or_queue`, `send_profile`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Incoming`, `Inner`, `Pending`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
 
 /// Install the update the user was offered. Progress arrives as
@@ -190,6 +190,13 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// already tries by itself when a bootstrap stalls.
   Stream<NetEvent> repairTor();
 
+  /// The 60 digits this contact and I must both see, in groups of five.
+  ///
+  /// Empty when we have no such contact. Both sides compute it from the same
+  /// two identity keys, so reading it aloud over a channel an attacker would
+  /// have to control *as well* is what rules out a swapped invite.
+  String safetyNumber({required String contactHex});
+
   /// Search every conversation for text. Both kinds of message are covered;
   /// newest first.
   List<SearchHitView> searchMessages({
@@ -236,9 +243,13 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// to everyone we are connected to.
   void setMyPicture({required List<int> bytes});
 
-  /// Start the Tor node: bootstrap (through bundled obfs4 bridges when
-  /// present), host our onion service, and accept incoming peers. Returns
-  /// immediately — all progress arrives as [`NetEvent`]s on the stream.
+  /// Record that the user compared the number and it matched (or take it
+  /// back). Nothing in the protocol may call this — only a person can.
+  void setVerified({required String contactHex, required bool verified});
+
+  /// Start the Tor node: bootstrap (directly, falling back to bridges when
+  /// the network blocks Tor), host our onion service, and accept incoming
+  /// peers. Returns immediately — all progress arrives as [`NetEvent`]s.
   Stream<NetEvent> startNetwork();
 
   String userCode();
@@ -287,6 +298,9 @@ class ContactView {
   /// Kept in the address book.
   final bool saved;
 
+  /// The user compared safety numbers with them and said it matched.
+  final bool verified;
+
   const ContactView({
     required this.identityHex,
     required this.userCode,
@@ -295,6 +309,7 @@ class ContactView {
     required this.addedAt,
     required this.status,
     required this.saved,
+    required this.verified,
   });
 
   @override
@@ -305,7 +320,8 @@ class ContactView {
       onion.hashCode ^
       addedAt.hashCode ^
       status.hashCode ^
-      saved.hashCode;
+      saved.hashCode ^
+      verified.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -318,7 +334,8 @@ class ContactView {
           onion == other.onion &&
           addedAt == other.addedAt &&
           status == other.status &&
-          saved == other.saved;
+          saved == other.saved &&
+          verified == other.verified;
 }
 
 /// One member of a group, flattened for the UI.

@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1014381508;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -668870328;
 
 // Section: executor
 
@@ -1455,6 +1455,56 @@ fn wire__crate__api__umbra__UmbraApp_repair_tor_impl(
         },
     )
 }
+fn wire__crate__api__umbra__UmbraApp_safety_number_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "UmbraApp_safety_number",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<
+                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<UmbraApp>,
+            >>::sse_decode(&mut deserializer);
+            let api_contact_hex = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            transform_result_sse::<_, ()>((move || {
+                let mut api_that_guard = None;
+                let decode_indices_ =
+                    flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                        flutter_rust_bridge::for_generated::LockableOrderInfo::new(
+                            &api_that, 0, false,
+                        ),
+                    ]);
+                for i in decode_indices_ {
+                    match i {
+                        0 => api_that_guard = Some(api_that.lockable_decode_sync_ref()),
+                        _ => unreachable!(),
+                    }
+                }
+                let api_that_guard = api_that_guard.unwrap();
+                let output_ok = Result::<_, ()>::Ok(crate::api::umbra::UmbraApp::safety_number(
+                    &*api_that_guard,
+                    api_contact_hex,
+                ))?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
 fn wire__crate__api__umbra__UmbraApp_search_messages_impl(
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -1921,6 +1971,58 @@ fn wire__crate__api__umbra__UmbraApp_set_my_picture_impl(
         },
     )
 }
+fn wire__crate__api__umbra__UmbraApp_set_verified_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "UmbraApp_set_verified",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_that = <RustOpaqueMoi<
+                flutter_rust_bridge::for_generated::RustAutoOpaqueInner<UmbraApp>,
+            >>::sse_decode(&mut deserializer);
+            let api_contact_hex = <String>::sse_decode(&mut deserializer);
+            let api_verified = <bool>::sse_decode(&mut deserializer);
+            deserializer.end();
+            transform_result_sse::<_, String>((move || {
+                let mut api_that_guard = None;
+                let decode_indices_ =
+                    flutter_rust_bridge::for_generated::lockable_compute_decode_order(vec![
+                        flutter_rust_bridge::for_generated::LockableOrderInfo::new(
+                            &api_that, 0, false,
+                        ),
+                    ]);
+                for i in decode_indices_ {
+                    match i {
+                        0 => api_that_guard = Some(api_that.lockable_decode_sync_ref()),
+                        _ => unreachable!(),
+                    }
+                }
+                let api_that_guard = api_that_guard.unwrap();
+                let output_ok = crate::api::umbra::UmbraApp::set_verified(
+                    &*api_that_guard,
+                    api_contact_hex,
+                    api_verified,
+                )?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
 fn wire__crate__api__umbra__UmbraApp_start_network_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -2341,6 +2443,7 @@ impl SseDecode for crate::api::umbra::ContactView {
         let mut var_addedAt = <u64>::sse_decode(deserializer);
         let mut var_status = <u8>::sse_decode(deserializer);
         let mut var_saved = <bool>::sse_decode(deserializer);
+        let mut var_verified = <bool>::sse_decode(deserializer);
         return crate::api::umbra::ContactView {
             identity_hex: var_identityHex,
             user_code: var_userCode,
@@ -2349,6 +2452,7 @@ impl SseDecode for crate::api::umbra::ContactView {
             added_at: var_addedAt,
             status: var_status,
             saved: var_saved,
+            verified: var_verified,
         };
     }
 }
@@ -2612,10 +2716,10 @@ fn pde_ffi_dispatcher_primary_impl(
 ) {
     // Codec=Pde (Serialization + dispatch), see doc to use other codecs
     match func_id {
-        41 => {
+        43 => {
             wire__crate__api__umbra__UmbraApp_start_network_impl(port, ptr, rust_vec_len, data_len)
         }
-        46 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
+        48 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2667,28 +2771,30 @@ fn pde_ffi_dispatcher_sync_impl(
         29 => wire__crate__api__umbra__UmbraApp_rename_contact_impl(ptr, rust_vec_len, data_len),
         30 => wire__crate__api__umbra__UmbraApp_rename_group_impl(ptr, rust_vec_len, data_len),
         31 => wire__crate__api__umbra__UmbraApp_repair_tor_impl(ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__umbra__UmbraApp_search_messages_impl(ptr, rust_vec_len, data_len),
-        33 => wire__crate__api__umbra__UmbraApp_send_file_impl(ptr, rust_vec_len, data_len),
-        34 => {
+        32 => wire__crate__api__umbra__UmbraApp_safety_number_impl(ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__umbra__UmbraApp_search_messages_impl(ptr, rust_vec_len, data_len),
+        34 => wire__crate__api__umbra__UmbraApp_send_file_impl(ptr, rust_vec_len, data_len),
+        35 => {
             wire__crate__api__umbra__UmbraApp_send_group_message_impl(ptr, rust_vec_len, data_len)
         }
-        35 => wire__crate__api__umbra__UmbraApp_send_over_network_impl(ptr, rust_vec_len, data_len),
-        36 => wire__crate__api__umbra__UmbraApp_set_autologin_impl(ptr, rust_vec_len, data_len),
-        37 => wire__crate__api__umbra__UmbraApp_set_contact_saved_impl(ptr, rust_vec_len, data_len),
-        38 => {
+        36 => wire__crate__api__umbra__UmbraApp_send_over_network_impl(ptr, rust_vec_len, data_len),
+        37 => wire__crate__api__umbra__UmbraApp_set_autologin_impl(ptr, rust_vec_len, data_len),
+        38 => wire__crate__api__umbra__UmbraApp_set_contact_saved_impl(ptr, rust_vec_len, data_len),
+        39 => {
             wire__crate__api__umbra__UmbraApp_set_contact_status_impl(ptr, rust_vec_len, data_len)
         }
-        39 => {
+        40 => {
             wire__crate__api__umbra__UmbraApp_set_custom_bridges_impl(ptr, rust_vec_len, data_len)
         }
-        40 => wire__crate__api__umbra__UmbraApp_set_my_picture_impl(ptr, rust_vec_len, data_len),
-        42 => wire__crate__api__umbra__UmbraApp_user_code_impl(ptr, rust_vec_len, data_len),
-        43 => wire__crate__api__umbra__UmbraApp_username_impl(ptr, rust_vec_len, data_len),
-        44 => wire__crate__api__umbra__app_version_impl(ptr, rust_vec_len, data_len),
-        45 => wire__crate__api__simple__greet_impl(ptr, rust_vec_len, data_len),
-        47 => wire__crate__api__umbra__install_update_impl(ptr, rust_vec_len, data_len),
-        48 => wire__crate__api__umbra__offered_update_impl(ptr, rust_vec_len, data_len),
-        49 => wire__crate__api__umbra__set_native_dir_impl(ptr, rust_vec_len, data_len),
+        41 => wire__crate__api__umbra__UmbraApp_set_my_picture_impl(ptr, rust_vec_len, data_len),
+        42 => wire__crate__api__umbra__UmbraApp_set_verified_impl(ptr, rust_vec_len, data_len),
+        44 => wire__crate__api__umbra__UmbraApp_user_code_impl(ptr, rust_vec_len, data_len),
+        45 => wire__crate__api__umbra__UmbraApp_username_impl(ptr, rust_vec_len, data_len),
+        46 => wire__crate__api__umbra__app_version_impl(ptr, rust_vec_len, data_len),
+        47 => wire__crate__api__simple__greet_impl(ptr, rust_vec_len, data_len),
+        49 => wire__crate__api__umbra__install_update_impl(ptr, rust_vec_len, data_len),
+        50 => wire__crate__api__umbra__offered_update_impl(ptr, rust_vec_len, data_len),
+        51 => wire__crate__api__umbra__set_native_dir_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -2743,6 +2849,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::umbra::ContactView {
             self.added_at.into_into_dart().into_dart(),
             self.status.into_into_dart().into_dart(),
             self.saved.into_into_dart().into_dart(),
+            self.verified.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2959,6 +3066,7 @@ impl SseEncode for crate::api::umbra::ContactView {
         <u64>::sse_encode(self.added_at, serializer);
         <u8>::sse_encode(self.status, serializer);
         <bool>::sse_encode(self.saved, serializer);
+        <bool>::sse_encode(self.verified, serializer);
     }
 }
 

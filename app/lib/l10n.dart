@@ -88,6 +88,21 @@ class L {
       'chat.connect': 'Connect',
       'chat.connected': 'Connected',
       'chat.verified': 'Verified',
+      'chat.unverified': 'Not verified',
+      'safety.title': 'Safety number with {name}',
+      'safety.how':
+          'Read these 60 digits to each other — over a phone call where you know '
+          'the voice, or standing next to each other. If they match on both '
+          'screens, nobody is sitting in the middle of this conversation.',
+      'safety.warning':
+          'Until you have compared them, everything is encrypted, but there is '
+          'no proof the invite you used really came from this person. Compare '
+          'all of the digits: checking a few is not almost as good.',
+      'safety.isVerified':
+          'You confirmed these digits matched. If they ever change, the person '
+          'reinstalled Umbra or someone is impersonating them — compare again.',
+      'safety.confirm': 'The numbers match',
+      'safety.unverify': 'Undo verification',
       'chat.verify': 'Verify',
       'chat.compose': 'Write a message…',
       'chat.attach': 'Send a file (encrypted)',
@@ -341,6 +356,22 @@ class L {
       'chat.connect': 'Připojit',
       'chat.connected': 'Spojeno',
       'chat.verified': 'Ověřeno',
+      'chat.unverified': 'Neověřeno',
+      'safety.title': 'Bezpečnostní číslo s {name}',
+      'safety.how':
+          'Přečtěte si těchto 60 číslic navzájem — po telefonu, kde poznáš hlas, '
+          'nebo osobně vedle sebe. Když se na obou obrazovkách shodují, nikdo '
+          'nesedí uprostřed vaší konverzace.',
+      'safety.warning':
+          'Dokud je neporovnáte, je sice všechno šifrované, ale nic nedokazuje, '
+          'že pozvánka opravdu přišla od tohoto člověka. Porovnejte všechny '
+          'číslice — zkontrolovat jen pár není skoro stejně dobré.',
+      'safety.isVerified':
+          'Potvrdil jsi, že se číslice shodovaly. Pokud se někdy změní, buď si '
+          'ten člověk přeinstaloval Umbru, nebo se za něj někdo vydává — '
+          'porovnejte je znovu.',
+      'safety.confirm': 'Čísla se shodují',
+      'safety.unverify': 'Zrušit ověření',
       'chat.verify': 'Ověřit',
       'chat.compose': 'Napiš zprávu…',
       'chat.attach': 'Poslat soubor (šifrovaně)',

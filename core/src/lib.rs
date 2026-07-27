@@ -24,6 +24,7 @@ pub mod error;
 pub mod group;
 pub mod identity;
 pub mod invite;
+pub mod safety;
 pub mod store;
 
 /// Semantic version of the wire/framing format. Bump on any incompatible change

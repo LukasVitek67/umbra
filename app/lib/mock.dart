@@ -836,7 +836,8 @@ class AppState extends ChangeNotifier {
         userCode: c.userCode,
       )
         ..status = c.status
-        ..saved = c.saved;
+        ..saved = c.saved
+        ..verified = c.verified;
       for (final m in app.listMessages(contactHex: c.identityHex, limit: 500)) {
         chat.messages.add(Message(
           m.body,
@@ -1078,8 +1079,21 @@ class AppState extends ChangeNotifier {
   /// A shareable `umbra1:` invite (empty until our onion address is ready).
   String myInvite() => _app?.myInvite() ?? '';
 
-  void toggleVerified(Chat chat) {
-    chat.verified = !chat.verified;
+  /// The 60 digits this contact and I must both read, in groups of five.
+  String safetyNumber(String contactHex) =>
+      _app?.safetyNumber(contactHex: contactHex) ?? '';
+
+  /// Record the user's own answer to "did the numbers match?".
+  ///
+  /// This used to flip a flag that lived only in memory and was never shown,
+  /// so nothing was ever verified. Now it is stored with the contact.
+  void setVerified(Chat chat, bool verified) {
+    try {
+      _app?.setVerified(contactHex: chat.contactHex, verified: verified);
+      chat.verified = verified;
+    } catch (e) {
+      lastError = _clean(e);
+    }
     notifyListeners();
   }
 

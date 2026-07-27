@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS contacts (
     onion_addr      BLOB NOT NULL,      -- sealed
     added_at        INTEGER NOT NULL,
     status          INTEGER NOT NULL DEFAULT 1, -- 0 waiting, 1 accepted, 2 blocked
-    saved           INTEGER NOT NULL DEFAULT 0  -- kept in the address book
+    saved           INTEGER NOT NULL DEFAULT 0, -- kept in the address book
+    verified        INTEGER NOT NULL DEFAULT 0  -- safety number compared in person
 );
 CREATE TABLE IF NOT EXISTS messages (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -199,6 +200,9 @@ pub struct Contact {
     /// Kept in the address book, so they can be picked later (e.g. added to a
     /// group) without digging through old conversations.
     pub saved: bool,
+    /// The user compared the safety number with this person out of band and
+    /// said it matched. Only ever set by an explicit human decision.
+    pub verified: bool,
 }
 
 /// How far an outgoing message got.
@@ -562,6 +566,14 @@ impl Store {
                 "ALTER TABLE contacts ADD COLUMN saved INTEGER NOT NULL DEFAULT 0",
             )?;
         }
+        // Nobody has compared a safety number before this column existed, so
+        // every existing contact starts unverified. Defaulting the other way
+        // would be a lie the user never told.
+        if !Self::has_column(conn, "contacts", "verified")? {
+            conn.execute_batch(
+                "ALTER TABLE contacts ADD COLUMN verified INTEGER NOT NULL DEFAULT 0",
+            )?;
+        }
         Ok(())
     }
 
@@ -637,8 +649,8 @@ impl Store {
         let onion = self.seal(c.onion_addr.as_bytes())?;
         let bi = self.indexed(&c.identity_pubkey)?;
         self.conn.execute(
-            "INSERT INTO contacts(identity_pubkey, display_name, onion_addr, added_at, status, saved)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO contacts(identity_pubkey, display_name, onion_addr, added_at, status, saved, verified)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(identity_pubkey) DO UPDATE SET
                  display_name = excluded.display_name,
                  onion_addr   = excluded.onion_addr",
@@ -648,7 +660,8 @@ impl Store {
                 onion,
                 c.added_at as i64,
                 c.status.to_i64(),
-                c.saved as i64
+                c.saved as i64,
+                c.verified as i64
             ],
         )?;
         Ok(())
@@ -656,24 +669,25 @@ impl Store {
 
     /// Fetch a contact by identity key.
     pub fn get_contact(&self, identity_pubkey: &[u8; 32]) -> Result<Option<Contact>, StoreError> {
-        let row: Option<(Vec<u8>, Vec<u8>, i64, i64, i64)> = self
+        let row: Option<(Vec<u8>, Vec<u8>, i64, i64, i64, i64)> = self
             .conn
             .query_row(
-                "SELECT display_name, onion_addr, added_at, status, saved
+                "SELECT display_name, onion_addr, added_at, status, saved, verified
                  FROM contacts WHERE identity_pubkey = ?1",
                 params![self.bi(identity_pubkey)],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
             )
             .optional()?;
         match row {
             None => Ok(None),
-            Some((name_ct, onion_ct, added, status, saved)) => Ok(Some(Contact {
+            Some((name_ct, onion_ct, added, status, saved, verified)) => Ok(Some(Contact {
                 identity_pubkey: *identity_pubkey,
                 display_name: self.decrypt_string(&name_ct)?,
                 onion_addr: self.decrypt_string(&onion_ct)?,
                 added_at: added as u64,
                 status: ContactStatus::from_i64(status),
                 saved: saved != 0,
+                verified: verified != 0,
             })),
         }
     }
@@ -681,7 +695,7 @@ impl Store {
     /// List all contacts, newest first.
     pub fn list_contacts(&self) -> Result<Vec<Contact>, StoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT identity_pubkey, display_name, onion_addr, added_at, status, saved
+            "SELECT identity_pubkey, display_name, onion_addr, added_at, status, saved, verified
              FROM contacts ORDER BY added_at DESC",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -692,11 +706,13 @@ impl Store {
                 r.get::<_, i64>(3)?,
                 r.get::<_, i64>(4)?,
                 r.get::<_, i64>(5)?,
+                r.get::<_, i64>(6)?,
             ))
         })?;
+        let found: Vec<(Vec<u8>, Vec<u8>, Vec<u8>, i64, i64, i64, i64)> =
+            rows.collect::<Result<_, _>>()?;
         let mut out = Vec::new();
-        for row in rows {
-            let (pk, name_ct, onion_ct, added, status, saved) = row?;
+        for (pk, name_ct, onion_ct, added, status, saved, verified) in found {
             out.push(Contact {
                 identity_pubkey: self.key32_of(&pk)?,
                 display_name: self.decrypt_string(&name_ct)?,
@@ -704,6 +720,7 @@ impl Store {
                 added_at: added as u64,
                 status: ContactStatus::from_i64(status),
                 saved: saved != 0,
+                verified: verified != 0,
             });
         }
         Ok(out)
@@ -741,6 +758,22 @@ impl Store {
         self.conn.execute(
             "UPDATE contacts SET saved = ?2 WHERE identity_pubkey = ?1",
             params![self.bi(identity_pubkey), saved as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Record that the user compared safety numbers with this contact.
+    ///
+    /// Only ever called from an explicit human decision — nothing in the
+    /// protocol may set this, or the badge would stop meaning anything.
+    pub fn set_contact_verified(
+        &self,
+        identity_pubkey: &[u8; 32],
+        verified: bool,
+    ) -> Result<(), StoreError> {
+        self.conn.execute(
+            "UPDATE contacts SET verified = ?2 WHERE identity_pubkey = ?1",
+            params![self.bi(identity_pubkey), verified as i64],
         )?;
         Ok(())
     }
@@ -1117,6 +1150,9 @@ impl Store {
                 // the user to approve it again would be nonsense.
                 status: ContactStatus::Accepted,
                 saved: false,
+                // Nobody has compared anything: an old thread proves they talked
+                // to us, not that they are who we think.
+                verified: false,
             })?;
             added += 1;
         }
@@ -1335,6 +1371,7 @@ mod tests {
             added_at: 1_700_000_000,
             status: ContactStatus::Accepted,
             saved: false,
+            verified: false,
         }
     }
 
@@ -1347,6 +1384,9 @@ mod tests {
 
         s.set_contact_status(&c.identity_pubkey, ContactStatus::Blocked).unwrap();
         s.set_contact_saved(&c.identity_pubkey, true).unwrap();
+        // Verification is remembered, and survives everything else changing.
+        s.set_contact_verified(&c.identity_pubkey, true).unwrap();
+        assert!(s.get_contact(&c.identity_pubkey).unwrap().unwrap().verified);
         s.rename_contact(&c.identity_pubkey, "  Alice z prace  ").unwrap();
         assert!(s.is_blocked(&c.identity_pubkey).unwrap());
 
@@ -1790,6 +1830,7 @@ mod tests {
                 added_at: 1,
                 status: ContactStatus::Accepted,
                 saved: true,
+                verified: false,
             })
             .unwrap();
             s.insert_message(&NewMessage {
