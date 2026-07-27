@@ -35,8 +35,6 @@ Umbra is experimental and has not been independently audited.
   outside this app's reach that no passphrase of ours can clear. Umbra now draws
   its own notices inside its own window instead, leaving nothing behind.
 
-## 1.7.1
-
 - **You can now verify who you are actually talking to.** Every conversation
   shows a **safety number** — 60 digits derived from both identity keys. Read
   them to each other over a phone call where you know the voice, or standing
