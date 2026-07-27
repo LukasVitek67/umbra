@@ -130,6 +130,42 @@ CREATE INDEX IF NOT EXISTS idx_group_messages
     ON group_messages(group_id, sent_at);
 ";
 
+/// Secret holding [`ProfileKind`] for whichever passphrase opened the store.
+const PROFILE_KIND: &str = "profile.kind";
+
+/// What a passphrase opens.
+///
+/// One database can answer to several passphrases. Each derives its own key,
+/// each sees only the rows sealed under that key, and **nothing in the file
+/// says how many there are** — a row nobody can read looks the same whether it
+/// belongs to another profile, was overwritten, or never meant anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileKind {
+    /// The real account.
+    Normal,
+    /// A separate, self-contained history to show instead of the real one.
+    Decoy,
+    /// Destroys everything it cannot read, then behaves like a fresh account.
+    Wipe,
+}
+
+impl ProfileKind {
+    fn as_bytes(self) -> &'static [u8] {
+        match self {
+            ProfileKind::Normal => b"normal",
+            ProfileKind::Decoy => b"decoy",
+            ProfileKind::Wipe => b"wipe",
+        }
+    }
+    fn from_bytes(v: &[u8]) -> Self {
+        match v {
+            b"decoy" => ProfileKind::Decoy,
+            b"wipe" => ProfileKind::Wipe,
+            _ => ProfileKind::Normal,
+        }
+    }
+}
+
 /// Direction of a stored message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -422,6 +458,25 @@ impl Store {
         self.value_of(bi)?.as_slice().try_into().map_err(|_| StoreError::Corrupt)
     }
 
+    /// The same, but "I cannot read this" answers `None` instead of failing.
+    ///
+    /// One file can hold rows written under more than one passphrase — that is
+    /// what makes a second, separate history possible without the file showing
+    /// that it has one. A row this key cannot open is not damage and not an
+    /// error: it is simply not ours, and listing must walk straight past it.
+    fn try_key32_of(&self, bi: &[u8]) -> Option<[u8; 32]> {
+        self.value_of(bi).ok().and_then(|v| to_key32(&v).ok())
+    }
+
+    fn try_id16_of(&self, bi: &[u8]) -> Option<[u8; 16]> {
+        self.value_of(bi).ok().and_then(|v| v.as_slice().try_into().ok())
+    }
+
+    fn try_decrypt_string(&self, blob: &[u8]) -> Option<String> {
+        let bytes = self.unseal(blob).ok()?;
+        String::from_utf8(bytes.to_vec()).ok()
+    }
+
     /// Convert a database written before the blind index existed.
     ///
     /// Runs once, inside a transaction: either every routing column is an index
@@ -467,12 +522,21 @@ impl Store {
             ] {
                 self.reindex_column(table, column, len)?;
             }
+            self.reindex_secret_names()?;
             Ok(())
         })();
         match converted {
             Ok(()) => {
                 self.conn.execute_batch("COMMIT")?;
-                self.put_secret(BLIND_INDEX_MARK, b"1")?;
+                // Written under its plain name on purpose — it is a fact about
+                // the *file*, not about any one passphrase, and it must be
+                // findable without deriving a key. It says nothing about how
+                // many passphrases the file answers to.
+                self.conn.execute(
+                    "INSERT INTO secrets(name, value) VALUES(?1, ?2)
+                     ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+                    params![BLIND_INDEX_MARK, self.seal(b"1")?],
+                )?;
                 Ok(())
             }
             Err(e) => {
@@ -498,6 +562,30 @@ impl Store {
             return; // a previous attempt already made one; do not overwrite it
         }
         let _ = std::fs::copy(&path, &backup);
+    }
+
+    /// Move the secrets of an older database onto blind-indexed names.
+    ///
+    /// Their names were written in the clear (`identity_seed`, `avatar`), which
+    /// both describes the contents and would collide the moment a second
+    /// passphrase wanted a row of its own.
+    fn reindex_secret_names(&self) -> Result<(), StoreError> {
+        let names: Vec<String> = {
+            let mut stmt = self.conn.prepare("SELECT name FROM secrets")?;
+            let rows = stmt.query_map([], |r| r.get::<_, Option<String>>(0))?;
+            rows.filter_map(|r| r.transpose()).collect::<Result<_, _>>()?
+        };
+        for name in names {
+            if name == BLIND_INDEX_MARK {
+                continue; // stays readable by design, see above
+            }
+            let bi = self.indexed(name.as_bytes())?;
+            self.conn.execute(
+                "UPDATE secrets SET name = ?2 WHERE name = ?1",
+                params![name, bi],
+            )?;
+        }
+        Ok(())
     }
 
     /// Does our key actually open what is already in this file?
@@ -615,26 +703,136 @@ impl Store {
     // --- secrets (identity seed, roster, session pickles, …) ---
 
     /// Store a named secret (overwrites any existing value).
+    ///
+    /// The *name* is blind-indexed like every other lookup key, which is what
+    /// lets two passphrases share one file without either being able to see
+    /// that the other exists: the same name under a different key lands on a
+    /// different row, and neither row says what it is for.
     pub fn put_secret(&self, name: &str, plaintext: &[u8]) -> Result<(), StoreError> {
         let value = self.seal(plaintext)?;
+        let key = self.indexed(name.as_bytes())?;
         self.conn.execute(
             "INSERT INTO secrets(name, value) VALUES(?1, ?2)
              ON CONFLICT(name) DO UPDATE SET value = excluded.value",
-            params![name, value],
+            params![key, value],
         )?;
         Ok(())
     }
 
     /// Fetch a named secret, or `None` if absent.
+    ///
+    /// A row written under a different passphrase is simply *not there* as far
+    /// as this key is concerned — not an error, because "the file holds
+    /// something I cannot read" is exactly what must never be observable.
     pub fn get_secret(&self, name: &str) -> Result<Option<Zeroizing<Vec<u8>>>, StoreError> {
         let blob: Option<Vec<u8>> = self
             .conn
-            .query_row("SELECT value FROM secrets WHERE name = ?1", params![name], |r| r.get(0))
+            .query_row(
+                "SELECT value FROM secrets WHERE name = ?1",
+                params![self.bi(name.as_bytes())],
+                |r| r.get(0),
+            )
             .optional()?;
-        match blob {
-            Some(b) => Ok(Some(self.unseal(&b)?)),
-            None => Ok(None),
+        // A value that will not open is treated as absent, exactly like a row
+        // belonging to another passphrase. That consistency is the point: after
+        // a duress wipe the app must look like a fresh, empty account, not like
+        // a damaged one — a "database corrupt" message would announce that
+        // something used to be there.
+        Ok(blob.and_then(|b| self.unseal(&b).ok()))
+    }
+
+    // --- profiles: what a passphrase opens ---
+
+    /// What this passphrase is for. Absent means an ordinary account, which is
+    /// what every database written before profiles existed contains.
+    pub fn profile_kind(&self) -> ProfileKind {
+        match self.get_secret(PROFILE_KIND) {
+            Ok(Some(v)) => ProfileKind::from_bytes(&v),
+            _ => ProfileKind::Normal,
         }
+    }
+
+    /// Mark what this passphrase opens. Stored like any other secret, so from
+    /// outside it is one more unreadable row among the rest.
+    pub fn set_profile_kind(&self, kind: ProfileKind) -> Result<(), StoreError> {
+        self.put_secret(PROFILE_KIND, kind.as_bytes())
+    }
+
+    /// Destroy every row this key cannot read, in place.
+    ///
+    /// Used by a duress passphrase: it does not know the real key, so it cannot
+    /// tell a real row from a decoy one — it destroys everything that is not
+    /// its own. Sealed values are overwritten with random bytes **of the same
+    /// length**, and rows are not deleted, so the file keeps its size, its row
+    /// counts and its shape. What is gone is the content, and it is gone for
+    /// good: there is no key that opens random bytes.
+    ///
+    /// Returns how many values were overwritten.
+    ///
+    /// This cannot defeat someone who copied the disk *before* it ran. Nothing
+    /// running on the machine afterwards can — see `docs/DURESS.md`.
+    pub fn destroy_unreadable(&self) -> Result<usize, StoreError> {
+        // Every column that holds a sealed value, with its table.
+        const SEALED: [(&str, &str); 11] = [
+            ("secrets", "value"),
+            ("blind_index", "sealed"),
+            ("contacts", "display_name"),
+            ("contacts", "onion_addr"),
+            ("messages", "body"),
+            ("outbox", "payload"),
+            ("outbox", "body"),
+            ("groups", "name"),
+            ("group_members", "display_name"),
+            ("group_members", "onion_addr"),
+            ("group_messages", "body"),
+        ];
+        let mut destroyed = 0usize;
+        self.conn.execute_batch("BEGIN IMMEDIATE")?;
+        let result = (|| -> Result<(), StoreError> {
+            for (table, column) in SEALED {
+                let rows: Vec<(i64, Vec<u8>)> = {
+                    let mut stmt = self
+                        .conn
+                        .prepare(&format!("SELECT rowid, {column} FROM {table}"))?;
+                    let rows = stmt.query_map([], |r| {
+                        Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?))
+                    })?;
+                    rows.collect::<Result<_, _>>()?
+                };
+                for (rowid, blob) in rows {
+                    if self.unseal(&blob).is_ok() {
+                        continue; // ours, and this passphrase is allowed to keep it
+                    }
+                    let mut noise = vec![0u8; blob.len()];
+                    getrandom::getrandom(&mut noise).map_err(|_| StoreError::Rng)?;
+                    self.conn.execute(
+                        &format!("UPDATE {table} SET {column} = ?2 WHERE rowid = ?1"),
+                        params![rowid, noise],
+                    )?;
+                    destroyed += 1;
+                }
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                self.conn.execute_batch("COMMIT")?;
+                Ok(destroyed)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
+    }
+
+    /// Remove a named secret.
+    pub fn delete_secret(&self, name: &str) -> Result<(), StoreError> {
+        self.conn.execute(
+            "DELETE FROM secrets WHERE name = ?1",
+            params![self.bi(name.as_bytes())],
+        )?;
+        Ok(())
     }
 
     // --- contacts ---
@@ -713,10 +911,18 @@ impl Store {
             rows.collect::<Result<_, _>>()?;
         let mut out = Vec::new();
         for (pk, name_ct, onion_ct, added, status, saved, verified) in found {
+            // Rows belonging to another passphrase are skipped, not reported.
+            let (Some(identity_pubkey), Some(display_name), Some(onion_addr)) = (
+                self.try_key32_of(&pk),
+                self.try_decrypt_string(&name_ct),
+                self.try_decrypt_string(&onion_ct),
+            ) else {
+                continue;
+            };
             out.push(Contact {
-                identity_pubkey: self.key32_of(&pk)?,
-                display_name: self.decrypt_string(&name_ct)?,
-                onion_addr: self.decrypt_string(&onion_ct)?,
+                identity_pubkey,
+                display_name,
+                onion_addr,
                 added_at: added as u64,
                 status: ContactStatus::from_i64(status),
                 saved: saved != 0,
@@ -927,7 +1133,9 @@ impl Store {
         let mut out = Vec::new();
         for row in rows {
             let (pk, n) = row?;
-            out.push((self.key32_of(&pk)?, n as u32));
+            if let Some(peer) = self.try_key32_of(&pk) {
+                out.push((peer, n as u32));
+            }
         }
         Ok(out)
     }
@@ -998,12 +1206,17 @@ impl Store {
                 break;
             }
             let (id, peer, dir, sent_at, body_ct) = row?;
-            let body = self.unseal(&body_ct)?;
+            // Not ours to read: another passphrase wrote it.
+            let (Some(body), Some(peer_pubkey)) =
+                (self.unseal(&body_ct).ok(), self.try_key32_of(&peer))
+            else {
+                continue;
+            };
             let text = String::from_utf8_lossy(&body).to_string();
             if text.to_lowercase().contains(&needle) {
                 hits.push(SearchHit {
                     id,
-                    peer_pubkey: self.key32_of(&peer)?,
+                    peer_pubkey,
                     group_id: None,
                     outgoing: Direction::from_i64(dir)? == Direction::Outgoing,
                     sent_at: sent_at as u64,
@@ -1031,13 +1244,19 @@ impl Store {
                 break;
             }
             let (id, gid, sender, dir, sent_at, body_ct) = row?;
-            let body = self.unseal(&body_ct)?;
+            let (Some(body), Some(peer_pubkey), Some(group)) = (
+                self.unseal(&body_ct).ok(),
+                self.try_key32_of(&sender),
+                self.try_id16_of(&gid),
+            ) else {
+                continue;
+            };
             let text = String::from_utf8_lossy(&body).to_string();
             if text.to_lowercase().contains(&needle) {
                 hits.push(SearchHit {
                     id,
-                    peer_pubkey: self.key32_of(&sender)?,
-                    group_id: Some(self.id16_of(&gid)?),
+                    peer_pubkey,
+                    group_id: Some(group),
                     outgoing: Direction::from_i64(dir)? == Direction::Outgoing,
                     sent_at: sent_at as u64,
                     body: text,
@@ -1120,7 +1339,9 @@ impl Store {
         let indexes: Vec<Vec<u8>> = rows.collect::<Result<_, _>>()?;
         let mut out = Vec::new();
         for bi in indexes {
-            out.push(self.key32_of(&bi)?);
+            if let Some(pk) = self.try_key32_of(&bi) {
+                out.push(pk);
+            }
         }
         Ok(out)
     }
@@ -1226,11 +1447,14 @@ impl Store {
         let members: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = rows.collect::<Result<_, _>>()?;
         let mut out = Vec::new();
         for (pk, name_ct, onion_ct) in members {
-            out.push(GroupMember {
-                identity: self.key32_of(&pk)?,
-                display_name: self.decrypt_string(&name_ct)?,
-                onion: self.decrypt_string(&onion_ct)?,
-            });
+            let (Some(identity), Some(display_name), Some(onion)) = (
+                self.try_key32_of(&pk),
+                self.try_decrypt_string(&name_ct),
+                self.try_decrypt_string(&onion_ct),
+            ) else {
+                continue;
+            };
+            out.push(GroupMember { identity, display_name, onion });
         }
         Ok(out)
     }
@@ -1246,7 +1470,7 @@ impl Store {
         };
         let mut out = Vec::with_capacity(ids.len());
         for id in ids {
-            let gid = self.id16_of(&id)?;
+            let Some(gid) = self.try_id16_of(&id) else { continue };
             if let Some(g) = self.get_group(&gid)? {
                 out.push(g);
             }
@@ -1803,16 +2027,136 @@ mod tests {
             let s = Store::open(&tmp.0, &[5u8; 32]).unwrap();
             s.upsert_contact(&sample_contact()).unwrap();
         }
-        // Reopen with a different data key. Reading everything fails, because
-        // the sealed values do not open.
+        // Reopen with a different data key. The rows are simply not visible:
+        // another key's data must look like absence, not like a locked door,
+        // or a second passphrase could never share the file unnoticed.
         let s = Store::open(&tmp.0, &[6u8; 32]).unwrap();
-        assert_eq!(s.list_contacts(), Err(StoreError::Corrupt));
+        assert_eq!(s.list_contacts(), Ok(Vec::new()));
         // Asking about one specific person now answers "nobody like that here"
         // rather than "yes, but you cannot read it": the routing column holds a
         // blind index, and the wrong key computes a different one. Whoever takes
         // the file cannot even confirm a guess about who is in it.
         assert_eq!(s.get_contact(&[7u8; 32]), Ok(None));
         assert!(!s.is_blocked(&[7u8; 32]).unwrap());
+    }
+
+    /// Two passphrases, one file, neither able to see the other.
+    #[test]
+    fn a_second_passphrase_gets_its_own_separate_history() {
+        let tmp = TempDb::new();
+        let real_key = [1u8; 32];
+        let decoy_key = [2u8; 32];
+
+        {
+            let real = Store::open(&tmp.0, &real_key).unwrap();
+            real.set_profile_kind(ProfileKind::Normal).unwrap();
+            real.put_secret("identity_seed", b"the real identity").unwrap();
+            real.upsert_contact(&Contact {
+                identity_pubkey: [0xAAu8; 32],
+                display_name: "Skutecny kontakt".into(),
+                onion_addr: "real.onion".into(),
+                added_at: 1,
+                status: ContactStatus::Accepted,
+                saved: true,
+                verified: true,
+            })
+            .unwrap();
+            real.insert_message(&NewMessage {
+                contact_pubkey: [0xAAu8; 32],
+                direction: Direction::Incoming,
+                sent_at: 10,
+                body: b"neco co nikdo nema videt",
+            })
+            .unwrap();
+        }
+        {
+            let decoy = Store::open(&tmp.0, &decoy_key).unwrap();
+            decoy.set_profile_kind(ProfileKind::Decoy).unwrap();
+            decoy.put_secret("identity_seed", b"a different identity").unwrap();
+            decoy.upsert_contact(&Contact {
+                identity_pubkey: [0xBBu8; 32],
+                display_name: "Nastraceny kontakt".into(),
+                onion_addr: "decoy.onion".into(),
+                added_at: 2,
+                status: ContactStatus::Accepted,
+                saved: true,
+                verified: false,
+            })
+            .unwrap();
+        }
+
+        // Each side sees exactly its own, and nothing suggests the other.
+        let real = Store::open(&tmp.0, &real_key).unwrap();
+        let seen = real.list_contacts().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].display_name, "Skutecny kontakt");
+        assert_eq!(real.profile_kind(), ProfileKind::Normal);
+        assert_eq!(&*real.get_secret("identity_seed").unwrap().unwrap(), b"the real identity");
+        assert_eq!(real.search_messages("nikdo", 10).unwrap().len(), 1);
+
+        let decoy = Store::open(&tmp.0, &decoy_key).unwrap();
+        let seen = decoy.list_contacts().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].display_name, "Nastraceny kontakt");
+        assert_eq!(decoy.profile_kind(), ProfileKind::Decoy);
+        assert_eq!(&*decoy.get_secret("identity_seed").unwrap().unwrap(), b"a different identity");
+        // The real conversation is not merely hidden from the UI — it cannot be
+        // found by searching either.
+        assert!(decoy.search_messages("nikdo", 10).unwrap().is_empty());
+        assert!(decoy.message_peers().unwrap().is_empty());
+    }
+
+    /// A duress passphrase destroys what it cannot read, and the file keeps its
+    /// size and shape so the destruction does not announce itself.
+    #[test]
+    fn a_duress_passphrase_destroys_the_real_history_in_place() {
+        let tmp = TempDb::new();
+        let real_key = [3u8; 32];
+        let panic_key = [4u8; 32];
+
+        {
+            let real = Store::open(&tmp.0, &real_key).unwrap();
+            real.put_secret("identity_seed", b"real seed").unwrap();
+            for i in 0..20 {
+                real.insert_message(&NewMessage {
+                    contact_pubkey: [0xCCu8; 32],
+                    direction: Direction::Incoming,
+                    sent_at: i,
+                    body: b"tajna zprava ktera musi zmizet",
+                })
+                .unwrap();
+            }
+        }
+        let before = std::fs::metadata(&tmp.0).unwrap().len();
+        let rows_before: i64 = {
+            let s = Store::open(&tmp.0, &panic_key).unwrap();
+            s.conn
+                .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
+                .unwrap()
+        };
+
+        {
+            let duress = Store::open(&tmp.0, &panic_key).unwrap();
+            duress.set_profile_kind(ProfileKind::Wipe).unwrap();
+            let destroyed = duress.destroy_unreadable().unwrap();
+            assert!(destroyed >= 20, "expected the real rows to be overwritten");
+        }
+
+        // Gone for good: the right passphrase no longer recovers anything.
+        let real = Store::open(&tmp.0, &real_key).unwrap();
+        assert!(real.list_contacts().unwrap().is_empty());
+        assert!(real.search_messages("tajna", 10).unwrap().is_empty());
+        assert!(real.get_secret("identity_seed").unwrap().is_none());
+
+        // …and the file still looks like a database in use, not like one that
+        // has just been emptied: same rows, same size.
+        let after = std::fs::metadata(&tmp.0).unwrap().len();
+        let rows_after: i64 = real
+            .conn
+            .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows_after, rows_before, "row count changed — the wipe is visible");
+        assert_eq!(after, before, "file size changed — the wipe is visible");
     }
 
     #[test]
