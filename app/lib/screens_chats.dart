@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'gif_picker.dart';
 import 'l10n.dart';
 import 'mock.dart';
 import 'src/rust/api/nullchat.dart' show SearchHitView;
@@ -1446,7 +1447,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ),
             ),
           ),
-          _Composer(controller: _input, onSend: _send, onAttach: _attach),
+          _Composer(
+            controller: _input,
+            onSend: _send,
+            onAttach: _attach,
+            onGif: () => showGifPicker(context, widget.chat.contactHex),
+          ),
         ],
       ),
     );
@@ -1842,12 +1848,21 @@ class _Bubble extends StatelessWidget {
 }
 
 class _Composer extends StatelessWidget {
-  const _Composer({required this.controller, required this.onSend, this.onAttach});
+  const _Composer({
+    required this.controller,
+    required this.onSend,
+    this.onAttach,
+    this.onGif,
+  });
   final TextEditingController controller;
   final VoidCallback onSend;
 
   /// Null where attachments are not supported yet (groups).
   final VoidCallback? onAttach;
+
+  /// Null in groups, where a GIF would have to be sent to each member
+  /// separately and the cost is not obvious to the sender.
+  final VoidCallback? onGif;
 
   @override
   Widget build(BuildContext context) {
@@ -1864,6 +1879,12 @@ class _Composer extends StatelessWidget {
             icon: Icon(Icons.attach_file, color: UmbraColors.textMuted),
             onPressed: onAttach,
           ),
+          if (onGif != null)
+            IconButton(
+              tooltip: L.t('gif.tooltip'),
+              icon: Icon(Icons.gif_box_outlined, color: UmbraColors.textMuted),
+              onPressed: onGif,
+            ),
           Expanded(
             child: TextField(
               controller: controller,

@@ -364,6 +364,7 @@ class AppState extends ChangeNotifier {
     // Before anything can arrive: an account with duress passphrases must never
     // hand a notification to Windows, which would keep its own copy.
     _applyNotificationPolicy();
+    _loadGifPreference();
     Notifications.inApp = showInAppNotice;
     _reloadContacts();
     _reloadGroups();
@@ -1164,6 +1165,62 @@ class AppState extends ChangeNotifier {
         notifyListeners();
       }
     });
+  }
+
+  // --- GIFs (docs/GIFS.md) ---
+
+  /// Whether the user has agreed to GIF search reaching an outside service.
+  ///
+  /// Off until they say otherwise: everything else in NullChat contacts nobody,
+  /// so starting to contact somebody is their decision to make.
+  bool gifsEnabled = false;
+  File? _gifPrefFile;
+
+  Future<void> _loadGifPreference() async {
+    try {
+      final dir = await AppDir.path();
+      _gifPrefFile = File('$dir${Platform.pathSeparator}gifs-enabled.txt');
+      if (await _gifPrefFile!.exists()) {
+        gifsEnabled = (await _gifPrefFile!.readAsString()).trim() == '1';
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setGifsEnabled(bool value) async {
+    gifsEnabled = value;
+    try {
+      await _gifPrefFile?.writeAsString(value ? '1' : '0');
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  /// Search, through Tor. An empty query returns what is popular.
+  Future<List<GifView>> gifSearch(String query) async {
+    final app = _app;
+    if (app == null) return const [];
+    return app.gifSearch(query: query, limit: 30);
+  }
+
+  /// A preview thumbnail, fetched through Tor rather than by the image widget.
+  Future<Uint8List> gifPreview(String url) async {
+    final app = _app;
+    if (app == null) throw Exception(L.t('net.notRunning'));
+    return app.gifPreview(url: url);
+  }
+
+  /// Send one. We download it and push the bytes through the encrypted file
+  /// channel, so the recipient never contacts the GIF service.
+  void sendGif(String contactHex, GifView gif) {
+    try {
+      _app?.sendGif(
+        contactHex: contactHex,
+        gifUrl: gif.gifUrl,
+        description: gif.description,
+      );
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
   }
 
   /// The 60 digits this contact and I must both read, in groups of five.

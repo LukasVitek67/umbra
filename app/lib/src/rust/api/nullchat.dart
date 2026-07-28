@@ -6,9 +6,9 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `duress_key`, `emit`, `flush_pending`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `pq_fingerprint_of`, `read_kdf`, `remember_group_routes`, `remember_peer`, `remember_pq_fingerprint`, `rt`, `safe_file_name`, `send_or_queue`, `send_profile`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
+// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `duress_key`, `emit`, `flush_pending`, `gif_circuit`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `pq_fingerprint_of`, `read_kdf`, `remember_group_routes`, `remember_peer`, `remember_pq_fingerprint`, `rt`, `safe_file_name`, `safe_gif_name`, `send_or_queue`, `send_profile`, `socks_port_now`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Incoming`, `Inner`, `Pending`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `from`
 
 /// Install the update the user was offered. Progress arrives as
 /// `update_downloading` / `update_installed` / `update_error` events.
@@ -131,6 +131,18 @@ abstract class UmbraApp implements RustOpaqueInterface {
         id: id,
       );
 
+  /// Fetch a preview thumbnail, through Tor.
+  ///
+  /// The picker calls this instead of handing the URL to Flutter's image
+  /// loader, which would fetch it over the clearnet and undo the whole point.
+  Future<Uint8List> gifPreview({required String url});
+
+  /// Search Tenor, over Tor, on a circuit of its own.
+  ///
+  /// The exit node that sees a search term is deliberately not the one
+  /// carrying anything else this app does.
+  Future<List<GifView>> gifSearch({required String query, required int limit});
+
   String identityHex();
 
   /// Leave a group: tell the others we are gone, then drop it locally with
@@ -232,6 +244,18 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// Send a file to a connected contact: read it, split it into chunks and
   /// push each one through the encrypted session. Progress arrives as events.
   void sendFile({required String contactHex, required String path});
+
+  /// Send a GIF to a contact.
+  ///
+  /// **We** download it and push the bytes through the encrypted file
+  /// channel. The recipient's device never contacts Tenor — sending a link
+  /// instead would hand their IP address and the time to Google, which is the
+  /// one thing this whole design exists to prevent.
+  void sendGif({
+    required String contactHex,
+    required String gifUrl,
+    required String description,
+  });
 
   /// Send a group message: stored locally once, then fanned out over each
   /// member's own 1:1 session.
@@ -372,6 +396,42 @@ class ContactView {
           status == other.status &&
           saved == other.saved &&
           verified == other.verified;
+}
+
+/// One GIF search result, flattened for the picker.
+class GifView {
+  final String previewUrl;
+  final String gifUrl;
+  final int width;
+  final int height;
+  final String description;
+
+  const GifView({
+    required this.previewUrl,
+    required this.gifUrl,
+    required this.width,
+    required this.height,
+    required this.description,
+  });
+
+  @override
+  int get hashCode =>
+      previewUrl.hashCode ^
+      gifUrl.hashCode ^
+      width.hashCode ^
+      height.hashCode ^
+      description.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GifView &&
+          runtimeType == other.runtimeType &&
+          previewUrl == other.previewUrl &&
+          gifUrl == other.gifUrl &&
+          width == other.width &&
+          height == other.height &&
+          description == other.description;
 }
 
 /// One member of a group, flattened for the UI.
