@@ -29,9 +29,10 @@ source=(
   "$pkgname-$pkgver.tar.gz.sig::$url/releases/download/v$pkgver/NullChat-$pkgver-linux-x86_64.tar.gz.sig"
   "MANIFEST-$pkgver.txt::$url/releases/download/v$pkgver/MANIFEST-$pkgver.txt"
 )
-# Filled in by tools/release.ps1 at release time; 'SKIP' here would defeat the
-# integrity check pacman gives us for free.
-sha256sums=('SKIP' 'SKIP' 'SKIP')
+# Real hashes: 'SKIP' would throw away the integrity check pacman gives for free.
+sha256sums=('e51d9e645687bcb78671dead5519d5e6f50b44709f6c48dab0266be7c5a8ebfd'
+            'c2d4c0add1d7809dd4d3bb0252ecabefd756f84a34adf09a52811979167b0a74'
+            'a187aceddea94336350ec1c0bad9b9d90b71a81f1c0de1139c743c02bb86905c')
 
 prepare() {
   # The release signature is Ed25519 over the tarball, verifiable with the
