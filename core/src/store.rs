@@ -57,6 +57,14 @@ const NONCE_LEN: usize = 24;
 /// tells the two apart — this note is what makes the migration run exactly once.
 const BLIND_INDEX_MARK: &str = "schema.blind_index.v1";
 
+/// Marks a database whose secret *names* have been indexed too.
+///
+/// Separate from the mark above on purpose. Sharing it meant every database
+/// that had already converted its routing columns skipped the name conversion
+/// permanently — and then failed to find `identity_seed`, which the app reports
+/// as a wrong passphrase.
+const SECRET_NAMES_MARK: &str = "schema.secret_names.v1";
+
 /// Domain separator, so the index key cannot coincide with any other use of
 /// the data key.
 const INDEX_KEY_INFO: &[u8] = b"nullchat blind index v1";
@@ -410,6 +418,11 @@ impl Store {
         };
         // Needs the key, so it cannot live in `migrate` with the schema changes.
         store.migrate_blind_index()?;
+        // Deliberately a *separate* step with its own marker. Folding it into
+        // the one above meant databases that had already converted their
+        // routing columns — everything written by 1.7.x — skipped it forever,
+        // and then could not find their own identity seed.
+        store.migrate_secret_names()?;
         Ok(store)
     }
 
@@ -577,6 +590,35 @@ impl Store {
         let _ = std::fs::copy(&path, &backup);
     }
 
+    /// Convert plaintext secret names to blind indexes, once, on its own mark.
+    ///
+    /// Skipped silently when the key does not open the file — a decoy or duress
+    /// passphrase has no business rewriting another profile's rows, and failing
+    /// here would turn "not my data" into an error.
+    fn migrate_secret_names(&self) -> Result<(), StoreError> {
+        let marked: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM secrets WHERE name = ?1",
+                params![SECRET_NAMES_MARK],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if marked.is_some() {
+            return Ok(());
+        }
+        if !self.key_opens_existing_data()? {
+            return Ok(());
+        }
+        self.reindex_secret_names()?;
+        self.conn.execute(
+            "INSERT INTO secrets(name, value) VALUES(?1, ?2)
+             ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+            params![SECRET_NAMES_MARK, self.seal(b"1")?],
+        )?;
+        Ok(())
+    }
+
     /// Move the secrets of an older database onto blind-indexed names.
     ///
     /// Their names were written in the clear (`identity_seed`, `avatar`), which
@@ -589,7 +631,7 @@ impl Store {
             rows.filter_map(|r| r.transpose()).collect::<Result<_, _>>()?
         };
         for name in names {
-            if name == BLIND_INDEX_MARK {
+            if name == BLIND_INDEX_MARK || name == SECRET_NAMES_MARK {
                 continue; // stays readable by design, see above
             }
             let bi = self.indexed(name.as_bytes())?;
@@ -756,7 +798,23 @@ impl Store {
         // a duress wipe the app must look like a fresh, empty account, not like
         // a damaged one — a "database corrupt" message would announce that
         // something used to be there.
-        Ok(blob.and_then(|b| self.unseal(&b).ok()))
+        if let Some(value) = blob.and_then(|b| self.unseal(&b).ok()) {
+            return Ok(Some(value));
+        }
+
+        // Databases written before secret *names* were indexed still store them
+        // in the clear. Shipping without this fallback is what made 2.0.0 tell
+        // people their passphrase was wrong: the identity seed was right there
+        // under `identity_seed`, and we were only ever looking for its index.
+        let legacy: Option<Vec<u8>> = self
+            .conn
+            .query_row(
+                "SELECT value FROM secrets WHERE name = ?1",
+                params![name],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(legacy.and_then(|b| self.unseal(&b).ok()))
     }
 
     // --- profiles: what a passphrase opens ---
@@ -2151,6 +2209,71 @@ mod tests {
         // found by searching either.
         assert!(decoy.search_messages("nikdo", 10).unwrap().is_empty());
         assert!(decoy.message_peers().unwrap().is_empty());
+    }
+
+    /// A database from 1.7.x — routing columns already converted, secret names
+    /// still in the clear — must still find its identity.
+    ///
+    /// This is the bug that shipped in 2.0.0 and 2.0.1. The name conversion was
+    /// added inside the blind-index migration, which only runs when its mark is
+    /// missing; every 1.7.x database already had that mark, so the names were
+    /// never converted, `identity_seed` was never found, and the app told
+    /// people their passphrase was wrong while their account sat there intact.
+    #[test]
+    fn an_account_with_plaintext_secret_names_still_opens() {
+        let tmp = TempDb::new();
+        let key = [0x5Au8; 32];
+
+        {
+            // Build the 1.7.x shape by hand: sealed values under *plain* names,
+            // and the blind-index mark already present.
+            let conn = rusqlite::Connection::open(&tmp.0).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            let helper = Store {
+                conn: rusqlite::Connection::open(&tmp.0).unwrap(),
+                key: Zeroizing::new(key),
+                index_key: Zeroizing::new(derive_index_key(&key)),
+            };
+            for (name, value) in [
+                ("identity_seed", &b"a real identity seed here!!!!!!!"[..]),
+                ("username", b"lukas"),
+            ] {
+                conn.execute(
+                    "INSERT INTO secrets(name, value) VALUES(?1, ?2)",
+                    params![name, helper.seal(value).unwrap()],
+                )
+                .unwrap();
+            }
+            conn.execute(
+                "INSERT INTO secrets(name, value) VALUES(?1, ?2)",
+                params![BLIND_INDEX_MARK, helper.seal(b"1").unwrap()],
+            )
+            .unwrap();
+        }
+
+        // Opening must find both, convert them, and leave the account usable.
+        let s = Store::open(&tmp.0, &key).unwrap();
+        assert_eq!(
+            &*s.get_secret("identity_seed").unwrap().unwrap(),
+            b"a real identity seed here!!!!!!!",
+            "the identity seed must be found, or the app reports a wrong passphrase"
+        );
+        assert_eq!(&*s.get_secret("username").unwrap().unwrap(), b"lukas");
+
+        // And after conversion the names are no longer readable in the file.
+        drop(s);
+        let raw = std::fs::read(&tmp.0).unwrap();
+        assert!(
+            !raw.windows(b"identity_seed".len()).any(|w| w == b"identity_seed"),
+            "the name should have been converted to a blind index"
+        );
+
+        // Reopening still works, and does not convert a second time.
+        let s = Store::open(&tmp.0, &key).unwrap();
+        assert_eq!(
+            &*s.get_secret("identity_seed").unwrap().unwrap(),
+            b"a real identity seed here!!!!!!!"
+        );
     }
 
     /// A duress passphrase destroys what it cannot read, and the file keeps its

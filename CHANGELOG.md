@@ -8,6 +8,20 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.0.2
+
+- **Fixes "wrong passphrase" on accounts created before 1.8.0.** The account was
+  never wrong and the passphrase was never wrong: 1.8.0 started storing the
+  *names* of stored secrets as blind indexes, but the conversion was placed
+  inside a migration that only runs once per database — and every database from
+  1.7.x had already run it. So the names stayed in the clear, `identity_seed`
+  was looked up under an index that was not there, and the app reported the one
+  thing that was definitely not the problem.
+
+  The conversion is now a separate step with its own marker, so it runs on those
+  databases; and reading a secret falls back to the plain name, so an account
+  opens even before the conversion happens.
+
 ## 2.0.1
 
 - **Fixes 2.0.0 refusing to open an account created before the rename.** The
