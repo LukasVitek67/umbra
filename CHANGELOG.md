@@ -8,6 +8,19 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.0.1
+
+- **Fixes 2.0.0 refusing to open an account created before the rename.** The
+  rename to NullChat also renamed the database and salt *filenames in the
+  source* — so the app looked for `nullchat.db` while the disk had `umbra.db`,
+  and reported "no identity on this computer" with the real account sitting
+  right there, untouched. Nothing was lost, and nothing on disk is renamed now
+  either: NullChat simply opens whichever of the two names exists. If both
+  exist, the current one wins.
+
+If 2.0.0 told you there was no identity: your account was never gone. Install
+this and it opens as before.
+
 ## 2.0.0
 
 **Umbra is now NullChat.** Same project, same identities, same conversations —

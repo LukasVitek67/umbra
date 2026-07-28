@@ -94,13 +94,14 @@ pub fn new_id() -> Result<String, String> {
 /// Older builds kept one identity in the root directory. Rather than orphaning
 /// it, adopt it as the first account so nobody loses their identity or history.
 pub fn migrate_legacy(root: &Path) -> Result<(), String> {
-    if !root.join("nullchat.db").exists() || !load(root).is_empty() {
+    if !(root.join("nullchat.db").exists() || root.join("umbra.db").exists()) || !load(root).is_empty() {
         return Ok(());
     }
     let id = new_id()?;
     let dir = account_dir(root, &id);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    for name in ["nullchat.db", "nullchat.salt", "torrc", "tor.log", "nullchat-app.log"] {
+    // Both spellings: a pre-rename install has the old ones.
+    for name in ["nullchat.db", "nullchat.salt", "nullchat.kdf", "umbra.db", "umbra.salt", "umbra.kdf", "torrc", "tor.log", "nullchat-app.log", "umbra-app.log"] {
         let from = root.join(name);
         if from.exists() {
             let _ = std::fs::rename(&from, dir.join(name));

@@ -413,6 +413,63 @@ impl From<gifs::GifResult> for GifView {
     }
 }
 
+/// The account's database, salt or KDF file — under whichever name it has.
+///
+/// The rename to NullChat changed these filenames in the source, and an account
+/// created before it still has `umbra.db` and `umbra.salt` on disk. Looking
+/// only for the new names told people their identity did not exist, with the
+/// real one sitting right there unopened. So: the existing file wins, and
+/// nothing on disk is renamed — a rename that fails halfway costs somebody
+/// their account, and there is nothing here worth that.
+fn account_file(dir: &Path, name: &str) -> PathBuf {
+    let current = dir.join(name);
+    if current.exists() {
+        return current;
+    }
+    let legacy = match name {
+        "nullchat.db" => "umbra.db",
+        "nullchat.salt" => "umbra.salt",
+        "nullchat.kdf" => "umbra.kdf",
+        _ => return current,
+    };
+    let old = dir.join(legacy);
+    if old.exists() {
+        return old;
+    }
+    current
+}
+
+#[cfg(test)]
+mod account_file_tests {
+    use super::account_file;
+
+    /// An account created before the rename must still open. This is the bug
+    /// that shipped in 2.0.0: the code looked only for `nullchat.db`, the disk
+    /// had `umbra.db`, and the app reported no identity while the real one sat
+    /// there untouched.
+    #[test]
+    fn a_pre_rename_account_is_found() {
+        let dir = std::env::temp_dir().join(format!("nc-af-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // Nothing there: the current name is what a new account would create.
+        assert!(account_file(&dir, "nullchat.db").ends_with("nullchat.db"));
+
+        // Only the old name exists — that is the file to open.
+        std::fs::write(dir.join("umbra.db"), b"old").unwrap();
+        std::fs::write(dir.join("umbra.salt"), b"salt").unwrap();
+        assert!(account_file(&dir, "nullchat.db").ends_with("umbra.db"));
+        assert!(account_file(&dir, "nullchat.salt").ends_with("umbra.salt"));
+
+        // Both exist (an account created after the rename in the same folder):
+        // the current name wins, so we never quietly reopen a stale database.
+        std::fs::write(dir.join("nullchat.db"), b"new").unwrap();
+        assert!(account_file(&dir, "nullchat.db").ends_with("nullchat.db"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 /// Tor's SOCKS port, once the network is up.
 fn socks_port_now() -> Option<u16> {
     *SOCKS.lock().unwrap()
@@ -535,7 +592,7 @@ impl UmbraApp {
     /// Whether an identity already exists at `dir`.
     #[frb(sync)]
     pub fn exists(dir: String) -> bool {
-        PathBuf::from(dir).join("nullchat.db").exists()
+        account_file(&PathBuf::from(dir), "nullchat.db").exists()
     }
 
     /// Create a brand-new identity + encrypted store at `dir`, protected by
@@ -560,7 +617,7 @@ impl UmbraApp {
             keystore::STORE_P_COST,
         )
         .map_err(|e| e.to_string())?;
-        let store = Store::open(&dir.join("nullchat.db"), &key).map_err(|e| e.to_string())?;
+        let store = Store::open(&account_file(&dir, "nullchat.db"), &key).map_err(|e| e.to_string())?;
 
         let account = Keypair::generate().map_err(|e| e.to_string())?;
         store
@@ -589,14 +646,14 @@ impl UmbraApp {
         // Opening a database that isn't there would CREATE an empty one, and the
         // app would then offer "unlock" forever for an identity that does not
         // exist. Refuse instead, so the UI can fall back to onboarding.
-        if !dir.join("nullchat.db").exists() || !dir.join("nullchat.salt").exists() {
+        if !account_file(&dir, "nullchat.db").exists() || !account_file(&dir, "nullchat.salt").exists() {
             return Err("Na tomto počítači není žádná identita.".to_string());
         }
-        let salt = std::fs::read(dir.join("nullchat.salt")).map_err(|e| e.to_string())?;
+        let salt = std::fs::read(account_file(&dir, "nullchat.salt")).map_err(|e| e.to_string())?;
         let (m, t, p) = read_kdf(&dir);
         let key = keystore::derive_store_key_with(passphrase.as_bytes(), &salt, m, t, p)
             .map_err(|e| e.to_string())?;
-        let store = Store::open(&dir.join("nullchat.db"), &key).map_err(|e| e.to_string())?;
+        let store = Store::open(&account_file(&dir, "nullchat.db"), &key).map_err(|e| e.to_string())?;
 
         // A duress passphrase destroys everything it cannot read and then
         // carries on as an ordinary sign-in. This happens here, before anything
@@ -1340,7 +1397,7 @@ impl UmbraApp {
     /// Derive the key one more passphrase would produce for this account.
     fn duress_key(&self, passphrase: &str) -> Result<Zeroizing<[u8; 32]>, String> {
         let dir = { self.inner.lock().unwrap().dir.clone() };
-        let salt = std::fs::read(dir.join("nullchat.salt")).map_err(|e| e.to_string())?;
+        let salt = std::fs::read(account_file(&dir, "nullchat.salt")).map_err(|e| e.to_string())?;
         let (m, t, p) = read_kdf(&dir);
         keystore::derive_store_key_with(passphrase.as_bytes(), &salt, m, t, p)
             .map_err(|e| e.to_string())
@@ -1367,7 +1424,7 @@ impl UmbraApp {
         }
         let key = self.duress_key(&passphrase)?;
         let dir = { self.inner.lock().unwrap().dir.clone() };
-        let store = Store::open(&dir.join("nullchat.db"), &key).map_err(|e| e.to_string())?;
+        let store = Store::open(&account_file(&dir, "nullchat.db"), &key).map_err(|e| e.to_string())?;
 
         // Refuse a passphrase this account already answers to. Without this
         // check, reusing the real passphrase would mark the *real* profile as
@@ -1418,7 +1475,7 @@ impl UmbraApp {
     pub fn clear_duress_passphrase(&self, passphrase: String) -> Result<String, String> {
         let key = self.duress_key(&passphrase)?;
         let dir = { self.inner.lock().unwrap().dir.clone() };
-        let store = Store::open(&dir.join("nullchat.db"), &key).map_err(|e| e.to_string())?;
+        let store = Store::open(&account_file(&dir, "nullchat.db"), &key).map_err(|e| e.to_string())?;
         let kind = store.profile_kind();
         // Never let this be pointed at the real account.
         if kind == ProfileKind::Normal {
@@ -1448,7 +1505,7 @@ impl UmbraApp {
     ) -> Result<(), String> {
         let key = self.duress_key(&passphrase)?;
         let dir = { self.inner.lock().unwrap().dir.clone() };
-        let store = Store::open(&dir.join("nullchat.db"), &key).map_err(|e| e.to_string())?;
+        let store = Store::open(&account_file(&dir, "nullchat.db"), &key).map_err(|e| e.to_string())?;
         if store.profile_kind() != ProfileKind::Decoy {
             return Err("Tato fráze nepatří nastrčenému účtu.".to_string());
         }
@@ -2280,7 +2337,7 @@ fn read_kdf(dir: &Path) -> (u32, u32, u32) {
         keystore::LEGACY_T_COST,
         keystore::LEGACY_P_COST,
     );
-    let Ok(text) = std::fs::read_to_string(dir.join("nullchat.kdf")) else { return legacy };
+    let Ok(text) = std::fs::read_to_string(account_file(dir, "nullchat.kdf")) else { return legacy };
     let parts: Vec<&str> = text.split_whitespace().collect();
     if parts.len() != 4 || parts[0] != "argon2id" {
         return legacy;
