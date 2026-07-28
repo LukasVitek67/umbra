@@ -8,6 +8,55 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.0.0
+
+**Umbra is now NullChat.** Same project, same identities, same conversations —
+the name and the mark changed, nothing about your account did.
+
+- **Your identity and history carry over untouched.** The app keeps using the
+  directory it already has, so there is nothing to migrate and nothing to lose.
+  Invites you have already shared keep working: the `umbra1:` code is a wire
+  format, and breaking it would have broken every invite in circulation.
+- **New icon** — the empty set, Ø.
+
+### Linux, including Arch
+
+- **Linux release**, built and published from CI on Ubuntu.
+- **PKGBUILD for Arch**, in `packaging/arch`. It downloads the release tarball
+  and checks it against the signed manifest — hash *and* size — before packaging
+  anything. Tor is a dependency rather than a bundled copy: pacman keeps the
+  system's tor current, which a copy frozen in our archive would not be.
+
+### On a phone
+
+- The side rail becomes a **bottom bar** on narrow screens, with Settings under
+  the profile icon. The bar hides while a conversation is open, so the keyboard
+  gets the room.
+
+### GIFs
+
+- A **GIF picker** with Tenor's full, unfiltered library — with one rule that
+  shapes the whole implementation: **the person receiving a GIF never contacts
+  the GIF service.** NullChat downloads it and sends the bytes over the same
+  end-to-end encrypted file channel as any attachment. Sending a link, which is
+  what most messengers do, would hand every recipient's IP address and the time
+  to Google.
+- Searching goes **through Tor on its own circuit**, so the exit node that sees
+  a search term is not the one carrying anything else.
+- **Off until you turn it on**, with the reason on screen: everything else in
+  NullChat contacts nobody, so starting to contact somebody is your decision.
+- Nothing is cached on disk, previews are fetched through Tor rather than by the
+  image loader, and a GIF is refused before decoding if it is over 8 MB, over
+  2000 px, or not actually a GIF. Image decoders have a long history of
+  memory-corruption bugs; the cheapest defence is not handing them the file.
+- What this still leaks is written down in `docs/GIFS.md` rather than glossed
+  over.
+
+### Also
+
+- The tray icon **appears**. It was pointing at a path that only exists in a
+  source checkout, so released builds had a blank tray entry.
+
 ## 1.9.1
 
 - **Fixed: Czech text in the app was mangled.** Error messages showed

@@ -16,10 +16,11 @@ license=('AGPL3')
 # tor is a hard dependency: NullChat ships its own daemon on Windows, but on
 # Arch the packaged one is newer, is updated by pacman, and is what an Arch user
 # expects. gtk3 and friends are what the Flutter linux shell links against.
-depends=('tor' 'gtk3' 'libsecret' 'zlib' 'sqlite')
+# libnotify and libayatana-appindicator are not optional in practice: the build
+# links against them for notifications and the tray icon.
+depends=('tor' 'gtk3' 'libsecret' 'zlib' 'sqlite' 'libnotify' 'libayatana-appindicator')
 optdepends=(
   'obfs4proxy: pluggable transports for networks that block Tor'
-  'libnotify: desktop notifications'
 )
 makedepends=('coreutils')
 
