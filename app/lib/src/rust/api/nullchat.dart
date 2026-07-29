@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `broadcast_group_info`, `dial_once`, `duress_key`, `emit`, `flush_pending`, `gif_circuit`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `pq_fingerprint_of`, `read_kdf`, `remember_group_routes`, `remember_peer`, `remember_pq_fingerprint`, `rt`, `safe_file_name`, `safe_gif_name`, `send_or_queue`, `send_profile`, `socks_port_now`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
+// These functions are ignored because they are not marked as `pub`: `account_file`, `broadcast_group_info`, `dial_once`, `duress_key`, `emit`, `flush_pending`, `gif_circuit`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `pq_fingerprint_of`, `read_kdf`, `remember_group_routes`, `remember_peer`, `remember_pq_fingerprint`, `rt`, `safe_file_name`, `safe_gif_name`, `send_or_queue`, `send_profile`, `socks_port_now`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Incoming`, `Inner`, `Pending`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `from`
 
@@ -99,6 +99,9 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// Bridges the user pasted themselves, or empty when NullChat's own list is in
   /// use. Stored next to the account's Tor data, where the daemon reads it.
   String customBridges();
+
+  /// Delete a contact together with its whole conversation.
+  void deleteContact({required String contactHex});
 
   /// Which duress passphrases this account has, as far as *we* can tell.
   ///

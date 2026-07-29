@@ -86,31 +86,27 @@ class UmbraMark extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The actual NullChat mark. The artwork already carries its own black
+    // ground and rounded corners, so it is drawn as-is rather than dropped
+    // inside a tinted tile — the title bar and the tray were showing Ø while
+    // the app itself still showed a generic shield glyph.
     return Container(
       width: size,
       height: size,
       decoration: BoxDecoration(
-        // Tinted with the active accent; a fixed gradient kept the mark
-        // mint-green in every theme.
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color.alphaBlend(UmbraColors.accent.withValues(alpha: 0.22), UmbraColors.surfaceHigh),
-            Color.alphaBlend(UmbraColors.accent.withValues(alpha: 0.10), UmbraColors.surface),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(size * 0.28),
-        border: Border.all(color: UmbraColors.accent.withValues(alpha: 0.5)),
+        borderRadius: BorderRadius.circular(size * 0.22),
         boxShadow: [
           BoxShadow(
-            color: UmbraColors.accent.withValues(alpha: 0.25),
-            blurRadius: 24,
-            spreadRadius: -4,
+            color: UmbraColors.accent.withValues(alpha: 0.18),
+            blurRadius: 22,
+            spreadRadius: -6,
           ),
         ],
       ),
-      child: Icon(Icons.shield_moon_rounded, size: size * 0.5, color: UmbraColors.accent),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.22),
+        child: Image.asset('assets/logo.png', fit: BoxFit.cover),
+      ),
     );
   }
 }

@@ -371,6 +371,11 @@ class L {
       'contacts.save': 'Save to contacts',
       'contacts.forget': 'Remove from contacts',
       'contacts.unblock': 'Unblock',
+      'contacts.delete': 'Delete conversation',
+      'contacts.deleteBody':
+          'Removes {name} and all {n} messages with them from this device. This '
+          'cannot be undone — the messages are erased from the encrypted store, '
+          'not moved to a bin. The other person keeps their own copy.',
       'groups.rename': 'Rename group',
       'notif.message': 'New message',
       'notif.newFor': 'New message on @{account}',
@@ -727,6 +732,11 @@ class L {
       'contacts.save': 'Uložit do kontaktů',
       'contacts.forget': 'Odebrat z kontaktů',
       'contacts.unblock': 'Odblokovat',
+      'contacts.delete': 'Smazat konverzaci',
+      'contacts.deleteBody':
+          'Odstraní {name} a všech {n} zpráv s ním z tohoto zařízení. Nejde to '
+          'vzít zpět — zprávy se ze zašifrovaného úložiště smažou, neputují do '
+          'koše. Protějšek si svou kopii ponechá.',
       'groups.rename': 'Přejmenovat skupinu',
       'notif.message': 'Nová zpráva',
       'notif.newFor': 'Máte novou zprávu na @{account}',

@@ -1538,6 +1538,20 @@ impl UmbraApp {
         Ok(())
     }
 
+    /// Delete a contact together with its whole conversation.
+    #[frb(sync)]
+    pub fn delete_contact(&self, contact_hex: String) -> Result<(), String> {
+        let pk = unhex(&contact_hex).ok_or_else(|| "neplatná identita".to_string())?;
+        let g = self.inner.lock().unwrap();
+        g.store.delete_contact(&pk).map_err(|e| e.to_string())?;
+        drop(g);
+        // Stop the keep-alive loop from dialling somebody we just removed.
+        if let Some(map) = CONTACTS.lock().unwrap().as_mut() {
+            map.remove(&contact_hex);
+        }
+        Ok(())
+    }
+
     /// The 60 digits this contact and I must both see, in groups of five.
     ///
     /// Empty when we have no such contact. Both sides compute it from the same

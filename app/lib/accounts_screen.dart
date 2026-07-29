@@ -254,19 +254,13 @@ class UmbraMarkSmall extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
       width: 64,
       height: 64,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF1E2A2A), Color(0xFF102523)],
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: UmbraColors.accent.withValues(alpha: 0.45)),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Image.asset('assets/logo.png', fit: BoxFit.cover),
       ),
-      child: Icon(Icons.shield_moon_rounded, size: 32, color: UmbraColors.accent),
     );
   }
 }

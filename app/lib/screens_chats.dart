@@ -14,6 +14,59 @@ import 'theme.dart';
 String _hhmm(DateTime t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
+/// Confirm before removing a contact and its history.
+///
+/// Asked rather than done, because this is the one action in the app that
+/// destroys the user's own data, and there is no undo: the messages are gone
+/// from the encrypted store, not moved to a bin.
+Future<void> showDeleteChat(BuildContext context, Chat chat) async {
+  final count = chat.messages.length;
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: UmbraColors.surfaceHigh,
+      title: Text(L.t('contacts.delete')),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              L
+                  .t('contacts.deleteBody')
+                  .replaceAll('{name}', chat.name)
+                  .replaceAll('{n}', count.toString()),
+              style: TextStyle(
+                  color: UmbraColors.textMuted, fontSize: 13, height: 1.45),
+            ),
+            const SizedBox(height: 12),
+            Text(chat.userCode,
+                style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 11,
+                    color: UmbraColors.textMuted)),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: Text(L.t('common.cancel')),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(backgroundColor: UmbraColors.danger),
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: Text(L.t('contacts.delete')),
+        ),
+      ],
+    ),
+  );
+  if (confirmed == true) {
+    appState.deleteChat(chat);
+  }
+}
+
 /// Show the safety number and let the user say whether it matched.
 ///
 /// This is the only check in NullChat that needs a person. Everything else proves
@@ -886,6 +939,9 @@ class _ContactRow extends StatelessWidget {
             case 'unblock':
               appState.setChatStatus(chat, 1);
               break;
+            case 'delete':
+              showDeleteChat(context, chat);
+              break;
           }
         },
         itemBuilder: (context) => [
@@ -898,6 +954,10 @@ class _ContactRow extends StatelessWidget {
             ),
           ] else
             PopupMenuItem(value: 'unblock', child: Text(L.t('contacts.unblock'))),
+          PopupMenuItem(
+            value: 'delete',
+            child: Text(L.t('contacts.delete'), style: TextStyle(color: UmbraColors.danger)),
+          ),
         ],
       ),
     );

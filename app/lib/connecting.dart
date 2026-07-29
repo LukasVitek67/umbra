@@ -193,8 +193,10 @@ class _PulsingMarkState extends State<_PulsingMark>
               ),
             ],
           ),
-          child: Icon(Icons.shield_moon_rounded,
-              size: 42, color: UmbraColors.accent.withValues(alpha: 0.75 + 0.25 * t)),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: Image.asset('assets/logo.png', fit: BoxFit.cover),
+          ),
         );
       },
     );

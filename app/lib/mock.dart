@@ -1223,6 +1223,19 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Remove a contact and its conversation, here and in the encrypted store.
+  void deleteChat(Chat chat) {
+    try {
+      _app?.deleteContact(contactHex: chat.contactHex);
+      chats.removeWhere((c) => c.contactHex == chat.contactHex);
+      if (selectedChat?.contactHex == chat.contactHex) selectedChat = null;
+      notifyListeners();
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
+  }
+
   /// The 60 digits this contact and I must both read, in groups of five.
   String safetyNumber(String contactHex) =>
       _app?.safetyNumber(contactHex: contactHex) ?? '';

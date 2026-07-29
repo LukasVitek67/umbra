@@ -1042,6 +1042,26 @@ impl Store {
         Ok(())
     }
 
+    /// Remove a contact and everything belonging to that conversation.
+    ///
+    /// Deliberately thorough: the contact row, the messages, and anything of
+    /// theirs still queued in the outbox. A "delete" that leaves the history
+    /// behind is not a delete, and in this app that history is the point.
+    ///
+    /// The `blind_index` entry stays — other rows may still reference it, and
+    /// it is sealed, so it reveals nothing on its own.
+    pub fn delete_contact(&self, identity_pubkey: &[u8; 32]) -> Result<usize, StoreError> {
+        let bi = self.bi(identity_pubkey);
+        let messages = self
+            .conn
+            .execute("DELETE FROM messages WHERE contact_pubkey = ?1", params![bi])?;
+        self.conn
+            .execute("DELETE FROM outbox WHERE peer_pubkey = ?1", params![bi])?;
+        self.conn
+            .execute("DELETE FROM contacts WHERE identity_pubkey = ?1", params![bi])?;
+        Ok(messages)
+    }
+
     /// Accept, park or block a contact.
     pub fn set_contact_status(
         &self,
@@ -2209,6 +2229,35 @@ mod tests {
         // found by searching either.
         assert!(decoy.search_messages("nikdo", 10).unwrap().is_empty());
         assert!(decoy.message_peers().unwrap().is_empty());
+    }
+
+    #[test]
+    fn deleting_a_contact_takes_the_conversation_with_it() {
+        let s = Store::open_in_memory(&[4u8; 32]).unwrap();
+        let a = sample_contact();
+        let b = Contact { identity_pubkey: [8u8; 32], ..sample_contact() };
+        s.upsert_contact(&a).unwrap();
+        s.upsert_contact(&b).unwrap();
+        for who in [a.identity_pubkey, b.identity_pubkey] {
+            s.insert_message(&NewMessage {
+                contact_pubkey: who,
+                direction: Direction::Incoming,
+                sent_at: 1,
+                body: b"hello",
+            })
+            .unwrap();
+        }
+        s.queue_outgoing(&a.identity_pubkey, 1, None, b"frame", b"hello", 1).unwrap();
+
+        assert_eq!(s.delete_contact(&a.identity_pubkey).unwrap(), 1);
+        assert!(s.get_contact(&a.identity_pubkey).unwrap().is_none());
+        assert!(s.messages_for(&a.identity_pubkey, 10).unwrap().is_empty());
+        assert!(s.outbox_for(&a.identity_pubkey).unwrap().is_empty());
+
+        // The other conversation is untouched — deleting one must not take a
+        // neighbour with it.
+        assert!(s.get_contact(&b.identity_pubkey).unwrap().is_some());
+        assert_eq!(s.messages_for(&b.identity_pubkey, 10).unwrap().len(), 1);
     }
 
     /// A database from 1.7.x — routing columns already converted, secret names
