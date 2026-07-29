@@ -1089,6 +1089,62 @@ impl UmbraApp {
         }
     }
 
+    /// Decrypt an attachment so the user can open or save it.
+    ///
+    /// Attachments are sealed on disk, so there is no path the operating system
+    /// can open directly. Returning the bytes keeps the decision — show it,
+    /// save it somewhere, discard it — with the caller.
+    pub async fn read_attachment(&self, path: String) -> Result<Vec<u8>, String> {
+        let g = self.inner.lock().unwrap();
+        g.store
+            .decrypt_file(&PathBuf::from(path))
+            .map(|d| d.to_vec())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Write a decrypted copy where the user asked for it.
+    ///
+    /// This is the only way a plaintext attachment reaches the disk, and it
+    /// happens because somebody chose a destination for it.
+    pub async fn export_attachment(&self, path: String, to: String) -> Result<(), String> {
+        let g = self.inner.lock().unwrap();
+        let data = g
+            .store
+            .decrypt_file(&PathBuf::from(path))
+            .map_err(|e| e.to_string())?;
+        std::fs::write(&to, &*data).map_err(|e| e.to_string())
+    }
+
+    /// Seal attachments that older versions left in the clear.
+    ///
+    /// Runs on sign-in. Returns how many were converted, so the app can say so
+    /// rather than changing the user's files silently.
+    pub async fn encrypt_existing_attachments(&self) -> Result<u32, String> {
+        let dir = FILES_DIR.lock().unwrap().clone();
+        let Some(dir) = dir else { return Ok(0) };
+        let Ok(entries) = std::fs::read_dir(&dir) else { return Ok(0) };
+
+        let mut converted = 0u32;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let g = self.inner.lock().unwrap();
+            if g.store.file_is_encrypted(&path) {
+                continue;
+            }
+            let Ok(plain) = std::fs::read(&path) else { continue };
+            if g.store.encrypt_file(&path, &plain).is_ok() {
+                converted += 1;
+            }
+        }
+        if converted > 0 {
+            log_line(&format!("sealed {converted} attachment(s) left unencrypted by an older version"));
+        }
+        Ok(converted)
+    }
+
     /// Where finished incoming files are stored.
     #[frb(sync)]
     pub fn files_dir(&self) -> String {
@@ -2286,7 +2342,23 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
                     final_path = dir.join(format!("{n}-{name}"));
                     n += 1;
                 }
-                let _ = std::fs::rename(&part, &final_path);
+                // Seal it before it lands. Until now a received photo sat in
+                // `files/` as a readable photo, next to a database that took
+                // great care to encrypt the sentence describing it — anyone
+                // with the disk had the content without the passphrase.
+                let sealed = APP.lock().unwrap().clone().and_then(|app| {
+                    let plain = std::fs::read(&part).ok()?;
+                    let g = app.lock().unwrap();
+                    g.store.encrypt_file(&final_path, &plain).ok()
+                });
+                if sealed.is_some() {
+                    let _ = std::fs::remove_file(&part);
+                } else {
+                    // No account open (should not happen mid-transfer): keep
+                    // the file rather than lose it, and say so in the log.
+                    log_line("received file stored WITHOUT encryption: no account open");
+                    let _ = std::fs::rename(&part, &final_path);
+                }
                 emit("file_done", &final_path.to_string_lossy(), peer_hex);
             }
         }

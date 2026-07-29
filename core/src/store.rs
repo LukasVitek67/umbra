@@ -1042,6 +1042,45 @@ impl Store {
         Ok(())
     }
 
+    // --- attachments on disk ---
+    //
+    // Received files used to land in `files/` as themselves: a photo somebody
+    // sent was a readable photo on disk, next to a database that went to great
+    // lengths to encrypt the sentence describing it. Anyone with the file — a
+    // backup, a stolen laptop, another program running as the user — had the
+    // content without ever needing the passphrase.
+    //
+    // They are now sealed with the same key as everything else. The cost is
+    // that opening one means decrypting it first (see `decrypt_file_to`),
+    // rather than handing the path to the operating system.
+
+    /// Seal `plaintext` into `path`, replacing whatever is there.
+    pub fn encrypt_file(&self, path: &Path, plaintext: &[u8]) -> Result<(), StoreError> {
+        let sealed = self.seal(plaintext)?;
+        std::fs::write(path, sealed).map_err(|e| StoreError::Db(e.to_string()))
+    }
+
+    /// Read a sealed file back.
+    ///
+    /// A file that is not sealed at all is returned as-is: attachments received
+    /// before this existed are still readable, and pretending otherwise would
+    /// mean losing them.
+    pub fn decrypt_file(&self, path: &Path) -> Result<Zeroizing<Vec<u8>>, StoreError> {
+        let raw = std::fs::read(path).map_err(|e| StoreError::Db(e.to_string()))?;
+        match self.unseal(&raw) {
+            Ok(plain) => Ok(plain),
+            Err(_) => Ok(Zeroizing::new(raw)),
+        }
+    }
+
+    /// Is this file sealed, or still a plain attachment from an older version?
+    pub fn file_is_encrypted(&self, path: &Path) -> bool {
+        std::fs::read(path)
+            .ok()
+            .map(|raw| self.unseal(&raw).is_ok())
+            .unwrap_or(false)
+    }
+
     /// Remove a contact and everything belonging to that conversation.
     ///
     /// Deliberately thorough: the contact row, the messages, and anything of
@@ -2229,6 +2268,42 @@ mod tests {
         // found by searching either.
         assert!(decoy.search_messages("nikdo", 10).unwrap().is_empty());
         assert!(decoy.message_peers().unwrap().is_empty());
+    }
+
+    /// An attachment on disk must not be readable without the passphrase, and
+    /// one written by an older version must still open.
+    #[test]
+    fn attachments_are_sealed_but_old_ones_still_open() {
+        let dir = std::env::temp_dir().join(format!("nc-files-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = Store::open_in_memory(&[11u8; 32]).unwrap();
+
+        let secret = b"a photograph somebody sent in confidence";
+        let sealed = dir.join("photo.png");
+        s.encrypt_file(&sealed, secret).unwrap();
+
+        // On disk it is not the file any more.
+        let raw = std::fs::read(&sealed).unwrap();
+        assert_ne!(raw.as_slice(), secret);
+        assert!(
+            !raw.windows(secret.len()).any(|w| w == secret),
+            "the attachment is still readable on disk"
+        );
+        assert!(s.file_is_encrypted(&sealed));
+        assert_eq!(&*s.decrypt_file(&sealed).unwrap(), secret);
+
+        // Another passphrase cannot read it.
+        let other = Store::open_in_memory(&[12u8; 32]).unwrap();
+        assert_ne!(&*other.decrypt_file(&sealed).unwrap(), secret);
+
+        // A file from before this existed is returned unchanged rather than
+        // treated as corrupt — otherwise updating would lose it.
+        let legacy = dir.join("old.txt");
+        std::fs::write(&legacy, b"plain old attachment").unwrap();
+        assert!(!s.file_is_encrypted(&legacy));
+        assert_eq!(&*s.decrypt_file(&legacy).unwrap(), b"plain old attachment");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

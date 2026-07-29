@@ -7,6 +7,7 @@
 
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 
 import 'app_dir.dart';
@@ -365,6 +366,7 @@ class AppState extends ChangeNotifier {
     // hand a notification to Windows, which would keep its own copy.
     _applyNotificationPolicy();
     _loadGifPreference();
+    _sealOldAttachments();
     Notifications.inApp = showInAppNotice;
     _reloadContacts();
     _reloadGroups();
@@ -1220,6 +1222,43 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       lastError = _clean(e);
       notifyListeners();
+    }
+  }
+
+  /// Decrypt an attachment to wherever the user picks.
+  ///
+  /// Attachments live sealed on disk, so this is the only path by which a
+  /// readable copy is created — and it happens because somebody chose where.
+  Future<void> saveAttachment(String storedPath, String suggestedName) async {
+    final app = _app;
+    if (app == null) return;
+    try {
+      final to = await FilePicker.saveFile(
+        dialogTitle: L.t('chat.saveFile'),
+        fileName: suggestedName,
+      );
+      if (to == null) return; // cancelled
+      await app.exportAttachment(path: storedPath, to: to);
+      lastError = null;
+    } catch (e) {
+      lastError = _clean(e);
+    }
+    notifyListeners();
+  }
+
+  /// Seal attachments an older version left readable on disk.
+  Future<void> _sealOldAttachments() async {
+    try {
+      final n = await _app?.encryptExistingAttachments() ?? 0;
+      if (n > 0) {
+        // Worth saying out loud: their files just changed on disk.
+        showInAppNotice(
+          L.t('files.sealedTitle'),
+          L.t('files.sealedBody').replaceAll('{n}', n.toString()),
+        );
+      }
+    } catch (_) {
+      // Never block sign-in on this.
     }
   }
 

@@ -2026,9 +2026,15 @@ class _FileBody extends StatelessWidget {
         if (done && msg.filePath != null) ...[
           const SizedBox(height: 6),
           TextButton.icon(
-            onPressed: () => Process.run('explorer.exe', ['/select,', msg.filePath!]),
-            icon: const Icon(Icons.folder_open, size: 15),
-            label: Text(L.t('chat.showFile')),
+            // Not "show in folder" any more: the file on disk is encrypted, so
+            // there is nothing for Explorer to open. Saving decrypts it exactly
+            // where the user chose to put it, and nowhere else.
+            onPressed: () => appState.saveAttachment(
+              msg.filePath!,
+              msg.fileName ?? 'file',
+            ),
+            icon: const Icon(Icons.download, size: 15),
+            label: Text(L.t('chat.saveFile')),
             style: TextButton.styleFrom(
               padding: EdgeInsets.zero,
               minimumSize: const Size(0, 28),

@@ -110,9 +110,21 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// passphrase.
   List<String> duressConfigured();
 
+  /// Seal attachments that older versions left in the clear.
+  ///
+  /// Runs on sign-in. Returns how many were converted, so the app can say so
+  /// rather than changing the user's files silently.
+  Future<int> encryptExistingAttachments();
+
   /// Whether an identity already exists at `dir`.
   static bool exists({required String dir}) =>
       RustLib.instance.api.crateApiNullchatUmbraAppExists(dir: dir);
+
+  /// Write a decrypted copy where the user asked for it.
+  ///
+  /// This is the only way a plaintext attachment reaches the disk, and it
+  /// happens because somebody chose a destination for it.
+  Future<void> exportAttachment({required String path, required String to});
 
   /// Where finished incoming files are stored.
   String filesDir();
@@ -215,6 +227,13 @@ abstract class UmbraApp implements RustOpaqueInterface {
 
   /// How many messages are still waiting for their peer.
   int pendingMessages();
+
+  /// Decrypt an attachment so the user can open or save it.
+  ///
+  /// Attachments are sealed on disk, so there is no path the operating system
+  /// can open directly. Returning the bytes keeps the decision — show it,
+  /// save it somewhere, discard it — with the caller.
+  Future<Uint8List> readAttachment({required String path});
 
   /// Give a contact the name you know them by.
   void renameContact({required String contactHex, required String name});

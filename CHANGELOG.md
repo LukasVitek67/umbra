@@ -8,6 +8,39 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.1.0
+
+- **Received files are encrypted now.** Until this release an attachment landed
+  in `files/` as itself — a photo somebody sent you was a readable photo on
+  disk, sitting next to a database that went to great lengths to encrypt the
+  sentence describing it. Anyone with the file had the content without ever
+  needing your passphrase. Attachments are now sealed with the same key as
+  everything else, and anything an older version left readable is sealed on your
+  next sign-in (the app tells you how many).
+
+  "Show in folder" became **"Save file…"**: there is no longer a plaintext copy
+  for the system to open, so a readable copy is written only where you choose to
+  put it.
+
+- **GIF search works.** It was failing with a TLS error, because Google's server
+  closes the connection without the formal TLS goodbye and rustls — correctly —
+  reports that as an error. A complete response that ends this way is now
+  accepted; a truncated one still is not, and downloads are still checked
+  against their signature and hash.
+
+- The **NullChat mark** replaces the placeholder shield inside the app: the
+  sidebar, the account picker and the connecting screen. The title bar and tray
+  already had it.
+
+- **Conversations can be deleted** — contact, messages and anything queued for
+  them, with a confirmation, from the menu next to a contact.
+
+### Still readable without your passphrase
+
+Named rather than left for you to discover: `theme.txt`, `language.txt`, and
+`accounts.json` (which holds account *names*, because the account picker has to
+show them before anything is unlocked). Tor writes its own `tor.log`.
+
 ## 2.0.2
 
 - **Fixes "wrong passphrase" on accounts created before 1.8.0.** The account was

@@ -140,6 +140,12 @@ class L {
       'chat.compose': 'Write a message…',
       'chat.attach': 'Send a file (encrypted)',
       'chat.showFile': 'Show in folder',
+      'chat.saveFile': 'Save file…',
+      'files.sealedTitle': 'Attachments encrypted',
+      'files.sealedBody':
+          '{n} received file(s) were stored unencrypted by an older version and '
+          'have now been sealed with your passphrase. Use \'Save file\' to get a '
+          'readable copy where you want it.',
       'settings.picture': 'Profile picture',
       'settings.pickPicture': 'Choose picture',
       'settings.removePicture': 'Remove',
@@ -500,6 +506,12 @@ class L {
       'chat.compose': 'Napiš zprávu…',
       'chat.attach': 'Poslat soubor (šifrovaně)',
       'chat.showFile': 'Zobrazit ve složce',
+      'chat.saveFile': 'Uložit soubor…',
+      'files.sealedTitle': 'Přílohy zašifrovány',
+      'files.sealedBody':
+          '{n} přijatých souborů leželo nezašifrovaně po starší verzi a nyní jsou '
+          'zapečetěné tvým heslem. Přes „Uložit soubor“ si uděláš čitelnou kopii '
+          'tam, kam chceš.',
       'settings.picture': 'Profilový obrázek',
       'settings.pickPicture': 'Vybrat obrázek',
       'settings.removePicture': 'Odebrat',

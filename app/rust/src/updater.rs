@@ -732,15 +732,27 @@ async fn request_on_circuit(
         // A dead Tor circuit does not close the socket, it just stops
         // delivering; without a deadline the read below never returns and the
         // download "runs" until the app is killed.
-        let n = tokio::time::timeout(STALL_TIMEOUT, tls.read(&mut buf))
+        let read = tokio::time::timeout(STALL_TIMEOUT, tls.read(&mut buf))
             .await
             .map_err(|_| {
                 format!(
                     "stahování se zaseklo — {} s nepřišel žádný další byte",
                     STALL_TIMEOUT.as_secs()
                 )
-            })?
-            .map_err(|e| format!("čtení selhalo: {e}"))?;
+            })?;
+        let n = match read {
+            Ok(n) => n,
+            // Plenty of servers — Google's among them — just close the socket
+            // when the response is done instead of sending TLS `close_notify`.
+            // rustls reports that as an error, correctly, because a truncation
+            // attack looks the same. Once a complete response has arrived it is
+            // not worth failing over: the alternative is a GIF picker that
+            // shows a TLS manual page instead of GIFs.
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof && !raw.is_empty() => {
+                break;
+            }
+            Err(e) => return Err(format!("čtení selhalo: {e}")),
+        };
         if n == 0 {
             break;
         }
