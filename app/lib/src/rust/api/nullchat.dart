@@ -154,6 +154,11 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// itself worth not leaving in the clear.
   String gifKey();
 
+  /// Whether searching can work at all: this build ships with a key, or the
+  /// user supplied one. The picker asks before showing a setup panel nobody
+  /// normally needs.
+  bool gifKeyAvailable();
+
   /// Fetch a preview thumbnail, through Tor.
   ///
   /// The picker calls this instead of handing the URL to Flutter's image

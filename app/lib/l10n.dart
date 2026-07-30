@@ -112,6 +112,9 @@ class L {
       'gif.settingsHelp':
           'The only feature that contacts an outside service. Off means '
           'NullChat talks to nobody but your contacts.',
+      'gif.keyReady': 'Ready to use — this build has its own Tenor key.',
+      'gif.keyMissing': 'No working Tenor key, so search cannot run.',
+      'gif.keyOwn': 'Use my own key',
       'connecting.title': 'Connecting to Tor',
       'connecting.subtitle':
           'NullChat needs a Tor connection before it can reach anyone. Nothing here needs your attention — it just takes a while.',
@@ -495,6 +498,9 @@ class L {
       'gif.settingsHelp':
           'Jediná funkce, která kontaktuje službu zvenčí. Vypnuto znamená, že '
           'NullChat nemluví s nikým kromě tvých kontaktů.',
+      'gif.keyReady': 'Funguje rovnou — tahle verze má vlastní klíč k Tenoru.',
+      'gif.keyMissing': 'Není funkční klíč k Tenoru, hledání nepoběží.',
+      'gif.keyOwn': 'Použít vlastní klíč',
       'connecting.title': 'Připojuji se k Toru',
       'connecting.subtitle':
           'NullChat potřebuje spojení se sítí Tor, než na někoho dosáhne. Nic nemusíš dělat — jen to chvíli trvá.',

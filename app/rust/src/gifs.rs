@@ -15,13 +15,35 @@
 
 use crate::updater::http_get_via_tor;
 
-/// What to tell the user when there is no key. Tenor's v2 API has no shared or
-/// demo key — every client authenticates with one its developer registered —
-/// and shipping the author's key in an open-source app would mean every user's
-/// searches counting against it until it was pulled. So the key is the user's.
-const NO_KEY: &str = "GIF hledání potřebuje tvůj vlastní klíč k Tenor API. \
-Je zdarma: console.cloud.google.com → povolit Tenor API → vytvořit API klíč. \
-Vlož ho v Nastavení → GIFy.";
+/// The key this build ships with, baked in at compile time from
+/// `NULLCHAT_TENOR_KEY` (tools/release.ps1 reads it from a file that is not in
+/// the repository). Released builds have one, so nobody has to set anything up.
+///
+/// Why not a literal in the source: the repository is public, and a key sitting
+/// in it gets scraped and used by strangers until Google disables it — taking
+/// GIF search down for every real user. In the binary it is still extractable
+/// by anyone who looks, which is fine: it identifies the *application*, not a
+/// person, and grants access to nothing but GIF search.
+///
+/// A build from a plain checkout has no key. That is not a failure — it falls
+/// back to the user's own, and the picker explains where to get one.
+const BUILT_IN_KEY: Option<&str> = option_env!("NULLCHAT_TENOR_KEY");
+
+/// The key to use: the user's own wins, so a build whose shipped key is
+/// exhausted or revoked can be rescued without waiting for a release.
+pub fn key_for(user_key: &str) -> Option<&str> {
+    if key_looks_sane(user_key) {
+        return Some(user_key.trim());
+    }
+    BUILT_IN_KEY.filter(|k| key_looks_sane(k)).map(|k| k.trim())
+}
+
+/// Shown only when neither key exists, which for a released build means the
+/// shipped one stopped working.
+const NO_KEY: &str = "Hledání GIFů teď nefunguje: klíč k Tenor API, se kterým \
+se tahle verze dodává, služba odmítla. Můžeš použít vlastní — je zdarma: \
+console.cloud.google.com → povolit Tenor API → vytvořit API klíč → vložit v \
+Nastavení → Hledání GIFů.";
 
 /// Is this shaped like a Google API key at all? Catches a pasted URL or a
 /// half-copied string before it becomes a request and a confusing 400.
@@ -64,14 +86,14 @@ pub async fn search(
     isolation: &str,
     key: &str,
 ) -> Result<Vec<GifResult>, String> {
-    if !key_looks_sane(key) {
+    let Some(key) = key_for(key) else {
         return Err(NO_KEY.to_string());
-    }
+    };
     let q = urlencode(query.trim());
     if q.is_empty() {
         return Ok(Vec::new());
     }
-    let key = urlencode(key.trim());
+    let key = urlencode(key);
     // `contentfilter=off` is the "uncensored" part of the request. What comes
     // back is whatever Tenor has; nothing here filters it further.
     let url = format!(
@@ -89,10 +111,10 @@ pub async fn featured(
     isolation: &str,
     key: &str,
 ) -> Result<Vec<GifResult>, String> {
-    if !key_looks_sane(key) {
+    let Some(key) = key_for(key) else {
         return Err(NO_KEY.to_string());
-    }
-    let key = urlencode(key.trim());
+    };
+    let key = urlencode(key);
     let url = format!(
         "https://tenor.googleapis.com/v2/featured?key={key}\
          &limit={limit}&contentfilter=off&media_filter=gif,tinygif&client_key=nullchat"
@@ -272,16 +294,29 @@ mod tests {
         assert_eq!(out[0].description, "cat");
     }
 
-    /// Without a key the request is never made: the user gets told what to do,
-    /// not a status code from a service they never configured.
+    /// With no key anywhere the request is never made: the user gets told what
+    /// to do, not a status code from a service they never configured.
     #[tokio::test]
     async fn a_missing_key_is_explained_not_requested() {
+        if BUILT_IN_KEY.is_some() {
+            return; // a release build always has one; nothing to fall back to
+        }
         for key in ["", "   ", "paste-your-key-here", "https://console.cloud.google.com"] {
             let err = search(9050, "cat", 10, "test", key).await.unwrap_err();
             assert!(err.contains("Tenor API"), "{key:?} gave: {err}");
             let err = featured(9050, 10, "test", key).await.unwrap_err();
             assert!(err.contains("Tenor API"), "{key:?} gave: {err}");
         }
+    }
+
+    /// The user's own key wins, so a shipped key that stops working can be
+    /// replaced without waiting for a release.
+    #[test]
+    fn a_users_key_overrides_the_shipped_one() {
+        let mine = "AIzaSyMINEMINEMINEMINEMINEMINEMINEMINE";
+        assert_eq!(key_for(mine), Some(mine));
+        // Junk is not treated as an override; it falls through to the built-in.
+        assert_eq!(key_for("nope"), BUILT_IN_KEY);
     }
 
     #[test]

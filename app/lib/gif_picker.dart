@@ -122,7 +122,9 @@ class _GifSheetState extends State<_GifSheet> {
   @override
   void initState() {
     super.initState();
-    _needsKey = appState.gifKey.isEmpty;
+    // Not "has the user set a key" — released builds ship with one, and asking
+    // for a key that is already there would be setup for nothing.
+    _needsKey = !appState.gifKeyAvailable;
     if (_needsKey) {
       _loading = false;
     } else {

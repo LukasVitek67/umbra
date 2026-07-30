@@ -20,10 +20,24 @@
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [Parameter(Mandatory = $true)][string]$KeyFile,
+    # The Tenor API key that gets compiled into the build, so users do not have
+    # to set anything up for GIF search. Kept in a file rather than in the
+    # repository: the repository is public and a key in it gets scraped.
+    [string]$TenorKeyFile = "$env:USERPROFILE\Documents\nullchat-tenor-key.txt",
     [switch]$SkipPublish
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Read it before anything is built - a release that silently ships without the
+# key looks fine and has broken GIF search.
+if (Test-Path $TenorKeyFile) {
+    $env:NULLCHAT_TENOR_KEY = (Get-Content $TenorKeyFile -Raw).Trim()
+    if ($env:NULLCHAT_TENOR_KEY.Length -lt 20) { throw "$TenorKeyFile does not look like an API key" }
+    Write-Host "GIF key: loaded from $TenorKeyFile"
+} else {
+    Write-Warning "no $TenorKeyFile - this build will ship WITHOUT a GIF key, and users will have to supply their own"
+}
 
 # libsignal generates code from protobufs at build time, and the JDK's internal
 # pipes fail under an 8.3-shortened TEMP path, which breaks the Android build.

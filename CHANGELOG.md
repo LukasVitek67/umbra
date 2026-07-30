@@ -8,6 +8,19 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.1.2
+
+- **GIFs work with nothing to set up.** 2.1.1 asked every user to register their
+  own Tenor API key, which is a setup step for a feature that is one button
+  everywhere else. Releases now carry a key, compiled into the build rather than
+  written into the public source — where it would be scraped and disabled, and
+  GIF search would break for everyone.
+
+  Your own key still wins if you set one, so an exhausted or revoked shipped key
+  can be worked around without waiting for a release. There is no keyless
+  option: every GIF service now requires a registered key (measured, see
+  `docs/GIFS.md`).
+
 ## 2.1.1
 
 - **GIF search actually works now.** 2.1.0 fixed the TLS error and then failed

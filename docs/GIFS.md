@@ -54,27 +54,40 @@ flaw (CVE-2023-4863) was exploitable with no interaction at all. So:
 - received GIFs go through the same path as any other received file, which
   already caps size and sanitises names.
 
-**6. The Tenor key is the user's own.**
+**6. The key ships with the build; the user never sets anything up.**
 
-Tenor's v2 API has no shared or demo key: every client authenticates with one
-its developer registered in Google Cloud. (The v1 public key `LIVDSRZULELA` that
-old tutorials mention is dead — measured 2026-07-30: v1 with it returns 403, v1
-without a key 401, v2 with it 400.)
+Every GIF service now requires a registered API key. Measured 2026-07-30, so
+this is not folklore:
 
-That leaves two options, and neither is "it just works":
+| endpoint | result |
+|---|---|
+| Tenor v1 with the old public `LIVDSRZULELA` | 403 |
+| Tenor v1 with no key | 401 |
+| Tenor v2 with that key | 400 |
+| Giphy with the public beta key `dc6zaTOxFJmzC` | 403 |
+| Giphy with no key | 401 |
 
-- **ship the author's key** — then every user's searches count against one quota
-  belonging to one person, and the key sits in a public repository until Google
-  disables it. It would also make every NullChat search attributable to the same
-  application identity.
-- **ask the user for theirs** — free, five minutes, and their searches are
-  billed to nobody but them.
+So there is no keyless path, and "ask every user to register one" is a setup
+step in a messenger where nothing else has one. Releases therefore carry a key,
+compiled in from `NULLCHAT_TENOR_KEY` at build time
+(`tools/release.ps1` reads it from `~/Documents/nullchat-tenor-key.txt`, CI from
+the `TENOR_KEY` secret).
 
-The second was chosen. The key is stored in the encrypted account like any other
-secret, and the picker explains how to get one instead of surfacing whatever
-status code Tenor returned. A key that is missing means no request is made at
-all; a key Tenor rejects sends the user back to the same explanation with
-Tenor's own words attached.
+Not written into the source, because the repository is public and keys in public
+repositories get scraped and then disabled — which would break GIF search for
+every real user. In the binary it is still extractable by anyone who looks, and
+that is acceptable: it identifies the *application*, not a person, and unlocks
+nothing but GIF search.
+
+Two consequences worth stating:
+
+- **A build from a plain checkout has no key.** That is deliberate, not a bug:
+  forks do not spend the author's quota. Such a build falls back to a key the
+  user supplies, and the picker explains where to get one.
+- **The user's own key always wins.** If the shipped key is exhausted or
+  revoked, anyone can paste theirs into Settings → GIF search and keep going
+  without waiting for a release. It is stored in the encrypted account like any
+  other secret.
 
 ## What this still leaks
 
@@ -100,4 +113,5 @@ nothing about NullChat changes. That is why it is opt-in.
 | Bundle a GIF library in the app | A "large uncensored library" cannot fit in an installer; it would be a token gesture. |
 | Proxy searches through a NullChat server | There is no server, and adding one to fetch GIFs would create the single point of surveillance the whole project exists to avoid. |
 | Cache GIFs on disk for speed | A list of what someone searched for, sitting outside the encrypted database. |
-| Ship one Tenor key for everybody | One quota, one person's account, published in a public repo — and every search made under the same identity. |
+| Put the shipped key in the source | Public repo, scraped within days, disabled by Google — GIF search then breaks for everyone until the next release. |
+| Make every user register their own key | The only feature in NullChat with a setup step, for something every other messenger does by pressing a button. |

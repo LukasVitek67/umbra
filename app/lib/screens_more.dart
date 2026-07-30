@@ -669,6 +669,10 @@ class _GifPanelState extends State<_GifPanel> {
       TextEditingController(text: appState.gifKey);
   bool _saved = false;
 
+  /// Open straight away only when there is something to fix, or the user has
+  /// already put their own key in.
+  late bool _showKey = appState.gifKey.isNotEmpty || !appState.gifKeyAvailable;
+
   @override
   void dispose() {
     _key.dispose();
@@ -716,7 +720,40 @@ class _GifPanelState extends State<_GifPanel> {
               ),
             ],
           ),
-          if (on) ...[
+          // The key is an escape hatch, not a setup step: released builds ship
+          // with one. Showing an empty field to everybody would suggest there
+          // is something to do here, and there is not.
+          if (on && !_showKey) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(
+                  appState.gifKeyAvailable
+                      ? Icons.check_circle_outline
+                      : Icons.error_outline,
+                  size: 14,
+                  color: appState.gifKeyAvailable
+                      ? UmbraColors.accent
+                      : UmbraColors.danger,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    appState.gifKeyAvailable
+                        ? L.t('gif.keyReady')
+                        : L.t('gif.keyMissing'),
+                    style: TextStyle(
+                        color: UmbraColors.textMuted, fontSize: 12),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _showKey = true),
+                  child: Text(L.t('gif.keyOwn')),
+                ),
+              ],
+            ),
+          ],
+          if (on && _showKey) ...[
             const SizedBox(height: 12),
             TextField(
               controller: _key,

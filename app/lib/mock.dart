@@ -1200,6 +1200,10 @@ class AppState extends ChangeNotifier {
   /// picker says so rather than letting the request come back as a bare 400.
   String get gifKey => _app?.gifKey() ?? '';
 
+  /// Released builds ship with a key, so this is normally true and nobody is
+  /// asked to set anything up.
+  bool get gifKeyAvailable => _app?.gifKeyAvailable() ?? false;
+
   Future<void> setGifKey(String key) async {
     _app?.setGifKey(key: key.trim());
     notifyListeners();

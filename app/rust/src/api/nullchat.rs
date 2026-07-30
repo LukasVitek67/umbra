@@ -1231,6 +1231,14 @@ impl UmbraApp {
             .unwrap_or_default()
     }
 
+    /// Whether searching can work at all: this build ships with a key, or the
+    /// user supplied one. The picker asks before showing a setup panel nobody
+    /// normally needs.
+    #[frb(sync)]
+    pub fn gif_key_available(&self) -> bool {
+        gifs::key_for(&self.gif_key()).is_some()
+    }
+
     /// Store (or clear, with an empty string) the Tenor API key.
     #[frb(sync)]
     pub fn set_gif_key(&self, key: String) -> Result<(), String> {
