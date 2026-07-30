@@ -1,7 +1,7 @@
 # NullChat — stav vývoje
 
 Poctivý přehled: co je **ověřené** (běží + testy) vs. **napsané, ale neověřené**.
-Datum: 2026-07-25.
+Datum: 2026-07-30. Poslední vydání: **2.1.0** (Windows, Linux, Android).
 
 ## ✅ Ověřeno (kód + procházející testy)
 
@@ -11,7 +11,9 @@ Datum: 2026-07-25.
 | `core::crypto::keystore` | secrets v klidu: Argon2id + XChaCha20-Poly1305 | 8 testů |
 | `core::identity` | Ed25519 účet, podepsaný odvolatelný roster, uživatelské kódy | 11 testů |
 | `core::invite` | pozvánka `umbra1:` (klíč + onion + username, checksum) | 6 testů |
-| `core::crypto::ratchet` | E2E Double Ratchet (vodozemac) + bajtové API | 4 testy |
+| `core::crypto::signal` | E2E Signal protokol (`libsignal`, PQXDH + Double Ratchet) | 4 testy |
+| `core::crypto::pq` | hybridní identita Ed25519 + ML-DSA-65, ověřují se **obě** | 5 testů |
+| `core::safety` | safety numbers (60 číslic, 5200 kol SHA-512) | 3 testy |
 | `core::store` | šifrovaná lokální SQLite (vč. skupin a jejich historie) | 8 testů |
 | `core::group` | skupinový roster: verzování, přidání/odebrání, merge | 5 testů |
 | `core::envelope` | rámce vč. `GROUP_TEXT` / `GROUP_INFO` (roster = pozvánka) | 7 testů |
@@ -19,7 +21,8 @@ Datum: 2026-07-25.
 | **nullchat-peer (CLI)** | **dva procesy si píšou E2E-šifrovaně přes TCP** | ruční, ověřeno |
 | **GUI ↔ jádro** | onboarding tvoří reálný klíč, šifrovaná perzistence, odemknutí frází | ruční, ověřeno |
 
-**58 automatických testů, 0 fail.** Vše audited open-source crates, žádné domácí krypto.
+**124 automatických testů, 0 fail** (`cargo test --workspace`), plus `clippy -D warnings`
+a `flutter analyze` v CI. Vše audited open-source crates, žádné domácí krypto.
 
 ## 👥 Skupinové chaty — napsané, end-to-end zatím neověřené
 
@@ -69,6 +72,45 @@ Opravy nalezené během testování (všechny v kódu):
 - **Spouštět s Windows**: přepínač v Nastavení, zapisuje `HKCU\...\Run` přes
   `reg.exe` (bez admina, uživatel to umí sám zrušit). Přepínač se řídí reálným
   stavem registru — když zápis selže, skočí zpět a řekne to.
+
+## 📦 2.1.0 — přílohy se šifrují, GIFy fungují, mazání konverzací
+- **přílohy už neleží v `files/` čitelné** — zapečetí se stejným klíčem jako
+  zbytek; co starší verze nechala čitelné, se zapečetí při dalším přihlášení
+  (appka řekne kolik). „Zobrazit ve složce" → **„Uložit soubor…"**, protože
+  čitelná kopie teď vzniká jen tam, kam si ji uložíš sám.
+- GIF hledání padalo na TLS chybě: Google zavírá spojení bez formálního
+  `close_notify`. Kompletní odpověď zakončená takhle se přijme, useknutá pořád ne.
+- mazání konverzace (kontakt + zprávy + fronta), NullChat značka místo štítu v UI
+- **pořád čitelné bez fráze:** `theme.txt`, `language.txt`, `accounts.json`
+  (jména účtů — výběr účtu je musí ukázat před odemčením) a `tor.log`.
+
+## 🏷️ 2.0.0 — přejmenování na NullChat, Linux, Arch, mobilní UI, GIFy
+- repo URL, package id `org.umbra.umbra`, `%APPDATA%\org.umbra\umbra`, magic
+  bajty drátu i **jména souborů účtu** (`umbra.db/.salt/.kdf`) zůstaly schválně —
+  přejmenování jmen souborů ve zdrojích rozbilo přihlášení ve 2.0.0 (opraveno
+  v 2.0.1 přes `account_file()`, které otevře to jméno, které na disku je)
+- 2.0.2: účty z 1.7.x hlásily „špatná fráze" — převod jmen tajemství na blind
+  index seděl uvnitř migrace, která na těch databázích už proběhla
+- Linux tarball staví CI (`release-linux.yml`), podepisuje se lokálně
+  (`tools/sign-linux.ps1`), Arch balíček v `packaging/arch/PKGBUILD`
+- spodní lišta a nastavení pod profilem na telefonech (<600 px), GIFy přes Tenor
+  na izolovaném okruhu — odesílatel GIF stáhne a pošle jako běžný E2E soubor,
+  takže příjemce nikam nechodí
+
+## 🛡️ 1.7.0–1.9.0 — blind index, nouzové fráze, post-kvantová identita
+- **blind index**: směrovací sloupce drží `HMAC-SHA256(index_key, hodnota)`,
+  skutečná hodnota je jednou zapečetěná v tabulce `blind_index`. Čtení špatným
+  klíčem vrací `Ok(None)`, ne chybu — zloděj si ani nepotvrdí, koho hledá.
+- **dvě nouzové fráze**: jedna smaže chaty, druhá otevře podvrženou historii.
+  Jeden soubor, víc frází; **řádek, který se nepodaří otevřít, je „není", ne
+  chyba** — to je celý trik. `destroy_unreadable()` přepíše nečitelné hodnoty
+  náhodnými bajty **stejné délky**, takže soubor si drží velikost i počty řádků.
+  Meze v `docs/DURESS.md`: obraz disku pořízený **před** smazáním to obejde.
+- **hybridní identita** Ed25519 + ML-DSA-65 ze stejného seedu (není co navíc
+  zálohovat); podpis musí sedět v **obou** polovinách. WIRE_VERSION 3.
+- notifikace přestanou chodit do Windows, jakmile je nastavená nouzová fráze —
+  Windows si drží vlastní kopii v `%LOCALAPPDATA%\...\Notifications`, kam naše
+  fráze nedosáhnou; NullChat si kreslí vlastní pruh.
 
 ## 🔄 1.5.1 — aktualizace je konečně vidět
 Kliknutí na „Aktualizovat" nedávalo žádnou zpětnou vazbu: stahování přes Tor
@@ -250,23 +292,41 @@ neměl kam volat, takže jsme pro protějšek byli trvale nedostupní.
   že běží NullChat. TLS přes rustls + vlastní CA roots (ne systémové úložiště).
 - nainstaluje se **jen archiv podepsaný Ed25519 klíčem autora**; veřejný klíč je
   zakompilovaný v `app/rust/src/updater.rs`, soukromý je mimo repo.
-- kontrola 90 s po startu a pak každých 30 min; stažení → ověření podpisu →
+- kontrola 20 s po startu a pak každých 5 min; stažení → ověření podpisu →
   rozbalení vedle appky (běžící `.exe` se přejmenuje na `.old`, uklidí se při
   dalším startu). Výměna **nikdy neprobíhá pod běžícím rozhovorem** — UI nabídne
   restart (pruh nahoře + panel v Nastavení).
 - vydání: `powershell -File tools\release.ps1 -Version X.Y.Z -KeyFile <klíč>`
-  (přepíše verzi, pustí testy, build, zip, podpis, `gh release create`).
+  (přepíše verzi, pustí testy, build, zip, podpis, **commitne a pushne bump**,
+  `gh release create --target <commit>`). Odmítne běžet ze špinavého stromu:
+  binárky vznikají z pracovní kopie, ale tag z commitu — 2.1.0 se kvůli tomu
+  otagovalo na commitu, kde bylo ještě 2.0.2, a linuxový build to číslo hlásil
+  vlastnímu updateru.
+- Linux podepisuje **až po CI**: `tools\sign-linux.ps1 -Version X.Y.Z -KeyFile
+  <klíč>` (klíč nemá na runneru co dělat). Podepisuje **stažený publikovaný**
+  archiv — znovu zabalený má stejný obsah, ale jiná metadata, takže by podpis
+  na tom, co lidi stahují, neplatil.
 - repo: <https://github.com/LukasVitek67/umbra>
 
 ## 📦 Distribuce
-`dist/NullChat.zip` (62 MB) — hotový balíček k odeslání: `nullchat.exe` + knihovny,
-**`tor.exe`**, `lyrebird.exe` (obfs4/snowflake), `bridges.txt` (oficiální mosty
-Tor Browseru), `nullchat-diagnostika.exe` a `CTI-MNE.txt` s návodem.
+Ke každému vydání jde na GitHub:
+- **Windows** `NullChat-X.Y.Z.zip` — `nullchat.exe` + knihovny, **`tor.exe`**,
+  `lyrebird.exe` (obfs4/snowflake), `bridges.txt` (oficiální mosty Tor Browseru)
+- **Linux** `NullChat-X.Y.Z-linux-x86_64.tar.gz` — bez Toru, ten je na každé
+  distribuci balíček, který drží aktuální systém; Arch přes `packaging/arch`
+- **Android** `NullChat-X.Y.Z-{armeabi-v7a,arm64-v8a,x86_64}.apk`
+- ke všemu `.sig` (Ed25519) + podepsané manifesty pro Windows a Linux
+
+⚠️ APK se podepisuje **debug klíčem** z `~\.android\debug.keystore`. Ten soubor
+je jediné, čím jde vydat aktualizaci instalovatelnou přes stávající NullChat na
+Androidu — bez zálohy znamená jeho ztráta pro uživatele odinstalaci a ztrátu dat.
 
 ## ⏳ Známá omezení
 - **Oba musí být online zároveň** — bez serveru neexistuje doručení „na později".
 - Skupiny: jen text, plochý roster, neověřeno mezi dvěma uzly (viz výše).
 - Onion adresa se do pozvánky doplní až po startu Toru (pozvánka je do té doby prázdná).
-- Ověření kontaktu („safety numbers") je v UI zatím jen přepínač, ne skutečné porovnání.
+- Safety numbers hotové (60 číslic, porovnávají se ručně) — ale ověření je jen
+  tak dobré, jak dobře si ta čísla oba přečtete jiným kanálem.
+- GIF výběr projel jen kódem, **ne skutečným dotazem na Tenor přes Tor**.
 - Roster zařízení je v jádře hotový a otestovaný, ale GUI ho zatím jen zobrazuje.
 - Metadata lokální DB: viz `docs/THREAT_MODEL.md`.

@@ -97,6 +97,12 @@ compiled into the app), and the swap never happens under a running conversation 
 the app tells you to restart.
 
 Publishing a release: `powershell -File tools/release.ps1 -Version X.Y.Z -KeyFile <key>`.
+That covers Windows and creates the tag. The tag starts the Linux build on CI,
+which has no signing key — sign the tarball it attaches with
+`tools/sign-linux.ps1 -Version X.Y.Z -KeyFile <key>`, which also writes the
+manifest the Arch package checks. Android is built separately
+(`flutter build apk --release --split-per-abi --no-tree-shake-icons`) and each
+APK gets the same detached signature.
 
 ## License
 
