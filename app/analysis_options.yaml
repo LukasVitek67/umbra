@@ -9,6 +9,15 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  exclude:
+    # cargokit is vendored third-party build tooling with its own pubspec, and
+    # `flutter analyze` from here does not fetch its dependencies — so every
+    # import in it resolves to nothing and the analyzer reports ~40 errors in
+    # code we do not maintain. That is what kept CI red while our own Dart was
+    # clean. Excluded, not silenced: it is analysed by its own project.
+    - rust_builder/cargokit/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`
