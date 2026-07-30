@@ -146,6 +146,14 @@ abstract class UmbraApp implements RustOpaqueInterface {
         id: id,
       );
 
+  /// The Tenor API key this account uses, empty when none is set.
+  ///
+  /// It lives in the encrypted store like everything else. It is not much of
+  /// a secret — it identifies an application, not a person — but it is the
+  /// user's property, and *which* services an account is set up to talk to is
+  /// itself worth not leaving in the clear.
+  String gifKey();
+
   /// Fetch a preview thumbnail, through Tor.
   ///
   /// The picker calls this instead of handing the URL to Flutter's image
@@ -320,6 +328,9 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// file. Nothing records that it exists except a note sealed under *this*
   /// passphrase, so the file itself never says how many it answers to.
   void setDuressPassphrase({required String kind, required String passphrase});
+
+  /// Store (or clear, with an empty string) the Tenor API key.
+  void setGifKey({required String key});
 
   /// Set our profile picture (raw image bytes, stored encrypted) and push it
   /// to everyone we are connected to.

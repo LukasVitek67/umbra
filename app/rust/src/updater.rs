@@ -583,10 +583,28 @@ pub async fn http_get_via_tor(
             301 | 302 | 303 | 307 | 308 => {
                 url = location.ok_or_else(|| "přesměrování bez cíle".to_string())?;
             }
-            other => return Err(format!("služba odpověděla {other}")),
+            // A bare status code is a bad error message: "400" sent us looking
+            // at the network when the service was plainly saying the API key
+            // was wrong. Google's APIs put the reason in the body, so pass it on.
+            other => {
+                return Err(match service_error(&body) {
+                    Some(msg) => format!("služba odpověděla {other}: {msg}"),
+                    None => format!("služba odpověděla {other}"),
+                })
+            }
         }
     }
     Err("příliš mnoho přesměrování".to_string())
+}
+
+/// `{"error":{"message":"..."}}`, which is how Google's APIs explain a refusal.
+fn service_error(body: &[u8]) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let msg = json.get("error")?.get("message")?.as_str()?.trim();
+    if msg.is_empty() {
+        return None;
+    }
+    Some(msg.chars().take(200).collect())
 }
 
 /// The same, reporting `(bytes so far, total)` as the body arrives.

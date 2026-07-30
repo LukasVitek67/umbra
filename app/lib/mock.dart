@@ -1196,6 +1196,15 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The account's Tenor API key. Empty means GIF search cannot work yet; the
+  /// picker says so rather than letting the request come back as a bare 400.
+  String get gifKey => _app?.gifKey() ?? '';
+
+  Future<void> setGifKey(String key) async {
+    _app?.setGifKey(key: key.trim());
+    notifyListeners();
+  }
+
   /// Search, through Tor. An empty query returns what is popular.
   Future<List<GifView>> gifSearch(String query) async {
     final app = _app;

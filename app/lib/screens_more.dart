@@ -417,6 +417,10 @@ class SettingsScreen extends StatelessWidget {
             ),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: _GifPanel(),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
               child: _UpdatePanel(),
             ),
             Padding(
@@ -642,6 +646,101 @@ class _NotificationsPanelState extends State<_NotificationsPanel> {
                 ),
             style: TextStyle(color: UmbraColors.textMuted, fontSize: 12, fontStyle: FontStyle.italic),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// GIF search: the one feature that talks to somebody outside.
+///
+/// Both halves live here so they can be undone here: the switch that lets
+/// NullChat contact Tenor at all, and the key it contacts Tenor with. The key
+/// is the user's own because Tenor has no shared one — see docs/GIFS.md.
+class _GifPanel extends StatefulWidget {
+  const _GifPanel();
+
+  @override
+  State<_GifPanel> createState() => _GifPanelState();
+}
+
+class _GifPanelState extends State<_GifPanel> {
+  late final TextEditingController _key =
+      TextEditingController(text: appState.gifKey);
+  bool _saved = false;
+
+  @override
+  void dispose() {
+    _key.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    await appState.setGifKey(_key.text);
+    if (!mounted) return;
+    setState(() => _saved = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final on = appState.gifsEnabled;
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.gif_box_outlined, color: UmbraColors.textMuted),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(L.t('gif.settingsTitle'),
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 3),
+                    Text(L.t('gif.settingsHelp'),
+                        style: TextStyle(
+                            color: UmbraColors.textMuted,
+                            fontSize: 13,
+                            height: 1.35)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: on,
+                onChanged: (v) async {
+                  await appState.setGifsEnabled(v);
+                  if (mounted) setState(() {});
+                },
+              ),
+            ],
+          ),
+          if (on) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _key,
+              onChanged: (_) {
+                if (_saved) setState(() => _saved = false);
+              },
+              onSubmitted: (_) => _save(),
+              decoration: InputDecoration(
+                hintText: L.t('gif.keyHint'),
+                prefixIcon: const Icon(Icons.vpn_key_outlined, size: 18),
+                suffixIcon: IconButton(
+                  tooltip: L.t('gif.keySave'),
+                  icon: Icon(_saved ? Icons.check : Icons.save_outlined,
+                      size: 18,
+                      color: _saved ? UmbraColors.accent : null),
+                  onPressed: _save,
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(L.t('gif.keySteps'),
+                style: TextStyle(
+                    color: UmbraColors.textMuted, fontSize: 11, height: 1.5)),
+          ],
         ],
       ),
     );

@@ -1214,16 +1214,43 @@ impl UmbraApp {
 
     // --- GIFs (see docs/GIFS.md) -------------------------------------------
 
+    /// The Tenor API key this account uses, empty when none is set.
+    ///
+    /// It lives in the encrypted store like everything else. It is not much of
+    /// a secret — it identifies an application, not a person — but it is the
+    /// user's property, and *which* services an account is set up to talk to is
+    /// itself worth not leaving in the clear.
+    #[frb(sync)]
+    pub fn gif_key(&self) -> String {
+        let g = self.inner.lock().unwrap();
+        g.store
+            .get_secret("tenor_api_key")
+            .ok()
+            .flatten()
+            .map(|v| String::from_utf8_lossy(&v).trim().to_string())
+            .unwrap_or_default()
+    }
+
+    /// Store (or clear, with an empty string) the Tenor API key.
+    #[frb(sync)]
+    pub fn set_gif_key(&self, key: String) -> Result<(), String> {
+        let g = self.inner.lock().unwrap();
+        g.store
+            .put_secret("tenor_api_key", key.trim().as_bytes())
+            .map_err(|e| e.to_string())
+    }
+
     /// Search Tenor, over Tor, on a circuit of its own.
     ///
     /// The exit node that sees a search term is deliberately not the one
     /// carrying anything else this app does.
     pub async fn gif_search(&self, query: String, limit: u32) -> Result<Vec<GifView>, String> {
         let port = socks_port_now().ok_or_else(|| "síť ještě neběží".to_string())?;
+        let key = self.gif_key();
         let found = if query.trim().is_empty() {
-            gifs::featured(port, limit, &gif_circuit()).await?
+            gifs::featured(port, limit, &gif_circuit(), &key).await?
         } else {
-            gifs::search(port, &query, limit, &gif_circuit()).await?
+            gifs::search(port, &query, limit, &gif_circuit(), &key).await?
         };
         Ok(found.into_iter().map(GifView::from).collect())
     }

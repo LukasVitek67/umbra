@@ -109,21 +109,41 @@ class _GifSheet extends StatefulWidget {
 
 class _GifSheetState extends State<_GifSheet> {
   final _query = TextEditingController();
+  final _key = TextEditingController();
   List<GifView> _results = const [];
   bool _loading = true;
   String? _error;
   int _seq = 0;
 
+  /// No key, no request. Asking Tenor without one comes back as a bare 400,
+  /// which tells the user nothing they can act on.
+  bool _needsKey = false;
+
   @override
   void initState() {
     super.initState();
-    _search('');
+    _needsKey = appState.gifKey.isEmpty;
+    if (_needsKey) {
+      _loading = false;
+    } else {
+      _search('');
+    }
   }
 
   @override
   void dispose() {
     _query.dispose();
+    _key.dispose();
     super.dispose();
+  }
+
+  Future<void> _saveKey() async {
+    final key = _key.text.trim();
+    if (key.isEmpty) return;
+    await appState.setGifKey(key);
+    if (!mounted) return;
+    setState(() => _needsKey = false);
+    await _search(_query.text);
   }
 
   Future<void> _search(String q) async {
@@ -142,8 +162,13 @@ class _GifSheetState extends State<_GifSheet> {
       });
     } catch (e) {
       if (!mounted || seq != _seq) return;
+      final message = e.toString();
       setState(() {
-        _error = e.toString();
+        // A key that Tenor rejects lands here; send the user back to the panel
+        // that explains how to get a working one instead of leaving them with
+        // the raw refusal.
+        _needsKey = message.contains('Tenor API') || message.contains('API key');
+        _error = message;
         _loading = false;
       });
     }
@@ -161,7 +186,8 @@ class _GifSheetState extends State<_GifSheet> {
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
               child: TextField(
                 controller: _query,
-                autofocus: true,
+                autofocus: !_needsKey,
+                enabled: !_needsKey,
                 onSubmitted: _search,
                 decoration: InputDecoration(
                   hintText: L.t('gif.search'),
@@ -194,7 +220,82 @@ class _GifSheetState extends State<_GifSheet> {
     );
   }
 
+  /// Shown instead of results when there is no key: what to do, and where.
+  Widget _keySetup() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(L.t('gif.keyTitle'),
+              style: TextStyle(
+                  color: UmbraColors.textPrimary,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          // What the service actually said, when it said anything. A key can be
+          // present and still refused - expired, restricted, wrong project.
+          if (_error != null) ...[
+            Text(_error!,
+                style: TextStyle(
+                    color: UmbraColors.danger, fontSize: 12, height: 1.45)),
+            const SizedBox(height: 10),
+          ],
+          Text(L.t('gif.keyWhy'),
+              style: TextStyle(
+                  color: UmbraColors.textMuted, fontSize: 12, height: 1.5)),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: UmbraColors.surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: UmbraColors.border),
+            ),
+            // Selectable so the console address can be copied rather than
+            // retyped from a screenshot.
+            child: SelectableText(L.t('gif.keySteps'),
+                style: TextStyle(
+                    color: UmbraColors.textMuted, fontSize: 12, height: 1.6)),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _key,
+            autofocus: true,
+            onSubmitted: (_) => _saveKey(),
+            decoration: InputDecoration(
+              hintText: L.t('gif.keyHint'),
+              prefixIcon: const Icon(Icons.vpn_key_outlined, size: 18),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Icon(Icons.lock_outline, size: 13, color: UmbraColors.accent),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(L.t('gif.keyStored'),
+                    style: TextStyle(
+                        color: UmbraColors.textMuted, fontSize: 11)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              onPressed: _saveKey,
+              child: Text(L.t('gif.keySave')),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _body() {
+    if (_needsKey) return _keySetup();
     if (_loading) {
       return Center(
         child: Column(

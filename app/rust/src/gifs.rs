@@ -15,10 +15,22 @@
 
 use crate::updater::http_get_via_tor;
 
-/// Tenor's public demo key. It identifies the *application*, not the user, and
-/// is not a secret: it ships in every client that uses it, ours included.
-/// Treating it as a credential would be theatre.
-const TENOR_KEY: &str = "AIzaSyC1FE9wGYYDDs1DKcNMSs_j0hoV6JlvGyE";
+/// What to tell the user when there is no key. Tenor's v2 API has no shared or
+/// demo key — every client authenticates with one its developer registered —
+/// and shipping the author's key in an open-source app would mean every user's
+/// searches counting against it until it was pulled. So the key is the user's.
+const NO_KEY: &str = "GIF hledání potřebuje tvůj vlastní klíč k Tenor API. \
+Je zdarma: console.cloud.google.com → povolit Tenor API → vytvořit API klíč. \
+Vlož ho v Nastavení → GIFy.";
+
+/// Is this shaped like a Google API key at all? Catches a pasted URL or a
+/// half-copied string before it becomes a request and a confusing 400.
+fn key_looks_sane(key: &str) -> bool {
+    let key = key.trim();
+    key.len() >= 20
+        && key.len() <= 100
+        && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
 
 /// Refuse anything larger before decoding a single byte. Image decoders are a
 /// long-standing source of memory-corruption bugs (CVE-2023-4863 needed no
@@ -26,6 +38,7 @@ const TENOR_KEY: &str = "AIzaSyC1FE9wGYYDDs1DKcNMSs_j0hoV6JlvGyE";
 pub const MAX_GIF_BYTES: usize = 8 * 1024 * 1024;
 
 /// One result, as the picker shows it.
+#[derive(Debug)]
 pub struct GifResult {
     /// Tenor's id — only ever used to fetch, never sent to a peer.
     pub id: String,
@@ -49,15 +62,20 @@ pub async fn search(
     query: &str,
     limit: u32,
     isolation: &str,
+    key: &str,
 ) -> Result<Vec<GifResult>, String> {
+    if !key_looks_sane(key) {
+        return Err(NO_KEY.to_string());
+    }
     let q = urlencode(query.trim());
     if q.is_empty() {
         return Ok(Vec::new());
     }
+    let key = urlencode(key.trim());
     // `contentfilter=off` is the "uncensored" part of the request. What comes
     // back is whatever Tenor has; nothing here filters it further.
     let url = format!(
-        "https://tenor.googleapis.com/v2/search?q={q}&key={TENOR_KEY}\
+        "https://tenor.googleapis.com/v2/search?q={q}&key={key}\
          &limit={limit}&contentfilter=off&media_filter=gif,tinygif&client_key=nullchat"
     );
     let body = http_get_via_tor(socks_port, &url, isolation).await?;
@@ -69,9 +87,14 @@ pub async fn featured(
     socks_port: u16,
     limit: u32,
     isolation: &str,
+    key: &str,
 ) -> Result<Vec<GifResult>, String> {
+    if !key_looks_sane(key) {
+        return Err(NO_KEY.to_string());
+    }
+    let key = urlencode(key.trim());
     let url = format!(
-        "https://tenor.googleapis.com/v2/featured?key={TENOR_KEY}\
+        "https://tenor.googleapis.com/v2/featured?key={key}\
          &limit={limit}&contentfilter=off&media_filter=gif,tinygif&client_key=nullchat"
     );
     let body = http_get_via_tor(socks_port, &url, isolation).await?;
@@ -247,6 +270,27 @@ mod tests {
         assert_eq!(out[0].gif_url, "https://media.tenor.com/a.gif");
         assert_eq!(out[0].width, 200);
         assert_eq!(out[0].description, "cat");
+    }
+
+    /// Without a key the request is never made: the user gets told what to do,
+    /// not a status code from a service they never configured.
+    #[tokio::test]
+    async fn a_missing_key_is_explained_not_requested() {
+        for key in ["", "   ", "paste-your-key-here", "https://console.cloud.google.com"] {
+            let err = search(9050, "cat", 10, "test", key).await.unwrap_err();
+            assert!(err.contains("Tenor API"), "{key:?} gave: {err}");
+            let err = featured(9050, 10, "test", key).await.unwrap_err();
+            assert!(err.contains("Tenor API"), "{key:?} gave: {err}");
+        }
+    }
+
+    #[test]
+    fn key_shape_is_checked() {
+        assert!(key_looks_sane("AIzaSyC1FE9wGYYDDs1DKcNMSs_j0hoV6JlvGyE"));
+        assert!(!key_looks_sane("short"));
+        assert!(!key_looks_sane("has spaces in it but is long enough"));
+        // A key with a query string glued on would build a broken URL.
+        assert!(!key_looks_sane("AIzaSyC1FE9wGYYDDs1DKcNMSs&limit=99"));
     }
 
     #[test]

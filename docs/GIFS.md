@@ -54,6 +54,28 @@ flaw (CVE-2023-4863) was exploitable with no interaction at all. So:
 - received GIFs go through the same path as any other received file, which
   already caps size and sanitises names.
 
+**6. The Tenor key is the user's own.**
+
+Tenor's v2 API has no shared or demo key: every client authenticates with one
+its developer registered in Google Cloud. (The v1 public key `LIVDSRZULELA` that
+old tutorials mention is dead — measured 2026-07-30: v1 with it returns 403, v1
+without a key 401, v2 with it 400.)
+
+That leaves two options, and neither is "it just works":
+
+- **ship the author's key** — then every user's searches count against one quota
+  belonging to one person, and the key sits in a public repository until Google
+  disables it. It would also make every NullChat search attributable to the same
+  application identity.
+- **ask the user for theirs** — free, five minutes, and their searches are
+  billed to nobody but them.
+
+The second was chosen. The key is stored in the encrypted account like any other
+secret, and the picker explains how to get one instead of surfacing whatever
+status code Tenor returned. A key that is missing means no request is made at
+all; a key Tenor rejects sends the user back to the same explanation with
+Tenor's own words attached.
+
 ## What this still leaks
 
 Named plainly, because the list above reads reassuringly and this part is the
@@ -78,3 +100,4 @@ nothing about NullChat changes. That is why it is opt-in.
 | Bundle a GIF library in the app | A "large uncensored library" cannot fit in an installer; it would be a token gesture. |
 | Proxy searches through a NullChat server | There is no server, and adding one to fetch GIFs would create the single point of surveillance the whole project exists to avoid. |
 | Cache GIFs on disk for speed | A list of what someone searched for, sitting outside the encrypted database. |
+| Ship one Tenor key for everybody | One quota, one person's account, published in a public repo — and every search made under the same identity. |

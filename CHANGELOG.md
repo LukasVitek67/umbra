@@ -8,6 +8,24 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.1.1
+
+- **GIF search actually works now.** 2.1.0 fixed the TLS error and then failed
+  one step later with `služba odpověděla 400`, because the API key compiled into
+  the app was not a valid one. Tenor has no shared or demo key — every client
+  authenticates with one its developer registered — so NullChat now asks for
+  yours. It is free: `console.cloud.google.com` → enable **Tenor API** → create
+  an API key → paste it into the picker or **Settings → GIF search**. It is
+  stored in your encrypted account like everything else.
+
+  Shipping one key for everybody was the alternative, and it was rejected: a key
+  in a public repository serves every user's searches out of one person's quota
+  until Google switches it off. See `docs/GIFS.md`.
+
+- **Errors from services say what went wrong.** A failed request used to report
+  only `služba odpověděla 400`, which pointed at the network when the service
+  was plainly explaining the problem. The explanation is now shown.
+
 ## 2.1.0
 
 - **Received files are encrypted now.** Until this release an attachment landed
