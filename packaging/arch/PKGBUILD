@@ -33,10 +33,10 @@ source=(
   "MANIFEST-$pkgver-linux-x86_64.txt.sig::$url/releases/download/v$pkgver/MANIFEST-$pkgver-linux-x86_64.txt.sig"
 )
 # Real hashes: 'SKIP' would throw away the integrity check pacman gives for free.
-sha256sums=('8c3db0f08b7ecfb7975a101f7e1c07fcc5887727233af45717a5793ae43aabfe'
-            '225a4eeac7dbe2bbbcb1ca15e3ff80af81d0748e62a3cb719172a7e74389f2a0'
-            '1cfa454c62b777f5aa5b4b14d2566a73bf467cf9e031979c9789a9c20b806f64'
-            '808220ddb7d8f78ea241493029e212e87f6834455495baee84962c841c49b3df')
+sha256sums=('122cef1da4a3ca5d64cb771345177740e70915aeb78e300999aa0a3243c563c7'
+            'c025ce847d5f00a83dc131e788781ffb1eab78707c0aa28805bf6649ecbb7df3'
+            'a30a8b0f9190ddcca19306bd8c7807e8b35a7e92df47b0ee7fb37782b7d2d5e1'
+            'eb61f467065e3a21f756e44413f7233bd30aca2b12549b5a44926192c84f205f')
 
 prepare() {
   # The release signature is Ed25519 over the tarball, verifiable with the
