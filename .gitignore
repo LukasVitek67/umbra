@@ -13,11 +13,6 @@ app/.flutter-plugins-dependencies
 *.key
 *.pem
 
-# The Tenor API key compiled into releases. Not a credential for anything but
-# GIF search, but a public repo gets scraped and the key then gets disabled for
-# everyone, so it lives outside the tree and reaches the build as an env var.
-*tenor-key*
-
 # Tor binaries shipped with releases (fetched from the Tor Project, not ours)
 dist/tor/
 

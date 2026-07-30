@@ -50,11 +50,6 @@ jobs:
 
       - name: Build
         working-directory: app
-        env:
-          # Compiled into the binary so GIF search works without the user
-          # setting anything up. Absent on forks, which then build without it
-          # and fall back to a key the user supplies - not a build failure.
-          NULLCHAT_TENOR_KEY: ${{ secrets.TENOR_KEY }}
         run: |
           flutter pub get
           flutter build linux --release

@@ -10,16 +10,26 @@ NullChat is experimental and has not been independently audited.
 
 ## 2.1.2
 
-- **GIFs work with nothing to set up.** 2.1.1 asked every user to register their
-  own Tenor API key, which is a setup step for a feature that is one button
-  everywhere else. Releases now carry a key, compiled into the build rather than
-  written into the public source — where it would be scraped and disabled, and
-  GIF search would break for everyone.
+- **GIF search is gone.** Google discontinued the Tenor API — their
+  documentation now reads "As of Jan 2026, we are no longer accepting new API
+  clients" — so the picker could not be made to work for anyone installing
+  NullChat today, and would have stopped working for everyone else when the
+  service closes.
 
-  Your own key still wins if you set one, so an exhausted or revoked shipped key
-  can be worked around without waiting for a release. There is no keyless
-  option: every GIF service now requires a registered key (measured, see
-  `docs/GIFS.md`).
+  The obvious replacement, GIPHY, forbids in its API terms exactly the thing
+  that made our version safe: NullChat downloaded the GIF on the *sender's*
+  device and sent the bytes as an encrypted file, so the person receiving it
+  never contacted the service at all. Complying with GIPHY's terms means sending
+  a link that every recipient's device fetches, handing their IP address and the
+  time to a third party. That is the leak the whole design existed to prevent,
+  so the feature was removed rather than made worse. The reasoning, and the bar
+  for bringing it back, are in `docs/GIFS.md`.
+
+  **GIFs can still be sent** — a `.gif` is a file, and files go encrypted like
+  everything else. Only the search is gone.
+
+- Nothing in NullChat contacts an outside service now, other than the update
+  check, which goes through Tor and asks GitHub one question.
 
 ## 2.1.1
 

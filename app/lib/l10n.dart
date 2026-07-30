@@ -76,45 +76,6 @@ class L {
       'nav.devices': 'Devices',
       'nav.settings': 'Settings',
       'nav.profile': 'Profile',
-      'gif.tooltip': 'Send a GIF',
-      'gif.search': 'Search GIFs…',
-      'gif.loading': 'Loading over Tor…',
-      'gif.none': 'Nothing found',
-      'gif.viaTor': 'Searching through Tor, on a separate circuit.',
-      'gif.enableTitle': 'Turn on GIF search?',
-      'gif.enableBody':
-          'GIFs come from Tenor, which is Google\'s. Searching sends your search '
-          'terms there — through Tor, on a circuit of its own, so they learn a '
-          'search term but not who you are, where you are, or who you are '
-          'talking to. Everything else in NullChat contacts nobody, so this is '
-          'yours to decide.',
-      'gif.enableProtected':
-          'The person you send a GIF to never contacts Tenor: NullChat downloads '
-          'it and sends the file to them encrypted, like any other attachment. '
-          'They cannot be tracked by receiving it.',
-      'gif.enableYes': 'Turn on',
-      'gif.enableNo': 'No thanks',
-      'gif.keyTitle': 'GIF search needs your own Tenor key',
-      'gif.keyWhy':
-          'Tenor has no shared key: every app authenticates with one its '
-          'developer registered. Shipping ours in an open-source app would mean '
-          'everyone\'s searches counting against it until Google switched it '
-          'off — so this one is yours. It is free.',
-      'gif.keySteps':
-          '1. console.cloud.google.com → create a project\n'
-          '2. APIs & Services → Library → enable "Tenor API"\n'
-          '3. Credentials → Create credentials → API key\n'
-          '4. paste it here',
-      'gif.keyHint': 'Tenor API key',
-      'gif.keySave': 'Save and search',
-      'gif.keyStored': 'Stored in your encrypted account, like everything else.',
-      'gif.settingsTitle': 'GIF search',
-      'gif.settingsHelp':
-          'The only feature that contacts an outside service. Off means '
-          'NullChat talks to nobody but your contacts.',
-      'gif.keyReady': 'Ready to use — this build has its own Tenor key.',
-      'gif.keyMissing': 'No working Tenor key, so search cannot run.',
-      'gif.keyOwn': 'Use my own key',
       'connecting.title': 'Connecting to Tor',
       'connecting.subtitle':
           'NullChat needs a Tor connection before it can reach anyone. Nothing here needs your attention — it just takes a while.',
@@ -463,44 +424,6 @@ class L {
       'nav.devices': 'Zařízení',
       'nav.settings': 'Nastavení',
       'nav.profile': 'Profil',
-      'gif.tooltip': 'Poslat GIF',
-      'gif.search': 'Hledat GIFy…',
-      'gif.loading': 'Načítám přes Tor…',
-      'gif.none': 'Nic nenalezeno',
-      'gif.viaTor': 'Hledá se přes Tor, samostatným okruhem.',
-      'gif.enableTitle': 'Zapnout hledání GIFů?',
-      'gif.enableBody':
-          'GIFy jsou z Tenoru, což je Google. Hledání tam posílá, co hledáš — '
-          'přes Tor a vlastním okruhem, takže se dozvědí hledaný výraz, ale ne '
-          'kdo jsi, kde jsi, ani s kým si píšeš. Všechno ostatní v NullChatu '
-          'nekontaktuje nikoho, takže tohle je tvoje rozhodnutí.',
-      'gif.enableProtected':
-          'Ten, komu GIF pošleš, s Tenorem nikdy nemluví: NullChat ho stáhne a '
-          'pošle mu ho zašifrovaně jako každou jinou přílohu. Tím, že ho '
-          'dostane, ho nikdo nevystopuje.',
-      'gif.enableYes': 'Zapnout',
-      'gif.enableNo': 'Ne, díky',
-      'gif.keyTitle': 'Hledání GIFů potřebuje tvůj vlastní klíč k Tenoru',
-      'gif.keyWhy':
-          'Tenor nemá společný klíč: každá aplikace se hlásí tím, který si její '
-          'autor zaregistroval. Kdyby byl náš v open-source aplikaci, počítalo '
-          'by se na něj hledání všech uživatelů, dokud by ho Google nevypnul — '
-          'proto je tenhle tvůj. Je zdarma.',
-      'gif.keySteps':
-          '1. console.cloud.google.com → založ projekt\n'
-          '2. APIs & Services → Library → povol „Tenor API"\n'
-          '3. Credentials → Create credentials → API key\n'
-          '4. vlož ho sem',
-      'gif.keyHint': 'Klíč k Tenor API',
-      'gif.keySave': 'Uložit a hledat',
-      'gif.keyStored': 'Uloží se do tvého šifrovaného účtu jako všechno ostatní.',
-      'gif.settingsTitle': 'Hledání GIFů',
-      'gif.settingsHelp':
-          'Jediná funkce, která kontaktuje službu zvenčí. Vypnuto znamená, že '
-          'NullChat nemluví s nikým kromě tvých kontaktů.',
-      'gif.keyReady': 'Funguje rovnou — tahle verze má vlastní klíč k Tenoru.',
-      'gif.keyMissing': 'Není funkční klíč k Tenoru, hledání nepoběží.',
-      'gif.keyOwn': 'Použít vlastní klíč',
       'connecting.title': 'Připojuji se k Toru',
       'connecting.subtitle':
           'NullChat potřebuje spojení se sítí Tor, než na někoho dosáhne. Nic nemusíš dělat — jen to chvíli trvá.',

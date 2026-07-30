@@ -60,9 +60,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ContactView dco_decode_contact_view(dynamic raw);
 
   @protected
-  GifView dco_decode_gif_view(dynamic raw);
-
-  @protected
   GroupMemberView dco_decode_group_member_view(dynamic raw);
 
   @protected
@@ -79,9 +76,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ContactView> dco_decode_list_contact_view(dynamic raw);
-
-  @protected
-  List<GifView> dco_decode_list_gif_view(dynamic raw);
 
   @protected
   List<GroupMemberView> dco_decode_list_group_member_view(dynamic raw);
@@ -167,9 +161,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ContactView sse_decode_contact_view(SseDeserializer deserializer);
 
   @protected
-  GifView sse_decode_gif_view(SseDeserializer deserializer);
-
-  @protected
   GroupMemberView sse_decode_group_member_view(SseDeserializer deserializer);
 
   @protected
@@ -186,9 +177,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ContactView> sse_decode_list_contact_view(SseDeserializer deserializer);
-
-  @protected
-  List<GifView> sse_decode_list_gif_view(SseDeserializer deserializer);
 
   @protected
   List<GroupMemberView> sse_decode_list_group_member_view(
@@ -290,9 +278,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_contact_view(ContactView self, SseSerializer serializer);
 
   @protected
-  void sse_encode_gif_view(GifView self, SseSerializer serializer);
-
-  @protected
   void sse_encode_group_member_view(
     GroupMemberView self,
     SseSerializer serializer,
@@ -321,9 +306,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     List<ContactView> self,
     SseSerializer serializer,
   );
-
-  @protected
-  void sse_encode_list_gif_view(List<GifView> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_group_member_view(

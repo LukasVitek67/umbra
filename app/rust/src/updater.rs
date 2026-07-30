@@ -563,49 +563,6 @@ async fn http_get(socks_port: u16, url: &str) -> Result<Vec<u8>, String> {
     http_get_with_progress(socks_port, url, None, &|_, _| {}).await
 }
 
-/// The same, on a caller-chosen circuit.
-///
-/// Used by the GIF picker so that searching runs on a circuit of its own: the
-/// exit node that sees a search term is then not the one carrying anything
-/// else this app does.
-pub async fn http_get_via_tor(
-    socks_port: u16,
-    url: &str,
-    isolation: &str,
-) -> Result<Vec<u8>, String> {
-    let mut url = url.to_string();
-    for _ in 0..5 {
-        let (host, path) = split_url(&url)?;
-        let (status, body, location) =
-            request_on_circuit(socks_port, &host, &path, isolation, None, &|_, _| {}).await?;
-        match status {
-            200 => return Ok(body),
-            301 | 302 | 303 | 307 | 308 => {
-                url = location.ok_or_else(|| "přesměrování bez cíle".to_string())?;
-            }
-            // A bare status code is a bad error message: "400" sent us looking
-            // at the network when the service was plainly saying the API key
-            // was wrong. Google's APIs put the reason in the body, so pass it on.
-            other => {
-                return Err(match service_error(&body) {
-                    Some(msg) => format!("služba odpověděla {other}: {msg}"),
-                    None => format!("služba odpověděla {other}"),
-                })
-            }
-        }
-    }
-    Err("příliš mnoho přesměrování".to_string())
-}
-
-/// `{"error":{"message":"..."}}`, which is how Google's APIs explain a refusal.
-fn service_error(body: &[u8]) -> Option<String> {
-    let json: serde_json::Value = serde_json::from_slice(body).ok()?;
-    let msg = json.get("error")?.get("message")?.as_str()?.trim();
-    if msg.is_empty() {
-        return None;
-    }
-    Some(msg.chars().take(200).collect())
-}
 
 /// The same, reporting `(bytes so far, total)` as the body arrives.
 ///

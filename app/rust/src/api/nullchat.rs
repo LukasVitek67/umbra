@@ -28,7 +28,6 @@ use zeroize::Zeroizing;
 use nullchat_transport::ctor::TorService;
 
 use crate::accounts::{self, AccountEntry};
-use crate::gifs;
 use crate::updater;
 
 use nullchat_core::envelope::{self, Payload};
@@ -392,27 +391,6 @@ pub struct AccountView {
     pub autologin: bool,
 }
 
-/// One GIF search result, flattened for the picker.
-pub struct GifView {
-    pub preview_url: String,
-    pub gif_url: String,
-    pub width: u32,
-    pub height: u32,
-    pub description: String,
-}
-
-impl From<gifs::GifResult> for GifView {
-    fn from(g: gifs::GifResult) -> Self {
-        Self {
-            preview_url: g.preview_url,
-            gif_url: g.gif_url,
-            width: g.width,
-            height: g.height,
-            description: g.description,
-        }
-    }
-}
-
 /// The account's database, salt or KDF file — under whichever name it has.
 ///
 /// The rename to NullChat changed these filenames in the source, and an account
@@ -467,35 +445,6 @@ mod account_file_tests {
         assert!(account_file(&dir, "nullchat.db").ends_with("nullchat.db"));
 
         let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
-/// Tor's SOCKS port, once the network is up.
-fn socks_port_now() -> Option<u16> {
-    *SOCKS.lock().unwrap()
-}
-
-/// The SOCKS circuit label GIF traffic uses.
-///
-/// Stable for the life of the process (so a picker session reuses one circuit
-/// instead of building a new one per keystroke) and distinct from everything
-/// else, so Tenor's exit never carries messaging.
-fn gif_circuit() -> String {
-    "nullchat-gifs".to_string()
-}
-
-/// A filename for a received GIF that cannot do anything unpleasant.
-fn safe_gif_name(description: &str) -> String {
-    let cleaned: String = description
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
-        .take(40)
-        .collect();
-    let trimmed = cleaned.trim();
-    if trimmed.is_empty() {
-        "gif.gif".to_string()
-    } else {
-        format!("{}.gif", trimmed.replace(' ', "-"))
     }
 }
 
@@ -1202,130 +1151,6 @@ impl UmbraApp {
                     .is_err()
                 {
                     emit("error", "přenos souboru se přerušil", &contact_hex);
-                    return;
-                }
-                let sent = ((seq + 1) * envelope::CHUNK).min(data.len()) as u64;
-                emit("file_send_progress", &format!("{sent}|{total}"), &contact_hex);
-            }
-            let _ = svc.send_bytes(&contact_hex, envelope::encode_file_end(&id)).await;
-            emit("file_sent", &name, &contact_hex);
-        });
-    }
-
-    // --- GIFs (see docs/GIFS.md) -------------------------------------------
-
-    /// The Tenor API key this account uses, empty when none is set.
-    ///
-    /// It lives in the encrypted store like everything else. It is not much of
-    /// a secret — it identifies an application, not a person — but it is the
-    /// user's property, and *which* services an account is set up to talk to is
-    /// itself worth not leaving in the clear.
-    #[frb(sync)]
-    pub fn gif_key(&self) -> String {
-        let g = self.inner.lock().unwrap();
-        g.store
-            .get_secret("tenor_api_key")
-            .ok()
-            .flatten()
-            .map(|v| String::from_utf8_lossy(&v).trim().to_string())
-            .unwrap_or_default()
-    }
-
-    /// Whether searching can work at all: this build ships with a key, or the
-    /// user supplied one. The picker asks before showing a setup panel nobody
-    /// normally needs.
-    #[frb(sync)]
-    pub fn gif_key_available(&self) -> bool {
-        gifs::key_for(&self.gif_key()).is_some()
-    }
-
-    /// Store (or clear, with an empty string) the Tenor API key.
-    #[frb(sync)]
-    pub fn set_gif_key(&self, key: String) -> Result<(), String> {
-        let g = self.inner.lock().unwrap();
-        g.store
-            .put_secret("tenor_api_key", key.trim().as_bytes())
-            .map_err(|e| e.to_string())
-    }
-
-    /// Search Tenor, over Tor, on a circuit of its own.
-    ///
-    /// The exit node that sees a search term is deliberately not the one
-    /// carrying anything else this app does.
-    pub async fn gif_search(&self, query: String, limit: u32) -> Result<Vec<GifView>, String> {
-        let port = socks_port_now().ok_or_else(|| "síť ještě neběží".to_string())?;
-        let key = self.gif_key();
-        let found = if query.trim().is_empty() {
-            gifs::featured(port, limit, &gif_circuit(), &key).await?
-        } else {
-            gifs::search(port, &query, limit, &gif_circuit(), &key).await?
-        };
-        Ok(found.into_iter().map(GifView::from).collect())
-    }
-
-    /// Fetch a preview thumbnail, through Tor.
-    ///
-    /// The picker calls this instead of handing the URL to Flutter's image
-    /// loader, which would fetch it over the clearnet and undo the whole point.
-    pub async fn gif_preview(&self, url: String) -> Result<Vec<u8>, String> {
-        let port = socks_port_now().ok_or_else(|| "síť ještě neběží".to_string())?;
-        gifs::fetch(port, &url, &gif_circuit()).await
-    }
-
-    /// Send a GIF to a contact.
-    ///
-    /// **We** download it and push the bytes through the encrypted file
-    /// channel. The recipient's device never contacts Tenor — sending a link
-    /// instead would hand their IP address and the time to Google, which is the
-    /// one thing this whole design exists to prevent.
-    #[frb(sync)]
-    pub fn send_gif(&self, contact_hex: String, gif_url: String, description: String) {
-        rt().spawn(async move {
-            let Some(port) = socks_port_now() else {
-                emit("error", "síť ještě neběží", &contact_hex);
-                return;
-            };
-            let svc = SERVICE.lock().unwrap().clone();
-            let Some(svc) = svc else {
-                emit("error", "síť ještě neběží", &contact_hex);
-                return;
-            };
-
-            emit("gif_fetching", "", &contact_hex);
-            let data = match gifs::fetch(port, &gif_url, &gif_circuit()).await {
-                Ok(d) => d,
-                Err(e) => {
-                    emit("error", &format!("GIF se nepodařilo stáhnout: {e}"), &contact_hex);
-                    return;
-                }
-            };
-
-            // A name from the description, not from the URL: a remote-supplied
-            // filename has no business reaching a filesystem, and the receiving
-            // side sanitises it anyway.
-            let name = safe_gif_name(&description);
-            let mut id = [0u8; 16];
-            if getrandom::getrandom(&mut id).is_err() {
-                emit("error", "RNG selhal", &contact_hex);
-                return;
-            }
-            let total = data.len() as u64;
-            if svc
-                .send_bytes(&contact_hex, envelope::encode_file_offer(&id, &name, total))
-                .await
-                .is_err()
-            {
-                emit("error", "GIF nelze odeslat: nejsi spojen", &contact_hex);
-                return;
-            }
-            emit("file_send_start", &format!("{name}|{total}"), &contact_hex);
-            for (seq, chunk) in data.chunks(envelope::CHUNK).enumerate() {
-                if svc
-                    .send_bytes(&contact_hex, envelope::encode_file_chunk(&id, seq as u32, chunk))
-                    .await
-                    .is_err()
-                {
-                    emit("error", "přenos se přerušil", &contact_hex);
                     return;
                 }
                 let sent = ((seq + 1) * envelope::CHUNK).min(data.len()) as u64;
