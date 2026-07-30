@@ -10,7 +10,7 @@
 # NullChat
 
 [![CI](https://github.com/LukasVitek67/umbra/actions/workflows/ci.yml/badge.svg)](https://github.com/LukasVitek67/umbra/actions/workflows/ci.yml)
-[![Dependency audit](https://github.com/LukasVitek67/umbra/actions/workflows/ci.yml/badge.svg?event=schedule)](https://github.com/LukasVitek67/umbra/actions/workflows/ci.yml)
+[![Dependency audit](https://github.com/LukasVitek67/umbra/actions/workflows/audit.yml/badge.svg)](https://github.com/LukasVitek67/umbra/actions/workflows/audit.yml)
 [![License: AGPL v3](https://img.shields.io/badge/licence-AGPL--3.0-blue)](LICENSE)
 
 **Fully open-source, end-to-end encrypted, peer-to-peer messenger** for text and

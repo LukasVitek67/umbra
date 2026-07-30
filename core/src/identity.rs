@@ -293,7 +293,7 @@ mod tests {
     #[test]
     fn seed_roundtrip_is_stable() {
         let id = Keypair::from_seed(&[7u8; 32]);
-        let again = Keypair::from_seed(&*id.secret_seed());
+        let again = Keypair::from_seed(&id.secret_seed());
         assert_eq!(id.public(), again.public());
     }
 

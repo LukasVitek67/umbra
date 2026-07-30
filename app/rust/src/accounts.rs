@@ -158,11 +158,11 @@ mod dpapi {
 
     /// Encrypt bytes so only this Windows user on this machine can read them.
     pub fn protect(plain: &[u8]) -> Option<Vec<u8>> {
-        let mut input = DataBlob { cb_data: plain.len() as u32, pb_data: plain.as_ptr() as *mut u8 };
+        let input = DataBlob { cb_data: plain.len() as u32, pb_data: plain.as_ptr() as *mut u8 };
         let mut out = DataBlob { cb_data: 0, pb_data: std::ptr::null_mut() };
         unsafe {
             let ok = CryptProtectData(
-                &mut input,
+                &input,
                 std::ptr::null(),
                 std::ptr::null(),
                 std::ptr::null_mut(),
@@ -181,11 +181,11 @@ mod dpapi {
 
     /// Reverse of [`protect`]; returns `None` on another user or machine.
     pub fn unprotect(blob: &[u8]) -> Option<Vec<u8>> {
-        let mut input = DataBlob { cb_data: blob.len() as u32, pb_data: blob.as_ptr() as *mut u8 };
+        let input = DataBlob { cb_data: blob.len() as u32, pb_data: blob.as_ptr() as *mut u8 };
         let mut out = DataBlob { cb_data: 0, pb_data: std::ptr::null_mut() };
         unsafe {
             let ok = CryptUnprotectData(
-                &mut input,
+                &input,
                 std::ptr::null_mut(),
                 std::ptr::null(),
                 std::ptr::null_mut(),

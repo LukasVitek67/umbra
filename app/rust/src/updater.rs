@@ -81,8 +81,10 @@ static OFFERED: Mutex<Option<Release>> = Mutex::new(None);
 
 /// Watch for new versions. `emit` reports to the UI; nothing is downloaded
 /// until the user says yes (see [`install_offered`]) — an update replaces the
-/// program they are running, so it is their call, not ours.
-pub async fn run_loop<F>(socks_port: u16, install_dir: PathBuf, emit: F)
+/// program they are running, so it is their call, not ours. Nothing is
+/// installed from here, so this loop does not need to know where the program
+/// lives — only [`install_offered`] does.
+pub async fn run_loop<F>(socks_port: u16, emit: F)
 where
     F: Fn(&str, &str) + Send + Sync + 'static,
 {
@@ -440,7 +442,7 @@ fn sha256_hex(data: &[u8]) -> String {
 
 fn unhex(s: &str) -> Option<Vec<u8>> {
     let s = s.trim();
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return None;
     }
     (0..s.len() / 2)

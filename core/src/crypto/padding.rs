@@ -200,7 +200,7 @@ mod tests {
         // 65533 + 4 = 65537 > MAX_BUCKET -> next multiple = 2 * 65536.
         let frame = pad(&vec![7u8; 65533]).unwrap();
         assert_eq!(frame.len(), 2 * MAX_BUCKET);
-        assert_eq!(is_valid_frame_len(frame.len()), true);
+        assert!(is_valid_frame_len(frame.len()));
         assert_eq!(unpad(&frame).unwrap(), vec![7u8; 65533]);
     }
 

@@ -381,6 +381,16 @@ pub struct Message {
     pub state: MessageState,
 }
 
+/// A `contacts` row exactly as SQLite hands it back: display name, onion,
+/// added_at, status, saved, verified, PQ fingerprint — all still sealed or
+/// blind-indexed. Named only so the query below does not carry a seven-element
+/// tuple in its signature.
+type ContactRow = (Vec<u8>, Vec<u8>, i64, i64, i64, i64, Option<Vec<u8>>);
+
+/// A `group_messages` row as it comes out of SQLite: id, sender, direction,
+/// timestamp, sealed body.
+type GroupMessageRow = (i64, Vec<u8>, i64, i64, Vec<u8>);
+
 /// The encrypted local store.
 pub struct Store {
     conn: Connection,
@@ -952,7 +962,7 @@ impl Store {
 
     /// Fetch a contact by identity key.
     pub fn get_contact(&self, identity_pubkey: &[u8; 32]) -> Result<Option<Contact>, StoreError> {
-        let row: Option<(Vec<u8>, Vec<u8>, i64, i64, i64, i64, Option<Vec<u8>>)> = self
+        let row: Option<ContactRow> = self
             .conn
             .query_row(
                 "SELECT display_name, onion_addr, added_at, status, saved, verified, pq_fingerprint
@@ -1423,7 +1433,7 @@ impl Store {
             }
         }
 
-        hits.sort_by(|a, b| b.sent_at.cmp(&a.sent_at));
+        hits.sort_by_key(|h| std::cmp::Reverse(h.sent_at));
         hits.truncate(limit as usize);
         Ok(hits)
     }
@@ -1484,7 +1494,7 @@ impl Store {
             });
         }
 
-        hits.sort_by(|a, b| b.sent_at.cmp(&a.sent_at));
+        hits.sort_by_key(|h| std::cmp::Reverse(h.sent_at));
         hits.truncate(limit as usize);
         Ok(hits)
     }
@@ -1691,7 +1701,7 @@ impl Store {
                 r.get::<_, Vec<u8>>(4)?,
             ))
         })?;
-        let found: Vec<(i64, Vec<u8>, i64, i64, Vec<u8>)> = rows.collect::<Result<_, _>>()?;
+        let found: Vec<GroupMessageRow> = rows.collect::<Result<_, _>>()?;
         let mut out = Vec::new();
         for (id, sender, dir, sent_at, body_ct) in found {
             out.push(GroupMessage {

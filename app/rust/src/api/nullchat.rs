@@ -326,7 +326,7 @@ fn spawn_updater(socks_port: u16) {
     updater::clean_leftovers(&dir);
     *SOCKS.lock().unwrap() = Some(socks_port);
     rt().spawn(async move {
-        updater::run_loop(socks_port, dir, |kind, data| emit(kind, data, "")).await;
+        updater::run_loop(socks_port, |kind, data| emit(kind, data, "")).await;
     });
 }
 

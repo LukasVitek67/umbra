@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Checks the dependency tree against the RustSec advisory database.
+#
+# It runs on a schedule as well as on pushes, because this is the one check
+# whose result changes without anybody touching the code: an advisory published
+# tomorrow affects the tree we already have. A push-only audit would go stale
+# and still show green.
+#
+# It lives in its own workflow rather than as a job in ci.yml so the README
+# badge can report the audit on its own — a red badge should say which of the
+# two failed.
+
+name: Dependency audit
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    # Mondays, 05:17 UTC. Off the hour on purpose: GitHub drops scheduled runs
+    # that pile up at :00.
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    # The action reports through a check run, which it cannot create with the
+    # read-only default token. Without this the audit itself passed and the job
+    # still failed with "Resource not accessible by integration".
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

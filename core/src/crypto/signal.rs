@@ -72,6 +72,8 @@ impl PublishedBundle {
         &self.bytes
     }
 
+    /// Wrap bytes that arrived from a peer. Nothing is parsed or checked here —
+    /// the signature over them is what decides whether they can be trusted.
     pub fn from_bytes(bytes: &[u8]) -> Self {
         Self { bytes: bytes.to_vec() }
     }
@@ -235,7 +237,7 @@ fn push_blob(out: &mut Vec<u8>, bytes: &[u8]) {
     out.extend_from_slice(bytes);
 }
 
-fn take_blob<'a>(rest: &'a [u8]) -> Option<(&'a [u8], &'a [u8])> {
+fn take_blob(rest: &[u8]) -> Option<(&[u8], &[u8])> {
     if rest.len() < 2 {
         return None;
     }

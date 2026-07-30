@@ -44,34 +44,91 @@ use crate::group::{Group, GroupMember};
 /// Largest slice of a file we put in one message.
 pub const CHUNK: usize = 48 * 1024;
 
+// The kind byte. These numbers are the wire format: an older build reads them
+// too, so a value may never be reused for something else.
+/// A chat message.
 pub const TEXT: u8 = 0;
+/// The sender's display name and picture.
 pub const PROFILE: u8 = 1;
+/// Announces a file that the following chunks belong to.
 pub const FILE_OFFER: u8 = 2;
+/// One slice of a file, at most [`CHUNK`] bytes.
 pub const FILE_CHUNK: u8 = 3;
+/// The last chunk has been sent; the receiver can reassemble.
 pub const FILE_END: u8 = 4;
+/// A message addressed to a group rather than to us alone.
 pub const GROUP_TEXT: u8 = 5;
+/// The shared group roster, which doubles as the invitation.
 pub const GROUP_INFO: u8 = 6;
+/// The sender's onion address, so we can dial them back.
 pub const ADDRESS: u8 = 7;
+/// Confirmation that a message of ours arrived.
 pub const RECEIPT: u8 = 8;
 
 /// A decoded incoming payload.
 pub enum Payload {
+    /// A chat message, already valid UTF-8.
     Text(String),
-    Profile { name: String, picture: Vec<u8> },
-    FileOffer { id: [u8; 16], name: String, size: u64 },
-    FileChunk { id: [u8; 16], seq: u32, data: Vec<u8> },
-    FileEnd { id: [u8; 16] },
-    GroupText { group_id: [u8; 16], text: String },
+    /// The sender's profile. Both fields are what *they* claim, so neither is
+    /// trusted for anything but display.
+    Profile {
+        /// Display name.
+        name: String,
+        /// Picture bytes, in whatever format the sender chose.
+        picture: Vec<u8>,
+    },
+    /// A file is about to arrive in chunks.
+    FileOffer {
+        /// Ties the offer, its chunks and its end together.
+        id: [u8; 16],
+        /// The name the sender gave the file; treat as untrusted input.
+        name: String,
+        /// Size the sender claims, in bytes.
+        size: u64,
+    },
+    /// One slice of a file.
+    FileChunk {
+        /// Which file this belongs to.
+        id: [u8; 16],
+        /// Position of this chunk, counted from zero.
+        seq: u32,
+        /// The bytes themselves.
+        data: Vec<u8>,
+    },
+    /// A file is complete.
+    FileEnd {
+        /// Which file finished.
+        id: [u8; 16],
+    },
+    /// A message sent to a group.
+    GroupText {
+        /// Which group it was sent to.
+        group_id: [u8; 16],
+        /// The message body.
+        text: String,
+    },
     /// A group roster. `created_at` is not on the wire — the receiver stamps
     /// its own arrival time, so a peer cannot rewrite our history.
-    GroupInfo { group: Group },
+    GroupInfo {
+        /// The roster as the sender has it.
+        group: Group,
+    },
     /// Where to reach the sender, so a conversation they started can be
     /// continued from our side later.
-    Address { onion: String, name: String },
+    Address {
+        /// Their onion address.
+        onion: String,
+        /// Their display name.
+        name: String,
+    },
     /// "Your message arrived" — carries the text it confirms.
-    Receipt { body: String },
+    Receipt {
+        /// The body of the message that arrived.
+        body: String,
+    },
 }
 
+/// Frame a chat message.
 pub fn encode_text(text: &str) -> Vec<u8> {
     let mut v = Vec::with_capacity(1 + text.len());
     v.push(TEXT);
@@ -79,6 +136,7 @@ pub fn encode_text(text: &str) -> Vec<u8> {
     v
 }
 
+/// Frame our display name and picture.
 pub fn encode_profile(name: &str, picture: &[u8]) -> Vec<u8> {
     let n = name.as_bytes();
     let mut v = Vec::with_capacity(3 + n.len() + picture.len());
@@ -89,6 +147,7 @@ pub fn encode_profile(name: &str, picture: &[u8]) -> Vec<u8> {
     v
 }
 
+/// Announce a file. `id` must be the same for its chunks and its end.
 pub fn encode_file_offer(id: &[u8; 16], name: &str, size: u64) -> Vec<u8> {
     let n = name.as_bytes();
     let mut v = Vec::with_capacity(1 + 16 + 2 + n.len() + 8);
@@ -100,6 +159,8 @@ pub fn encode_file_offer(id: &[u8; 16], name: &str, size: u64) -> Vec<u8> {
     v
 }
 
+/// Frame one slice of a file. Keep `data` at or below [`CHUNK`] so the result
+/// stays under the transport's frame cap.
 pub fn encode_file_chunk(id: &[u8; 16], seq: u32, data: &[u8]) -> Vec<u8> {
     let mut v = Vec::with_capacity(1 + 16 + 4 + data.len());
     v.push(FILE_CHUNK);
@@ -109,6 +170,7 @@ pub fn encode_file_chunk(id: &[u8; 16], seq: u32, data: &[u8]) -> Vec<u8> {
     v
 }
 
+/// Tell the receiver that every chunk of `id` has been sent.
 pub fn encode_file_end(id: &[u8; 16]) -> Vec<u8> {
     let mut v = Vec::with_capacity(17);
     v.push(FILE_END);
@@ -116,6 +178,8 @@ pub fn encode_file_end(id: &[u8; 16]) -> Vec<u8> {
     v
 }
 
+/// Frame a group message. The caller fans it out to each member over that
+/// member's own 1:1 session — there is no group session.
 pub fn encode_group_text(group_id: &[u8; 16], text: &str) -> Vec<u8> {
     let mut v = Vec::with_capacity(1 + 16 + text.len());
     v.push(GROUP_TEXT);
@@ -142,6 +206,7 @@ pub fn encode_group_info(group: &Group) -> Vec<u8> {
     v
 }
 
+/// Frame our onion address and name, sent right after a session comes up.
 pub fn encode_address(onion: &str, name: &str) -> Vec<u8> {
     let mut v = Vec::with_capacity(3 + onion.len() + name.len());
     v.push(ADDRESS);
@@ -150,6 +215,7 @@ pub fn encode_address(onion: &str, name: &str) -> Vec<u8> {
     v
 }
 
+/// Confirm a message we received, by echoing its body back.
 pub fn encode_receipt(body: &str) -> Vec<u8> {
     let mut v = Vec::with_capacity(1 + body.len());
     v.push(RECEIPT);

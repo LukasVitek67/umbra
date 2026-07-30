@@ -40,17 +40,11 @@ jobs:
       - name: Test
         run: cargo test --workspace --verbose
 
+      # --all-targets so the tests are linted too, and no -A: `core` opts into
+      # missing_docs with a crate attribute, which a command-line -A cannot
+      # override anyway — the flag only looked like it was doing something.
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings -A missing_docs
-
-  audit:
-    name: Dependency audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   flutter:
     name: Flutter analyze

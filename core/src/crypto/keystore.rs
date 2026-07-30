@@ -80,13 +80,19 @@ pub fn derive_store_key(
 /// Parameters used by databases created before the defaults were raised. They
 /// are not a recommendation — they are what those files were built with, and
 /// the only way to open them.
+/// Memory cost of the old parameters, in KiB.
 pub const LEGACY_M_COST: u32 = 19 * 1024;
+/// Iteration count of the old parameters.
 pub const LEGACY_T_COST: u32 = 2;
+/// Parallelism of the old parameters.
 pub const LEGACY_P_COST: u32 = 1;
 
 /// What a new database should use: see [`default_params`].
+/// Memory cost, in KiB — 256 MiB, which is what makes guessing expensive.
 pub const STORE_M_COST: u32 = 256 * 1024;
+/// Iteration count.
 pub const STORE_T_COST: u32 = 3;
+/// Parallelism.
 pub const STORE_P_COST: u32 = 4;
 
 /// Derive a database key with explicit parameters.
