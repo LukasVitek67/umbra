@@ -8,28 +8,31 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.1.3
+
+- **GIF search is back, and there is nothing to set up.** It now uses GIPHY
+  through its Tenor-compatible endpoints, with the key compiled into the build
+  rather than written into the public source — where it would be scraped and
+  disabled, taking search down for everyone.
+
+  The rule that shaped the original design is unchanged and is the reason this
+  was worth rebuilding rather than replacing with a link: **the person receiving
+  a GIF never contacts GIPHY.** NullChat downloads it on the sender's device,
+  over Tor on a circuit of its own, and sends the bytes through the same
+  encrypted file channel as any attachment.
+
+  If the shipped key is ever exhausted or revoked, your own key overrides it —
+  **Settings → GIF search** — and is stored in your encrypted account.
+
 ## 2.1.2
 
-- **GIF search is gone.** Google discontinued the Tenor API — their
-  documentation now reads "As of Jan 2026, we are no longer accepting new API
-  clients" — so the picker could not be made to work for anyone installing
-  NullChat today, and would have stopped working for everyone else when the
-  service closes.
+- **GIF search was removed.** Google discontinued the Tenor API ("As of Jan
+  2026, we are no longer accepting new API clients"), so the picker could not
+  work for anyone installing NullChat, and no keyless provider exists. It came
+  back in 2.1.3 on GIPHY; if you are reading this in an old release, update.
 
-  The obvious replacement, GIPHY, forbids in its API terms exactly the thing
-  that made our version safe: NullChat downloaded the GIF on the *sender's*
-  device and sent the bytes as an encrypted file, so the person receiving it
-  never contacted the service at all. Complying with GIPHY's terms means sending
-  a link that every recipient's device fetches, handing their IP address and the
-  time to a third party. That is the leak the whole design existed to prevent,
-  so the feature was removed rather than made worse. The reasoning, and the bar
-  for bringing it back, are in `docs/GIFS.md`.
-
-  **GIFs can still be sent** — a `.gif` is a file, and files go encrypted like
-  everything else. Only the search is gone.
-
-- Nothing in NullChat contacts an outside service now, other than the update
-  check, which goes through Tor and asks GitHub one question.
+- Sending GIFs as files was never affected: a `.gif` is a file, and files go
+  encrypted like everything else.
 
 ## 2.1.1
 

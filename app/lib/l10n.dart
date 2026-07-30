@@ -76,6 +76,42 @@ class L {
       'nav.devices': 'Devices',
       'nav.settings': 'Settings',
       'nav.profile': 'Profile',
+      'gif.tooltip': 'Send a GIF',
+      'gif.search': 'Search GIFs…',
+      'gif.loading': 'Loading over Tor…',
+      'gif.none': 'Nothing found',
+      'gif.viaTor': 'Searching through Tor, on a separate circuit.',
+      'gif.enableTitle': 'Turn on GIF search?',
+      'gif.enableBody':
+          'GIFs come from GIPHY. Searching sends your search terms there — '
+          'through Tor, on a circuit of its own, so they learn a search term but '
+          'not who you are, where you are, or who you are talking to. Everything '
+          'else in NullChat contacts nobody, so this is yours to decide.',
+      'gif.enableProtected':
+          'The person you send a GIF to never contacts GIPHY: NullChat downloads '
+          'it and sends the file to them encrypted, like any other attachment. '
+          'They cannot be tracked by receiving it.',
+      'gif.enableYes': 'Turn on',
+      'gif.enableNo': 'No thanks',
+      'gif.keyTitle': 'GIF search needs your own GIPHY key',
+      'gif.keyWhy':
+          'The key this build ships with was refused. You can use your own '
+          'instead — it is free, and it takes a couple of minutes.',
+      'gif.keySteps':
+          '1. developers.giphy.com → Create an API Key\n'
+          '2. create an app (the API option, not the SDK)\n'
+          '3. copy the key\n'
+          '4. paste it here',
+      'gif.keyHint': 'GIPHY API key',
+      'gif.keySave': 'Save and search',
+      'gif.keyStored': 'Stored in your encrypted account, like everything else.',
+      'gif.settingsTitle': 'GIF search',
+      'gif.settingsHelp':
+          'The only feature that contacts an outside service. Off means '
+          'NullChat talks to nobody but your contacts.',
+      'gif.keyReady': 'Ready to use — this build has its own GIPHY key.',
+      'gif.keyMissing': 'No working GIPHY key, so search cannot run.',
+      'gif.keyOwn': 'Use my own key',
       'connecting.title': 'Connecting to Tor',
       'connecting.subtitle':
           'NullChat needs a Tor connection before it can reach anyone. Nothing here needs your attention — it just takes a while.',
@@ -424,6 +460,42 @@ class L {
       'nav.devices': 'Zařízení',
       'nav.settings': 'Nastavení',
       'nav.profile': 'Profil',
+      'gif.tooltip': 'Poslat GIF',
+      'gif.search': 'Hledat GIFy…',
+      'gif.loading': 'Načítám přes Tor…',
+      'gif.none': 'Nic nenalezeno',
+      'gif.viaTor': 'Hledá se přes Tor, samostatným okruhem.',
+      'gif.enableTitle': 'Zapnout hledání GIFů?',
+      'gif.enableBody':
+          'GIFy jsou z GIPHY. Hledání tam posílá, co hledáš — přes Tor a '
+          'vlastním okruhem, takže se dozvědí hledaný výraz, ale ne kdo jsi, kde '
+          'jsi, ani s kým si píšeš. Všechno ostatní v NullChatu nekontaktuje '
+          'nikoho, takže tohle je tvoje rozhodnutí.',
+      'gif.enableProtected':
+          'Ten, komu GIF pošleš, s GIPHY nikdy nemluví: NullChat ho stáhne a '
+          'pošle mu ho zašifrovaně jako každou jinou přílohu. Tím, že ho '
+          'dostane, ho nikdo nevystopuje.',
+      'gif.enableYes': 'Zapnout',
+      'gif.enableNo': 'Ne, díky',
+      'gif.keyTitle': 'Hledání GIFů potřebuje tvůj vlastní klíč ke GIPHY',
+      'gif.keyWhy':
+          'Klíč, se kterým se tahle verze dodává, služba odmítla. Můžeš použít '
+          'vlastní — je zdarma a je to na pár minut.',
+      'gif.keySteps':
+          '1. developers.giphy.com → Create an API Key\n'
+          '2. založ aplikaci (volba API, ne SDK)\n'
+          '3. zkopíruj klíč\n'
+          '4. vlož ho sem',
+      'gif.keyHint': 'Klíč ke GIPHY API',
+      'gif.keySave': 'Uložit a hledat',
+      'gif.keyStored': 'Uloží se do tvého šifrovaného účtu jako všechno ostatní.',
+      'gif.settingsTitle': 'Hledání GIFů',
+      'gif.settingsHelp':
+          'Jediná funkce, která kontaktuje službu zvenčí. Vypnuto znamená, že '
+          'NullChat nemluví s nikým kromě tvých kontaktů.',
+      'gif.keyReady': 'Funguje rovnou — tahle verze má vlastní klíč ke GIPHY.',
+      'gif.keyMissing': 'Není funkční klíč ke GIPHY, hledání nepoběží.',
+      'gif.keyOwn': 'Použít vlastní klíč',
       'connecting.title': 'Připojuji se k Toru',
       'connecting.subtitle':
           'NullChat potřebuje spojení se sítí Tor, než na někoho dosáhne. Nic nemusíš dělat — jen to chvíli trvá.',

@@ -1,43 +1,68 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-# GIF search — built, then removed
+# GIFs — the design, and what it costs
 
-NullChat had a GIF picker in 2.0.0–2.1.1. It is gone as of 2.1.2. This document
-stays because *why* it is gone is more useful than the feature was, and because
-anyone proposing to add it back should have to answer what is below.
+A large GIF library means one thing technically: querying somebody else's search
+service. There is no way around that — nobody can carry millions of animations
+inside a messenger, and every provider that has them requires a registered API
+key (measured, see below). So the question is not *whether* an external service
+is involved, but exactly how much it learns and who else is exposed.
 
-GIFs can still be sent: a `.gif` is a file, and files go through the encrypted
-attachment channel like anything else. What is gone is *searching* somebody
-else's library from inside the app.
+## What was chosen
 
-## What it did
+**1. The recipient never contacts the service. Ever.**
 
-A large uncensored GIF library means querying somebody else's search service —
-nobody can carry millions of animations inside a messenger. The design tried to
-pay as little as possible for that:
+This is the decision that matters most. The obvious implementation sends a
+link — that is what most messengers do — and then *every recipient's device*
+fetches the file from GIPHY, handing over their IP address, the time, and which
+GIF they were sent. In a messenger whose entire point is that no third party
+learns who talks to whom, that would be self-defeating.
 
-- **The recipient never contacted the service.** The sender downloaded the GIF
-  and transmitted the bytes over the existing end-to-end encrypted file channel.
-  The obvious implementation — send a link — makes *every recipient's device*
-  fetch from the provider, handing over their IP address, the time, and which
-  GIF they were sent.
-- **Searching went through Tor on its own circuit**, so the exit that saw a
-  search term was not the exit carrying anything else.
-- **Off until switched on**, with the explanation on screen first.
-- **Nothing cached on disk**, so there was no record of what was searched.
-- **Hard limits before decoding**: 8 MB, 2000 px, and a real `GIF87a`/`GIF89a`
-  header, because image decoders are a long-standing source of memory-corruption
-  bugs (CVE-2023-4863 needed no interaction at all).
+Instead the **sender** downloads the GIF and transmits the bytes over the
+existing end-to-end encrypted file channel. The recipient's device makes no
+outside request at all; the GIF arrives exactly like a photo they were sent.
 
-## Why it was removed
+Cost: a GIF is 1–3 MB instead of a 100-byte link, and that travels over Tor.
 
-**1. Tenor is discontinued.** Google's own documentation, read 2026-07-30:
-"Tenor API Service Discontinuation" and "As of Jan 2026, we are no longer
-accepting new API clients." The API cannot be enabled on a new Cloud project —
-it is not in the API Library and its enablement page does not load. So the
-feature could not work for anyone setting up NullChat today, and would stop
-working for everyone else when the service closes.
+**2. Searching goes through Tor, on its own circuit.**
 
-**2. There is no keyless provider.** Measured the same day:
+Never the clearnet. And with a different circuit label than messaging uses, so
+the exit node that sees "someone searched for a cat GIF" is not the same exit
+that sees NullChat traffic. GIPHY sees a search term from a Tor exit — not who,
+not where, and not linked to any conversation.
+
+**3. Off until switched on, with the reason on screen.**
+
+The picker explains what it does before it is first used. Anyone whose threat
+model does not allow contacting a third party at all should be able to make that
+decision knowingly rather than discover it afterwards — and the honest answer
+for them is: leave it off and send GIFs as files.
+
+**4. Nothing cached on disk.**
+
+Search results and previews live in memory and die with the app. A disk cache
+of what someone searched for is a record of what they searched for, and a
+duress passphrase cannot reach it if it is outside the encrypted database.
+
+**5. Hard limits, because a decoder is an attack surface.**
+
+Image decoders have a long history of memory-corruption bugs — the 2023 WebP
+flaw (CVE-2023-4863) was exploitable with no interaction at all. So:
+
+- a GIF over **8 MB** is refused before a single byte is decoded;
+- dimensions over 2000 px are refused;
+- the payload must actually start with `GIF87a`/`GIF89a` — a file that claims
+  to be a GIF and is not never reaches the decoder;
+- the download URL must be on a GIPHY media host, compared as an exact host
+  after being cut out of the URL. A `starts_with` check would accept
+  `https://media.giphy.com.evil.example/`, so a tampered search response cannot
+  turn the fetcher into a general-purpose one;
+- received GIFs go through the same path as any other received file, which
+  already caps size and sanitises names.
+
+**6. The key ships with the build; the user sets up nothing.**
+
+Every GIF service requires a registered API key. Measured 2026-07-30, so this is
+not folklore:
 
 | endpoint | result |
 |---|---|
@@ -47,30 +72,65 @@ working for everyone else when the service closes.
 | Giphy with the public beta key `dc6zaTOxFJmzC` | 403 |
 | Giphy with no key | 401 |
 
-**3. The obvious replacement forbids the part that made it safe.** GIPHY is the
-natural successor — it even offers Tenor-compatible endpoints — but its API
-terms require that requests come directly from the client and prohibit
-proxying, caching, or storing copies of GIPHY media. NullChat's whole design is
-that the sender fetches the asset and hands a *copy* to the recipient so that
-the recipient never appears at the provider. Complying means sending links,
-which reintroduces exactly the leak the design existed to prevent.
+Releases therefore carry a key, compiled in from `NULLCHAT_GIPHY_KEY` at build
+time (`tools/release.ps1` reads it from `~/Documents/nullchat-giphy-key.txt`, CI
+from the `GIPHY_KEY` secret). Not written into the source, because the
+repository is public and keys in public repositories get scraped and then
+disabled — which would break GIF search for every real user. In the binary it is
+still extractable by anyone who looks, and that is acceptable: it identifies the
+*application*, not a person, and unlocks nothing but GIF search.
 
-So the choice was: break a provider's terms, leak every recipient's IP, or drop
-the feature. For a messenger whose reason to exist is that no third party learns
-who talks to whom, dropping it is the only one of the three that is consistent
-with the rest of the app.
+A build from a plain checkout has no key and falls back to one the user
+supplies; the picker explains where to get it. The user's own key always wins,
+so an exhausted or revoked shipped key can be worked around without a release.
 
-## If it ever comes back
+## Why GIPHY and not Tenor
 
-The bar it has to clear:
+Tenor was the original provider. Google discontinued it: the developer
+documentation now reads "Tenor API Service Discontinuation" and "As of Jan 2026,
+we are no longer accepting new API clients", and the API cannot be enabled on a
+new Cloud project — it is absent from the API Library and its enablement page
+does not load.
 
-1. A provider whose terms permit the sender to download an asset and forward a
-   copy over an encrypted channel — in writing, not by omission.
-2. No credential that has to be shipped inside a public application, and no
-   setup step for the user.
-3. Everything in "What it did" above, unchanged: own Tor circuit, opt-in, no
-   disk cache, hard limits before any decoder sees a byte.
+GIPHY publishes Tenor-compatible endpoints (`api.giphy.com/v2/search`,
+`/v2/featured`) that keep Tenor's request and response shape, so the migration
+changed the host and the key, not the parsing. `contentfilter=off` maps to G,
+PG, PG-13 and R — everything the API will serve.
 
-Self-hosting an index would satisfy (1) and (2) and fail the project's other
-rule: NullChat has no server, and adding one for GIFs would create the single
-point of surveillance the design exists to avoid.
+## What this still leaks
+
+Named plainly, because the list above reads reassuringly and this part is the
+price:
+
+- **GIPHY learns the search terms**, from a Tor exit. Not who typed them — but
+  "someone" searched them, with timing. Search for something identifying and
+  the timing is a correlation risk like any other.
+- **Sending a GIF is visible as a file transfer of that size** to anyone who
+  could already see file transfers, which over Tor is the peers themselves.
+- **One request per search leaves the machine**, to a company this project
+  otherwise takes care to avoid. That is why the feature is opt-in.
+
+## Where this design and GIPHY's terms disagree
+
+Stated openly rather than left for someone to discover: GIPHY's API terms
+require that requests come directly from the client and prohibit proxying,
+caching, or storing copies of GIPHY media. NullChat downloads the asset on the
+sender's device and forwards a *copy* over an encrypted channel, precisely so
+the recipient never appears at GIPHY.
+
+Complying literally would mean sending links, which hands every recipient's IP
+address and the time to a third party — the exact leak this design exists to
+prevent. The project chooses the users' privacy over the provider's preference,
+and whoever operates a fork should know that this is the trade being made.
+
+## What was rejected
+
+| Idea | Why not |
+|---|---|
+| Send the GIF URL, recipient fetches it | Hands every recipient's IP to the provider. This is the common implementation and it is the wrong one here. |
+| Bundle a GIF library in the app | A large library cannot fit in an installer; it would be a token gesture. |
+| Proxy searches through a NullChat server | There is no server. Adding one would create the single point of surveillance the whole project exists to avoid — it would see every search from every user — and it would still need the same API key. |
+| A keyless open source (Openverse, Wikimedia Commons) | Keyless and licence-clean, but not a GIF keyboard: measured 2026-07-30, "facepalm" returns 1 result and "excited" 43. |
+| Put the shipped key in the source | Public repo, scraped within days, disabled by the provider — GIF search then breaks for everyone until the next release. |
+| Make every user register their own key | The only feature in NullChat with a setup step, for something every other messenger does by pressing a button. |
+| Cache GIFs on disk for speed | A list of what someone searched for, sitting outside the encrypted database. |

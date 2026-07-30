@@ -93,7 +93,7 @@ Opravy nalezené během testování (všechny v kódu):
   index seděl uvnitř migrace, která na těch databázích už proběhla
 - Linux tarball staví CI (`release-linux.yml`), podepisuje se lokálně
   (`tools/sign-linux.ps1`), Arch balíček v `packaging/arch/PKGBUILD`
-- spodní lišta a nastavení pod profilem na telefonech (<600 px), GIFy přes Tenor
+- spodní lišta a nastavení pod profilem na telefonech (<600 px), GIFy přes GIPHY
   na izolovaném okruhu — odesílatel GIF stáhne a pošle jako běžný E2E soubor,
   takže příjemce nikam nechodí
 
@@ -327,6 +327,6 @@ Androidu — bez zálohy znamená jeho ztráta pro uživatele odinstalaci a ztr�
 - Onion adresa se do pozvánky doplní až po startu Toru (pozvánka je do té doby prázdná).
 - Safety numbers hotové (60 číslic, porovnávají se ručně) — ale ověření je jen
   tak dobré, jak dobře si ta čísla oba přečtete jiným kanálem.
-- GIF výběr projel jen kódem, **ne skutečným dotazem na Tenor přes Tor**.
+- GIF výběr projel jen kódem, **ne skutečným dotazem na GIPHY přes Tor**.
 - Roster zařízení je v jádře hotový a otestovaný, ale GUI ho zatím jen zobrazuje.
 - Metadata lokální DB: viz `docs/THREAT_MODEL.md`.

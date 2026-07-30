@@ -417,6 +417,10 @@ class SettingsScreen extends StatelessWidget {
             ),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: _GifPanel(),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
               child: _UpdatePanel(),
             ),
             Padding(
@@ -642,6 +646,138 @@ class _NotificationsPanelState extends State<_NotificationsPanel> {
                 ),
             style: TextStyle(color: UmbraColors.textMuted, fontSize: 12, fontStyle: FontStyle.italic),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// GIF search: the one feature that talks to somebody outside.
+///
+/// Both halves live here so they can be undone here: the switch that lets
+/// NullChat contact GIPHY at all, and the key it contacts GIPHY with. The key
+/// ships with the build; this is where a user replaces it — see docs/GIFS.md.
+class _GifPanel extends StatefulWidget {
+  const _GifPanel();
+
+  @override
+  State<_GifPanel> createState() => _GifPanelState();
+}
+
+class _GifPanelState extends State<_GifPanel> {
+  late final TextEditingController _key =
+      TextEditingController(text: appState.gifKey);
+  bool _saved = false;
+
+  /// Open straight away only when there is something to fix, or the user has
+  /// already put their own key in.
+  late bool _showKey = appState.gifKey.isNotEmpty || !appState.gifKeyAvailable;
+
+  @override
+  void dispose() {
+    _key.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    await appState.setGifKey(_key.text);
+    if (!mounted) return;
+    setState(() => _saved = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final on = appState.gifsEnabled;
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.gif_box_outlined, color: UmbraColors.textMuted),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(L.t('gif.settingsTitle'),
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 3),
+                    Text(L.t('gif.settingsHelp'),
+                        style: TextStyle(
+                            color: UmbraColors.textMuted,
+                            fontSize: 13,
+                            height: 1.35)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: on,
+                onChanged: (v) async {
+                  await appState.setGifsEnabled(v);
+                  if (mounted) setState(() {});
+                },
+              ),
+            ],
+          ),
+          // The key is an escape hatch, not a setup step: released builds ship
+          // with one. Showing an empty field to everybody would suggest there
+          // is something to do here, and there is not.
+          if (on && !_showKey) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(
+                  appState.gifKeyAvailable
+                      ? Icons.check_circle_outline
+                      : Icons.error_outline,
+                  size: 14,
+                  color: appState.gifKeyAvailable
+                      ? UmbraColors.accent
+                      : UmbraColors.danger,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    appState.gifKeyAvailable
+                        ? L.t('gif.keyReady')
+                        : L.t('gif.keyMissing'),
+                    style: TextStyle(
+                        color: UmbraColors.textMuted, fontSize: 12),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _showKey = true),
+                  child: Text(L.t('gif.keyOwn')),
+                ),
+              ],
+            ),
+          ],
+          if (on && _showKey) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _key,
+              onChanged: (_) {
+                if (_saved) setState(() => _saved = false);
+              },
+              onSubmitted: (_) => _save(),
+              decoration: InputDecoration(
+                hintText: L.t('gif.keyHint'),
+                prefixIcon: const Icon(Icons.vpn_key_outlined, size: 18),
+                suffixIcon: IconButton(
+                  tooltip: L.t('gif.keySave'),
+                  icon: Icon(_saved ? Icons.check : Icons.save_outlined,
+                      size: 18,
+                      color: _saved ? UmbraColors.accent : null),
+                  onPressed: _save,
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(L.t('gif.keySteps'),
+                style: TextStyle(
+                    color: UmbraColors.textMuted, fontSize: 11, height: 1.5)),
+          ],
         ],
       ),
     );
