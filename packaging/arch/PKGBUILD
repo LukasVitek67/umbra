@@ -6,7 +6,7 @@
 # packaging it this way.
 
 pkgname=nullchat
-pkgver=2.0.0
+pkgver=2.1.0
 pkgrel=1
 pkgdesc="Peer-to-peer encrypted messenger over Tor — no server, no account, no user directory"
 arch=('x86_64')
@@ -27,12 +27,16 @@ makedepends=('coreutils')
 source=(
   "$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/NullChat-$pkgver-linux-x86_64.tar.gz"
   "$pkgname-$pkgver.tar.gz.sig::$url/releases/download/v$pkgver/NullChat-$pkgver-linux-x86_64.tar.gz.sig"
-  "MANIFEST-$pkgver.txt::$url/releases/download/v$pkgver/MANIFEST-$pkgver.txt"
+  # The linux-specific manifest. MANIFEST-$pkgver.txt describes the Windows zip
+  # for the in-app updater, so checking the tarball against it always failed.
+  "MANIFEST-$pkgver-linux-x86_64.txt::$url/releases/download/v$pkgver/MANIFEST-$pkgver-linux-x86_64.txt"
+  "MANIFEST-$pkgver-linux-x86_64.txt.sig::$url/releases/download/v$pkgver/MANIFEST-$pkgver-linux-x86_64.txt.sig"
 )
 # Real hashes: 'SKIP' would throw away the integrity check pacman gives for free.
-sha256sums=('e51d9e645687bcb78671dead5519d5e6f50b44709f6c48dab0266be7c5a8ebfd'
-            'c2d4c0add1d7809dd4d3bb0252ecabefd756f84a34adf09a52811979167b0a74'
-            'a187aceddea94336350ec1c0bad9b9d90b71a81f1c0de1139c743c02bb86905c')
+sha256sums=('8c3db0f08b7ecfb7975a101f7e1c07fcc5887727233af45717a5793ae43aabfe'
+            '225a4eeac7dbe2bbbcb1ca15e3ff80af81d0748e62a3cb719172a7e74389f2a0'
+            '1cfa454c62b777f5aa5b4b14d2566a73bf467cf9e031979c9789a9c20b806f64'
+            '808220ddb7d8f78ea241493029e212e87f6834455495baee84962c841c49b3df')
 
 prepare() {
   # The release signature is Ed25519 over the tarball, verifiable with the
@@ -45,6 +49,12 @@ prepare() {
       89fec22189550db91adda520386ee2810725d95d8e21e71e31d9f5f7ff512e00 \
       "$srcdir/$pkgname-$pkgver.tar.gz" \
       || { error "signature does NOT match — refusing to package"; return 1; }
+    # The manifest is what binds this tarball to this version, so an unsigned
+    # manifest would make the cross-check below worthless.
+    nullchat-sign verify \
+      89fec22189550db91adda520386ee2810725d95d8e21e71e31d9f5f7ff512e00 \
+      "$srcdir/MANIFEST-$pkgver-linux-x86_64.txt" \
+      || { error "manifest signature does NOT match — refusing to package"; return 1; }
   else
     warning "nullchat-sign not found: the release signature was NOT verified."
     warning "pacman still checks the sha256sums above."
@@ -52,8 +62,8 @@ prepare() {
 
   # Cross-check the size and hash the signed manifest commits to.
   local want_sha want_size got_sha got_size
-  want_sha=$(sed -n 's/^sha256=//p' "$srcdir/MANIFEST-$pkgver.txt")
-  want_size=$(sed -n 's/^size=//p' "$srcdir/MANIFEST-$pkgver.txt")
+  want_sha=$(sed -n 's/^sha256=//p' "$srcdir/MANIFEST-$pkgver-linux-x86_64.txt")
+  want_size=$(sed -n 's/^size=//p' "$srcdir/MANIFEST-$pkgver-linux-x86_64.txt")
   got_sha=$(sha256sum "$srcdir/$pkgname-$pkgver.tar.gz" | cut -d' ' -f1)
   got_size=$(stat -c%s "$srcdir/$pkgname-$pkgver.tar.gz")
   if [ -n "$want_sha" ] && [ "$want_sha" != "$got_sha" ]; then

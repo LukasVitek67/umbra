@@ -41,6 +41,18 @@ Named rather than left for you to discover: `theme.txt`, `language.txt`, and
 `accounts.json` (which holds account *names*, because the account picker has to
 show them before anything is unlocked). Tor writes its own `tor.log`.
 
+### Downloads
+
+Android (`.apk`, one per architecture) and Linux (`.tar.gz`) are attached to this
+release next to the Windows zip. Every file now has a `.sig` beside it, including
+the Android packages, which had none before.
+
+**Arch users:** `packaging/arch/PKGBUILD` was checking the tarball against
+`MANIFEST-<version>.txt`, which describes the *Windows* zip — so the hash never
+matched and packaging stopped with an error. The release now also publishes
+`MANIFEST-<version>-linux-x86_64.txt`, and the PKGBUILD reads that, verifies its
+signature too, and pins the real hashes.
+
 ## 2.0.2
 
 - **Fixes "wrong passphrase" on accounts created before 1.8.0.** The account was
