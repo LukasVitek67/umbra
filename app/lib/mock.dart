@@ -352,6 +352,7 @@ class AppState extends ChangeNotifier {
     chats.clear();
     groups.clear();
     devices.clear();
+    _clearAttachmentCache();
     netStatus = '';
     notifyListeners();
   }
@@ -481,21 +482,21 @@ class AppState extends ChangeNotifier {
         case 'file_done':
           _fileDone(ev.peerHex, ev.data);
           break;
-        // "label|name": the label is what the conversation shows, and the Rust
-        // side has already stored it as a message so it survives a restart.
+        // "label|name|size|storedPath": the label is what the conversation
+        // shows, the Rust side has already stored it as a message so it
+        // survives a restart, and the path is our own sealed copy so the
+        // picture we sent can be shown like the ones we receive.
         case 'file_sent':
           _fileSent(ev.peerHex);
-          _addOutgoingAttachment(ev.peerHex, ev.data.split('|').first, pending: false);
+          _addOutgoingAttachment(ev.peerHex, ev.data, pending: false);
           break;
         // The contact was away, so the file (or GIF) sits in the encrypted
         // outbox instead of failing. Show it as waiting, exactly like a text
         // message — otherwise sending a GIF looks like nothing happened.
         case 'file_queued':
-          final parts = ev.data.split('|');
-          final label = parts.first;
-          final name = parts.length > 1 ? parts[1] : label;
           final chat = _ensureChat(ev.peerHex);
-          _addOutgoingAttachment(ev.peerHex, label, pending: true);
+          final name = ev.data.split('|').length > 1 ? ev.data.split('|')[1] : ev.data;
+          _addOutgoingAttachment(ev.peerHex, ev.data, pending: true);
           showInAppNotice(
             chat.name,
             L.t('file.queued').replaceAll('{name}', name).replaceAll('{who}', chat.name),
@@ -566,17 +567,33 @@ class AppState extends ChangeNotifier {
   ///
   /// The row already exists in the database; this is only so the bubble shows
   /// up now instead of after the next sign-in.
-  void _addOutgoingAttachment(String peerHex, String label, {required bool pending}) {
+  void _addOutgoingAttachment(String peerHex, String data, {required bool pending}) {
+    final parts = data.split('|');
+    final label = parts.isEmpty ? '' : parts.first;
     if (label.isEmpty) return;
+    final name = parts.length > 1 && parts[1].isNotEmpty ? parts[1] : label;
+    final size = parts.length > 2 ? int.tryParse(parts[2]) : null;
+    final stored = parts.length > 3 && parts[3].isNotEmpty ? parts[3] : null;
+
     final chat = _ensureChat(peerHex);
     // The live path emits both `file_sent` and, on some routes, nothing else;
     // guard against the same bubble being added twice.
     final last = chat.messages.isEmpty ? null : chat.messages.last;
     if (last != null && last.outgoing && last.body == label) {
       last.pending = pending;
+      last.filePath ??= stored;
       return;
     }
-    chat.messages.add(Message(label, outgoing: true, at: DateTime.now())..pending = pending);
+    chat.messages.add(Message(
+      label,
+      outgoing: true,
+      at: DateTime.now(),
+      fileName: stored == null ? null : name,
+      fileSize: stored == null ? null : size,
+    )
+      ..pending = pending
+      ..filePath = stored
+      ..progress = stored == null ? null : 1);
   }
 
   /// The conversation with `peerHex`, as the database has it.
@@ -1302,6 +1319,36 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  /// Attachment bytes, decrypted into memory for the preview.
+  ///
+  /// Nothing readable is written to disk: the sealed file stays sealed and the
+  /// plaintext lives only as long as the widget showing it. Results are cached
+  /// so scrolling past a photo does not decrypt it again, and the cache is
+  /// small on purpose — it holds decrypted personal content.
+  final Map<String, Uint8List> _attachmentCache = {};
+  static const int _attachmentCacheMax = 8;
+
+  Future<Uint8List?> attachmentBytes(String storedPath) async {
+    final cached = _attachmentCache[storedPath];
+    if (cached != null) return cached;
+    final app = _app;
+    if (app == null) return null;
+    try {
+      final bytes = await app.readAttachment(path: storedPath);
+      if (_attachmentCache.length >= _attachmentCacheMax) {
+        _attachmentCache.remove(_attachmentCache.keys.first);
+      }
+      _attachmentCache[storedPath] = bytes;
+      return bytes;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Forget decrypted attachments; called when the account is closed so they do
+  /// not outlive the session that was allowed to see them.
+  void _clearAttachmentCache() => _attachmentCache.clear();
 
   /// Decrypt an attachment to wherever the user picks.
   ///

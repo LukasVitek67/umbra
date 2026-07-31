@@ -161,6 +161,9 @@ class L {
       'chat.saveFile': 'Save file…',
       'file.queued':
           '{name} is waiting — it goes out as soon as {who} is online.',
+      'file.mediaNote': 'Video and audio play only after you save them.',
+      'file.tooBig': 'Too large to preview — save it to open it.',
+      'file.badImage': 'This file is not a picture that can be shown.',
       'merge.action': 'Merge into another chat…',
       'merge.title': 'Merge {name} into',
       'merge.body':
@@ -556,6 +559,9 @@ class L {
       'chat.showFile': 'Zobrazit ve složce',
       'chat.saveFile': 'Uložit soubor…',
       'file.queued': '{name} čeká — odejde, jakmile bude {who} online.',
+      'file.mediaNote': 'Video a zvuk přehraješ až po uložení.',
+      'file.tooBig': 'Příliš velké na náhled — otevřeš ho po uložení.',
+      'file.badImage': 'Tenhle soubor není obrázek, který jde zobrazit.',
       'merge.action': 'Sloučit s jiným chatem…',
       'merge.title': 'Sloučit {name} do',
       'merge.body':

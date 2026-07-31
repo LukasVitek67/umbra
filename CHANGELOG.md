@@ -8,6 +8,29 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.2.00
+
+- **Pictures and GIFs show themselves in the conversation.** A received photo
+  or GIF appears in the bubble instead of a filename, animates, and opens full
+  screen (with zoom) when tapped. What you send appears the same way, so a GIF
+  you picked is visible to you too.
+
+  Three things shape how this works, and they are deliberate:
+
+  - **Nothing readable is written to disk.** Attachments stay sealed; a preview
+    decrypts into memory and is forgotten when you sign out. "Save file…" is
+    still the only thing that creates a readable copy, where you choose.
+  - **The file's bytes decide, not its name.** `holiday.jpg` can be anything;
+    what gets decoded is chosen by the file's own header, so something
+    pretending to be a picture stays an ordinary attachment.
+  - **Files over 12 MB are not previewed.** A decoder is where a sender's bytes
+    get interpreted, and image decoders have a long history of
+    memory-corruption bugs — the 2023 WebP flaw needed no interaction at all.
+
+- **Video and audio are recognised but not played inline.** They are labelled
+  as what they are, and the note says why: playing them would mean writing a
+  decrypted copy somewhere on disk, which is exactly what 2.1.0 removed.
+
 ## 2.1.35
 
 - **The same person twice in the chat list is fixed at the source.** Two

@@ -182,6 +182,24 @@ async fn send_file_or_queue(peer_hex: &str, name: &str, data: Vec<u8>) {
                 .ok()
         })
         .unwrap_or(0);
+
+    // Keep our own copy, sealed like a received one, so the conversation can
+    // show the picture we sent rather than a line of text. Failing to store it
+    // is not a reason to abandon the send — the bubble simply stays textual.
+    let own_copy = APP.lock().unwrap().clone().and_then(|app| {
+        let dir = FILES_DIR.lock().unwrap().clone()?;
+        let mut path = dir.join(format!("sent-{}-{name}", hex(&id[..4])));
+        let mut n = 1;
+        while path.exists() {
+            path = dir.join(format!("sent-{}-{n}-{name}", hex(&id[..4])));
+            n += 1;
+        }
+        let g = app.lock().unwrap();
+        g.store.encrypt_file(&path, &data).ok()?;
+        Some(path.to_string_lossy().to_string())
+    });
+    let stored = own_copy.clone().unwrap_or_default();
+
     let total = data.len() as u64;
     let mut frames = Vec::with_capacity(data.len() / envelope::CHUNK + 2);
     frames.push(envelope::encode_file_offer(&id, name, total));
@@ -211,7 +229,7 @@ async fn send_file_or_queue(peer_hex: &str, name: &str, data: Vec<u8>) {
                     let _ = g.store.set_message_state(message_id, MessageState::Sent);
                 }
             }
-            emit("file_sent", &format!("{ui_body}|{name}"), peer_hex);
+            emit("file_sent", &format!("{ui_body}|{name}|{total}|{stored}"), peer_hex);
             return;
         }
     }
@@ -234,7 +252,7 @@ async fn send_file_or_queue(peer_hex: &str, name: &str, data: Vec<u8>) {
             }
         }
     }
-    emit("file_queued", &format!("{ui_body}|{name}"), peer_hex);
+    emit("file_queued", &format!("{ui_body}|{name}|{total}|{stored}"), peer_hex);
     emit("queued", &format!("{}", pending_count()), peer_hex);
 
     let onion = {

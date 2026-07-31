@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'gif_picker.dart';
+import 'attachment_preview.dart';
 import 'l10n.dart';
 import 'mock.dart';
 import 'src/rust/api/nullchat.dart' show SearchHitView;
@@ -2093,6 +2094,12 @@ class _FileBody extends StatelessWidget {
           ),
         ],
         if (done && msg.filePath != null) ...[
+          // Photos and GIFs show themselves; everything else stays a tile.
+          AttachmentPreview(
+            path: msg.filePath!,
+            name: msg.fileName ?? 'file',
+            size: msg.fileSize,
+          ),
           const SizedBox(height: 6),
           TextButton.icon(
             // Not "show in folder" any more: the file on disk is encrypted, so
