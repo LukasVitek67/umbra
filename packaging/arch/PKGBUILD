@@ -6,7 +6,7 @@
 # packaging it this way.
 
 pkgname=nullchat
-pkgver=2.2.1
+pkgver=2.2.2
 pkgrel=1
 pkgdesc="Peer-to-peer encrypted messenger over Tor — no server, no account, no user directory"
 arch=('x86_64')
@@ -33,10 +33,10 @@ source=(
   "MANIFEST-$pkgver-linux-x86_64.txt.sig::$url/releases/download/v$pkgver/MANIFEST-$pkgver-linux-x86_64.txt.sig"
 )
 # Real hashes: 'SKIP' would throw away the integrity check pacman gives for free.
-sha256sums=('4e7829a3426e66d6a4239d01f4ce325333b52db48645bbddd4d211d0ccaf787b'
-            '5194df2783730880f9cd39ab9a0aa895d4af05a95c134cf5a11b9dd75c8edbfc'
-            '1cbb5c99a79f98115fa90b561d068fe167e6f8bad8d6a6784c258a553a87b85d'
-            '9737f87808aca0f1d143cd3a18db282332fd729a5cea9391852d0b858f13c5fc')
+sha256sums=('9c31de204b4863eb3c866ad8e0c3f14359b9a818f1bc0ae4e0781ce77c94af66'
+            'aef7e0b9c1ad655217b90690b44e7fadcda945c0d89f37ad076ffbbaf64e96f0'
+            'f0e5b37f36009b5aa416c3fe843be401cf2708a81a62e397adeb8c01b4a4f99c'
+            '5242d53af69993947872af23dc26fd2183111039808d27c29a7c03542aa66aba')
 
 prepare() {
   # The release signature is Ed25519 over the tarball, verifiable with the
