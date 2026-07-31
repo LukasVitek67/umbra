@@ -21,8 +21,8 @@ use nullchat_core::crypto::pq::HybridIdentity;
 use nullchat_core::safety;
 use nullchat_core::group::{Group, GroupMember};
 use nullchat_core::store::{
-    Contact, ContactStatus, Direction, MessageState, NewGroupMessage, NewMessage, ProfileKind,
-    Store,
+    Contact, ContactStatus, Direction, MessageState, NewAttachment, NewGroupMessage, NewMessage,
+    ProfileKind, Store,
 };
 use zeroize::Zeroizing;
 use nullchat_transport::ctor::TorService;
@@ -160,29 +160,6 @@ async fn send_file_or_queue(peer_hex: &str, name: &str, data: Vec<u8>) {
         return;
     }
 
-    // A row in `messages`, so the conversation shows what was sent instead of
-    // nothing at all. Sending a GIF used to leave no trace anywhere: the picker
-    // closed, the file went out (or waited), and the thread looked untouched —
-    // which is indistinguishable from the feature being broken.
-    let ui_body = format!("📎 {name}");
-    let message_id = APP
-        .lock()
-        .unwrap()
-        .clone()
-        .zip(unhex(peer_hex))
-        .and_then(|(app, pk)| {
-            let g = app.lock().unwrap();
-            g.store
-                .insert_message(&NewMessage {
-                    contact_pubkey: pk,
-                    direction: Direction::Outgoing,
-                    sent_at: now_secs(),
-                    body: ui_body.as_bytes(),
-                })
-                .ok()
-        })
-        .unwrap_or(0);
-
     // Keep our own copy, sealed like a received one, so the conversation can
     // show the picture we sent rather than a line of text. Failing to store it
     // is not a reason to abandon the send — the bubble simply stays textual.
@@ -199,8 +176,35 @@ async fn send_file_or_queue(peer_hex: &str, name: &str, data: Vec<u8>) {
         Some(path.to_string_lossy().to_string())
     });
     let stored = own_copy.clone().unwrap_or_default();
-
     let total = data.len() as u64;
+
+    // A row in `messages`, so the conversation shows what was sent instead of
+    // nothing at all — and carries the attachment, so it is still a picture
+    // after a restart rather than a filename.
+    let ui_body = format!("📎 {name}");
+    let message_id = APP
+        .lock()
+        .unwrap()
+        .clone()
+        .zip(unhex(peer_hex))
+        .and_then(|(app, pk)| {
+            let g = app.lock().unwrap();
+            g.store
+                .insert_message(&NewMessage {
+                    contact_pubkey: pk,
+                    direction: Direction::Outgoing,
+                    sent_at: now_secs(),
+                    body: ui_body.as_bytes(),
+                    file: own_copy.as_deref().map(|path| NewAttachment {
+                        path,
+                        name,
+                        size: total,
+                    }),
+                })
+                .ok()
+        })
+        .unwrap_or(0);
+
     let mut frames = Vec::with_capacity(data.len() / envelope::CHUNK + 2);
     frames.push(envelope::encode_file_offer(&id, name, total));
     for (seq, chunk) in data.chunks(envelope::CHUNK).enumerate() {
@@ -649,6 +653,13 @@ pub struct MessageView {
     pub body: String,
     /// 0 = still waiting for the peer, 1 = handed over, 2 = confirmed by them.
     pub state: u8,
+    /// Where the sealed attachment is, empty when the message is only text.
+    /// With this the thread can show a picture again after a restart.
+    pub file_path: String,
+    /// The attachment's name, empty when there is none.
+    pub file_name: String,
+    /// The attachment's size in bytes, 0 when there is none.
+    pub file_size: u64,
 }
 
 /// A message found by search, or one a contact sent us.
@@ -1452,6 +1463,7 @@ impl UmbraApp {
                     direction: Direction::Outgoing,
                     sent_at: now,
                     body: text.as_bytes(),
+                    file: None,
                 })
                 .map_err(|e| e.to_string())?
         };
@@ -1725,6 +1737,7 @@ impl UmbraApp {
                     direction: if i % 2 == 0 { Direction::Incoming } else { Direction::Outgoing },
                     sent_at: start_at + (i as u64) * 900,
                     body: line.as_bytes(),
+                    file: None,
                 })
                 .map_err(|e| e.to_string())?;
         }
@@ -1905,6 +1918,7 @@ impl UmbraApp {
                 direction: if outgoing { Direction::Outgoing } else { Direction::Incoming },
                 sent_at,
                 body: body.as_bytes(),
+                file: None,
             })
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -1928,6 +1942,14 @@ impl UmbraApp {
                     MessageState::Sent => 1,
                     MessageState::Delivered => 2,
                 },
+                // An attachment whose file is gone is not offered: the preview
+                // would fail and the "Save file" button would lie.
+                file_path: m
+                    .file_path
+                    .filter(|p| std::path::Path::new(p).exists())
+                    .unwrap_or_default(),
+                file_name: m.file_name.unwrap_or_default(),
+                file_size: m.file_size.unwrap_or(0),
             })
             .collect())
     }
@@ -2548,7 +2570,26 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
                     log_line("received file stored WITHOUT encryption: no account open");
                     let _ = std::fs::rename(&part, &final_path);
                 }
-                emit("file_done", &final_path.to_string_lossy(), peer_hex);
+                // Give the received file a row in the thread. Until now it was
+                // an event and nothing else: the file survived a restart, the
+                // conversation did not remember it had arrived.
+                let stored = final_path.to_string_lossy().to_string();
+                let size = std::fs::metadata(&final_path).map(|m| m.len()).unwrap_or(0);
+                if let (Some(app), Some(pk)) = (APP.lock().unwrap().clone(), unhex(peer_hex)) {
+                    let g = app.lock().unwrap();
+                    let _ = g.store.insert_message(&NewMessage {
+                        contact_pubkey: pk,
+                        direction: Direction::Incoming,
+                        sent_at: now_secs(),
+                        body: format!("📎 {name}").as_bytes(),
+                        file: Some(NewAttachment {
+                            path: &stored,
+                            name: &name,
+                            size,
+                        }),
+                    });
+                }
+                emit("file_done", &format!("{stored}|{name}|{size}"), peer_hex);
             }
         }
     }

@@ -313,6 +313,23 @@ pub struct NewMessage<'a> {
     pub sent_at: u64,
     /// Plaintext body; stored encrypted.
     pub body: &'a [u8],
+    /// The attachment this message carries, if any.
+    pub file: Option<NewAttachment<'a>>,
+}
+
+/// The file part of a message.
+///
+/// Kept with the message so a photo or GIF is still a photo after a restart.
+/// Path and name are sealed like a body: together they say what was exchanged
+/// and with whom.
+#[derive(Debug, Clone, Copy)]
+pub struct NewAttachment<'a> {
+    /// Where the sealed file lives on disk.
+    pub path: &'a str,
+    /// The name to show.
+    pub name: &'a str,
+    /// Size in bytes.
+    pub size: u64,
 }
 
 /// A group message to insert.
@@ -379,6 +396,12 @@ pub struct Message {
     pub body: Vec<u8>,
     /// Delivery progress (outgoing messages only).
     pub state: MessageState,
+    /// Where the sealed attachment lives, when the message carries one.
+    pub file_path: Option<String>,
+    /// The attachment's name.
+    pub file_name: Option<String>,
+    /// The attachment's size in bytes.
+    pub file_size: Option<u64>,
 }
 
 /// How long a sealed empty value is: a 24-byte nonce and a 16-byte tag with no
@@ -735,6 +758,22 @@ impl Store {
         // working with the classical half alone, which is what they had.
         if !Self::has_column(conn, "contacts", "pq_fingerprint")? {
             conn.execute_batch("ALTER TABLE contacts ADD COLUMN pq_fingerprint BLOB")?;
+        }
+        // Which file a message carries. Without these the thread kept only the
+        // line of text describing an attachment, so a photo or GIF was a
+        // filename again after a restart — and nothing showed it at all if the
+        // app had been closed since it arrived.
+        //
+        // The path and name are sealed like a body; the size is not, because it
+        // is the one thing already visible to anyone watching the transfer.
+        if !Self::has_column(conn, "messages", "file_path")? {
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN file_path BLOB")?;
+        }
+        if !Self::has_column(conn, "messages", "file_name")? {
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN file_name BLOB")?;
+        }
+        if !Self::has_column(conn, "messages", "file_size")? {
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN file_size INTEGER")?;
         }
         Ok(())
     }
@@ -1237,10 +1276,19 @@ impl Store {
     pub fn insert_message(&self, m: &NewMessage) -> Result<i64, StoreError> {
         let body = self.seal(m.body)?;
         let bi = self.indexed(&m.contact_pubkey)?;
+        let (path, name, size) = match m.file {
+            Some(f) => (
+                Some(self.seal(f.path.as_bytes())?),
+                Some(self.seal(f.name.as_bytes())?),
+                Some(f.size as i64),
+            ),
+            None => (None, None, None),
+        };
         self.conn.execute(
-            "INSERT INTO messages(contact_pubkey, direction, sent_at, body)
-             VALUES(?1, ?2, ?3, ?4)",
-            params![bi, m.direction.to_i64(), m.sent_at as i64, body],
+            "INSERT INTO messages(contact_pubkey, direction, sent_at, body,
+                                  file_path, file_name, file_size)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![bi, m.direction.to_i64(), m.sent_at as i64, body, path, name, size],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
@@ -1252,7 +1300,8 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<Message>, StoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, direction, sent_at, body, state FROM messages
+            "SELECT id, direction, sent_at, body, state, file_path, file_name, file_size
+             FROM messages
              WHERE contact_pubkey = ?1 ORDER BY sent_at ASC, id ASC LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![self.bi(contact_pubkey), limit], |r| {
@@ -1262,11 +1311,14 @@ impl Store {
                 r.get::<_, i64>(2)?,
                 r.get::<_, Vec<u8>>(3)?,
                 r.get::<_, i64>(4)?,
+                r.get::<_, Option<Vec<u8>>>(5)?,
+                r.get::<_, Option<Vec<u8>>>(6)?,
+                r.get::<_, Option<i64>>(7)?,
             ))
         })?;
         let mut out = Vec::new();
         for row in rows {
-            let (id, dir, sent_at, body_ct, state) = row?;
+            let (id, dir, sent_at, body_ct, state, path_ct, name_ct, size) = row?;
             out.push(Message {
                 id,
                 contact_pubkey: *contact_pubkey,
@@ -1274,6 +1326,11 @@ impl Store {
                 sent_at: sent_at as u64,
                 body: self.unseal(&body_ct)?.to_vec(),
                 state: MessageState::from_i64(state),
+                // An attachment nobody can decrypt is simply not shown; the
+                // message itself still reads, which is what matters.
+                file_path: path_ct.as_deref().and_then(|b| self.try_decrypt_string(b)),
+                file_name: name_ct.as_deref().and_then(|b| self.try_decrypt_string(b)),
+                file_size: size.map(|s| s as u64),
             });
         }
         Ok(out)
@@ -1958,6 +2015,7 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 1_700_000_100,
             body: b"nikdy",
+            file: None,
         })
         .unwrap();
 
@@ -2031,6 +2089,7 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 1_700_000_100,
             body: b"ahoj",
+            file: None,
         })
         .unwrap();
 
@@ -2074,6 +2133,7 @@ mod tests {
                 direction: Direction::Incoming,
                 sent_at: at,
                 body,
+                file: None,
             })
             .unwrap();
         }
@@ -2171,10 +2231,16 @@ mod tests {
     fn messages_insert_and_query_ordered() {
         let s = Store::open_in_memory(&[3u8; 32]).unwrap();
         let peer = [9u8; 32];
-        s.insert_message(&NewMessage { contact_pubkey: peer, direction: Direction::Outgoing, sent_at: 100, body: b"hi" }).unwrap();
-        s.insert_message(&NewMessage { contact_pubkey: peer, direction: Direction::Incoming, sent_at: 101, body: b"hey" }).unwrap();
+        s.insert_message(&NewMessage { contact_pubkey: peer, direction: Direction::Outgoing, sent_at: 100, body: b"hi",
+ file: None,
+}).unwrap();
+        s.insert_message(&NewMessage { contact_pubkey: peer, direction: Direction::Incoming, sent_at: 101, body: b"hey",
+ file: None,
+}).unwrap();
         // A message with a different peer must not show up.
-        s.insert_message(&NewMessage { contact_pubkey: [1u8; 32], direction: Direction::Incoming, sent_at: 102, body: b"other" }).unwrap();
+        s.insert_message(&NewMessage { contact_pubkey: [1u8; 32], direction: Direction::Incoming, sent_at: 102, body: b"other",
+ file: None,
+}).unwrap();
 
         let msgs = s.messages_for(&peer, 10).unwrap();
         assert_eq!(msgs.len(), 2);
@@ -2182,6 +2248,48 @@ mod tests {
         assert_eq!(msgs[0].direction, Direction::Outgoing);
         assert_eq!(msgs[1].body, b"hey");
         assert_eq!(msgs[1].sent_at, 101);
+    }
+
+    /// A sent GIF showed no preview because the attachment lived only in the
+    /// running app: the row in `messages` was the line of text describing it.
+    #[test]
+    fn an_attachment_survives_closing_the_app() {
+        let tmp = TempDb::new();
+        let key = [11u8; 32];
+        let peer = [5u8; 32];
+        {
+            let s = Store::open(&tmp.0, &key).unwrap();
+            s.insert_message(&NewMessage {
+                contact_pubkey: peer,
+                direction: Direction::Outgoing,
+                sent_at: 10,
+                body: "📎 kotatko.gif".as_bytes(),
+                file: Some(NewAttachment {
+                    path: r"C:\files\sealed-kotatko.gif",
+                    name: "kotatko.gif",
+                    size: 1234,
+                }),
+            })
+            .unwrap();
+            // A plain message keeps no file, and must not grow one.
+            s.insert_message(&NewMessage {
+                contact_pubkey: peer,
+                direction: Direction::Incoming,
+                sent_at: 11,
+                body: b"jen text",
+                file: None,
+            })
+            .unwrap();
+        }
+
+        let s = Store::open(&tmp.0, &key).unwrap();
+        let msgs = s.messages_for(&peer, 10).unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].file_path.as_deref(), Some(r"C:\files\sealed-kotatko.gif"));
+        assert_eq!(msgs[0].file_name.as_deref(), Some("kotatko.gif"));
+        assert_eq!(msgs[0].file_size, Some(1234));
+        assert!(msgs[1].file_path.is_none());
+        assert!(msgs[1].file_size.is_none());
     }
 
     #[test]
@@ -2196,6 +2304,7 @@ mod tests {
                 direction: Direction::Incoming,
                 sent_at: 5,
                 body: b"persisted",
+                file: None,
             })
             .unwrap();
         }
@@ -2219,6 +2328,7 @@ mod tests {
                     direction: Direction::Outgoing,
                     sent_at: 100,
                     body: b"jsi offline, ale precti si to pozdeji",
+                    file: None,
                 })
                 .unwrap();
             s.queue_outgoing(&peer, msg_id, None, b"\x00frame", b"jsi offline, ale precti si to pozdeji", 100)
@@ -2250,6 +2360,7 @@ mod tests {
                 direction: Direction::Outgoing,
                 sent_at: 1,
                 body,
+                file: None,
             })
             .unwrap();
         }
@@ -2290,6 +2401,7 @@ mod tests {
             direction: Direction::Outgoing,
             sent_at: 1,
             body: b"po migraci",
+            file: None,
         })
         .unwrap();
         assert_eq!(s.messages_for(&[7u8; 32], 10).unwrap()[0].state, MessageState::Waiting);
@@ -2307,6 +2419,7 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 100,
             body: "sraz v pondeli".as_bytes(),
+            file: None,
         })
         .unwrap();
         s.insert_group_message(&NewGroupMessage {
@@ -2322,6 +2435,7 @@ mod tests {
             direction: Direction::Outgoing,
             sent_at: 300,
             body: "necо jineho".as_bytes(),
+            file: None,
         })
         .unwrap();
 
@@ -2347,6 +2461,7 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 10,
             body: b"od nich primo",
+            file: None,
         })
         .unwrap();
         // Our own reply must not show up as something they sent.
@@ -2355,6 +2470,7 @@ mod tests {
             direction: Direction::Outgoing,
             sent_at: 11,
             body: b"moje odpoved",
+            file: None,
         })
         .unwrap();
         s.insert_group_message(&NewGroupMessage {
@@ -2391,6 +2507,7 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 10,
             body: b"ahoj",
+            file: None,
         })
         .unwrap();
         assert!(s.get_contact(&stranger).unwrap().is_none());
@@ -2408,6 +2525,7 @@ mod tests {
             direction: Direction::Outgoing,
             sent_at: 11,
             body: b"hi",
+            file: None,
         })
         .unwrap();
         assert_eq!(s.backfill_missing_contacts(1_700_000_000).unwrap(), 0);
@@ -2565,6 +2683,7 @@ mod tests {
                 direction: Direction::Incoming,
                 sent_at: 10,
                 body: b"neco co nikdo nema videt",
+                file: None,
             })
             .unwrap();
         }
@@ -2655,6 +2774,7 @@ mod tests {
                 direction: Direction::Incoming,
                 sent_at: 1,
                 body: b"hello",
+                file: None,
             })
             .unwrap();
         }
@@ -2753,6 +2873,7 @@ mod tests {
                     direction: Direction::Incoming,
                     sent_at: i,
                     body: b"tajna zprava ktera musi zmizet",
+                    file: None,
                 })
                 .unwrap();
             }
@@ -2813,6 +2934,7 @@ mod tests {
                 direction: Direction::Outgoing,
                 sent_at: 2,
                 body: b"ahoj",
+                file: None,
             })
             .unwrap();
             s.upsert_group(&Group {

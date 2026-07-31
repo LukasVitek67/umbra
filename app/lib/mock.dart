@@ -596,6 +596,27 @@ class AppState extends ChangeNotifier {
       ..progress = stored == null ? null : 1);
   }
 
+  /// Rebuild a stored message, attachment and all.
+  ///
+  /// The file part matters: without it a photo or GIF came back from the
+  /// database as the line of text describing it, so the preview only ever
+  /// existed until the app was closed.
+  Message _fromStored(MessageView m) {
+    final hasFile = m.filePath.isNotEmpty;
+    return Message(
+      m.body,
+      outgoing: m.outgoing,
+      at: DateTime.fromMillisecondsSinceEpoch(m.sentAt.toInt() * 1000),
+      // 0 = still in the outbox, 1 = handed over, 2 = confirmed by them.
+      pending: m.outgoing && m.state == 0,
+      fileName: hasFile ? m.fileName : null,
+      fileSize: hasFile ? m.fileSize.toInt() : null,
+    )
+      ..delivered = m.state == 2
+      ..filePath = hasFile ? m.filePath : null
+      ..progress = hasFile ? 1 : null;
+  }
+
   /// The conversation with `peerHex`, as the database has it.
   ///
   /// It used to invent one whenever an event mentioned a peer that was not in
@@ -627,12 +648,7 @@ class AppState extends ChangeNotifier {
       chat.saved = known.saved;
       chat.verified = known.verified;
       for (final m in _app!.listMessages(contactHex: peerHex, limit: 500)) {
-        chat.messages.add(Message(
-          m.body,
-          outgoing: m.outgoing,
-          at: DateTime.fromMillisecondsSinceEpoch(m.sentAt.toInt() * 1000),
-          pending: m.outgoing && m.state == 0,
-        )..delivered = m.state == 2);
+        chat.messages.add(_fromStored(m));
       }
       chats.insert(0, chat);
     }
@@ -845,15 +861,33 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void _fileDone(String peerHex, String path) {
+  /// A received file finished arriving: "path|name|size".
+  void _fileDone(String peerHex, String data) {
+    final parts = data.split('|');
+    final path = parts.first;
     final chat = _ensureChat(peerHex);
     for (final m in chat.messages.reversed) {
       if (m.isFile && !m.outgoing) {
         m.filePath = path;
         m.progress = 1;
         m.pending = false;
-        break;
+        netStatus = onion.isEmpty ? L.t('net.offline') : L.t('net.online');
+        return;
       }
+    }
+    // No bubble was tracking this transfer — it can arrive in one go, or the
+    // conversation may have been reloaded meanwhile. The Rust side has already
+    // stored it, so show it rather than dropping it on the floor.
+    if (parts.length > 1) {
+      chat.messages.add(Message(
+        '📎 ${parts[1]}',
+        outgoing: false,
+        at: DateTime.now(),
+        fileName: parts[1],
+        fileSize: parts.length > 2 ? int.tryParse(parts[2]) : null,
+      )
+        ..filePath = path
+        ..progress = 1);
     }
     netStatus = onion.isEmpty ? L.t('net.offline') : L.t('net.online');
   }
@@ -939,13 +973,7 @@ class AppState extends ChangeNotifier {
         ..saved = c.saved
         ..verified = c.verified;
       for (final m in app.listMessages(contactHex: c.identityHex, limit: 500)) {
-        chat.messages.add(Message(
-          m.body,
-          outgoing: m.outgoing,
-          at: DateTime.fromMillisecondsSinceEpoch(m.sentAt.toInt() * 1000),
-          // 0 = still in the outbox, 1 = handed over, 2 = confirmed by them.
-          pending: m.outgoing && m.state == 0,
-        )..delivered = m.state == 2);
+        chat.messages.add(_fromStored(m));
       }
       chats.add(chat);
     }

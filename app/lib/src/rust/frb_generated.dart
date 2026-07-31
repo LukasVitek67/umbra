@@ -2767,13 +2767,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   MessageView dco_decode_message_view(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return MessageView(
       outgoing: dco_decode_bool(arr[0]),
       sentAt: dco_decode_u_64(arr[1]),
       body: dco_decode_String(arr[2]),
       state: dco_decode_u_8(arr[3]),
+      filePath: dco_decode_String(arr[4]),
+      fileName: dco_decode_String(arr[5]),
+      fileSize: dco_decode_u_64(arr[6]),
     );
   }
 
@@ -3130,11 +3133,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_sentAt = sse_decode_u_64(deserializer);
     var var_body = sse_decode_String(deserializer);
     var var_state = sse_decode_u_8(deserializer);
+    var var_filePath = sse_decode_String(deserializer);
+    var var_fileName = sse_decode_String(deserializer);
+    var var_fileSize = sse_decode_u_64(deserializer);
     return MessageView(
       outgoing: var_outgoing,
       sentAt: var_sentAt,
       body: var_body,
       state: var_state,
+      filePath: var_filePath,
+      fileName: var_fileName,
+      fileSize: var_fileSize,
     );
   }
 
@@ -3472,6 +3481,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_64(self.sentAt, serializer);
     sse_encode_String(self.body, serializer);
     sse_encode_u_8(self.state, serializer);
+    sse_encode_String(self.filePath, serializer);
+    sse_encode_String(self.fileName, serializer);
+    sse_encode_u_64(self.fileSize, serializer);
   }
 
   @protected

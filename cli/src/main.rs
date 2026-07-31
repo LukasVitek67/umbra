@@ -130,6 +130,7 @@ fn demo() {
             direction: Direction::Incoming,
             sent_at: DEMO_EPOCH + 1,
             body: b"tajna zprava ulozena sifrovane",
+            file: None,
         }).unwrap();
     }
     // reopen and read back

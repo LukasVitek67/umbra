@@ -3535,11 +3535,17 @@ impl SseDecode for crate::api::nullchat::MessageView {
         let mut var_sentAt = <u64>::sse_decode(deserializer);
         let mut var_body = <String>::sse_decode(deserializer);
         let mut var_state = <u8>::sse_decode(deserializer);
+        let mut var_filePath = <String>::sse_decode(deserializer);
+        let mut var_fileName = <String>::sse_decode(deserializer);
+        let mut var_fileSize = <u64>::sse_decode(deserializer);
         return crate::api::nullchat::MessageView {
             outgoing: var_outgoing,
             sent_at: var_sentAt,
             body: var_body,
             state: var_state,
+            file_path: var_filePath,
+            file_name: var_fileName,
+            file_size: var_fileSize,
         };
     }
 }
@@ -3951,6 +3957,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::nullchat::MessageView {
             self.sent_at.into_into_dart().into_dart(),
             self.body.into_into_dart().into_dart(),
             self.state.into_into_dart().into_dart(),
+            self.file_path.into_into_dart().into_dart(),
+            self.file_name.into_into_dart().into_dart(),
+            self.file_size.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -4233,6 +4242,9 @@ impl SseEncode for crate::api::nullchat::MessageView {
         <u64>::sse_encode(self.sent_at, serializer);
         <String>::sse_encode(self.body, serializer);
         <u8>::sse_encode(self.state, serializer);
+        <String>::sse_encode(self.file_path, serializer);
+        <String>::sse_encode(self.file_name, serializer);
+        <u64>::sse_encode(self.file_size, serializer);
     }
 }
 

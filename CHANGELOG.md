@@ -8,6 +8,22 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.2.1
+
+- **The preview of a file you sent actually stays.** 2.2.0 could show it, but
+  only until the conversation was reloaded: the message row kept the line of
+  text describing the attachment and nothing else, so a GIF became
+  `📎 name.gif` again — and if the app had been closed since, it had never been
+  a picture at all.
+
+  Messages now carry the attachment itself: where the sealed file is, its name
+  and its size, stored encrypted like the message body. Pictures and GIFs are
+  pictures again after a restart, in both directions.
+
+- **A received file is part of the conversation.** Until now it was an event:
+  the file was saved and sealed, but nothing recorded that it had arrived, so
+  the thread forgot it on the next start. It gets a message like any other now.
+
 ## 2.2.0
 
 - **Pictures and GIFs show themselves in the conversation.** A received photo

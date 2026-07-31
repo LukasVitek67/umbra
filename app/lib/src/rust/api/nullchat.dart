@@ -596,16 +596,35 @@ class MessageView {
   /// 0 = still waiting for the peer, 1 = handed over, 2 = confirmed by them.
   final int state;
 
+  /// Where the sealed attachment is, empty when the message is only text.
+  /// With this the thread can show a picture again after a restart.
+  final String filePath;
+
+  /// The attachment's name, empty when there is none.
+  final String fileName;
+
+  /// The attachment's size in bytes, 0 when there is none.
+  final BigInt fileSize;
+
   const MessageView({
     required this.outgoing,
     required this.sentAt,
     required this.body,
     required this.state,
+    required this.filePath,
+    required this.fileName,
+    required this.fileSize,
   });
 
   @override
   int get hashCode =>
-      outgoing.hashCode ^ sentAt.hashCode ^ body.hashCode ^ state.hashCode;
+      outgoing.hashCode ^
+      sentAt.hashCode ^
+      body.hashCode ^
+      state.hashCode ^
+      filePath.hashCode ^
+      fileName.hashCode ^
+      fileSize.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -615,7 +634,10 @@ class MessageView {
           outgoing == other.outgoing &&
           sentAt == other.sentAt &&
           body == other.body &&
-          state == other.state;
+          state == other.state &&
+          filePath == other.filePath &&
+          fileName == other.fileName &&
+          fileSize == other.fileSize;
 }
 
 /// An event from the network layer, pushed to the UI.
