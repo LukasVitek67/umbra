@@ -8,6 +8,20 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.1.34
+
+- **The duplicate conversations are gone for real this time.** 2.1.31 stopped
+  the database from growing empty contacts, but the chat list built its own:
+  any event mentioning a peer — connected, profile, contact — added a tile on
+  the spot, and the next event filled in the name and marked it accepted. The
+  result was a second tile with the right name and no messages, which is
+  exactly what it looked like. The list now shows what the database holds and
+  nothing else.
+
+- The log records how many contacts there are and how many messages each has
+  when you sign in, so "the same conversation twice" can be settled from a file
+  instead of guessed at. It never records names or message content.
+
 ## 2.1.33
 
 - **A sent GIF or file now appears in the conversation.** It was being sent —

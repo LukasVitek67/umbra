@@ -806,6 +806,26 @@ impl UmbraApp {
             }
         }
 
+        // What the chat list is built from, so a report of "the same
+        // conversation twice" can be settled from the log instead of guessed
+        // at. Identities are truncated and names are never written: this says
+        // how many rows there are and whether two of them are the same key,
+        // which is the whole question.
+        if let Ok(contacts) = store.list_contacts() {
+            log_line(&format!("kontaktů v databázi: {}", contacts.len()));
+            for c in &contacts {
+                let msgs = store.message_count(&c.identity_pubkey).unwrap_or(0);
+                log_line(&format!(
+                    "  kontakt {}… zpráv={} jméno={} adresa={} stav={:?}",
+                    &hex(&c.identity_pubkey)[..12],
+                    msgs,
+                    if c.display_name.is_empty() { "prázdné" } else { "je" },
+                    if c.onion_addr.is_empty() { "prázdná" } else { "je" },
+                    c.status,
+                ));
+            }
+        }
+
         Ok(UmbraApp {
             inner: Arc::new(Mutex::new(Inner {
                 store,

@@ -579,16 +579,46 @@ class AppState extends ChangeNotifier {
     chat.messages.add(Message(label, outgoing: true, at: DateTime.now())..pending = pending);
   }
 
+  /// The conversation with `peerHex`, as the database has it.
+  ///
+  /// It used to invent one whenever an event mentioned a peer that was not in
+  /// the list yet, and a later `contact` event then filled in the name and set
+  /// it to accepted. The result was a second tile for somebody already there —
+  /// same name, no messages — which is the duplicate-conversation bug as it
+  /// survived in the UI after the database side was fixed.
+  ///
+  /// Now the store decides: a peer it does not know gets a detached object the
+  /// caller can write to, but nothing appears in the chat list.
   Chat _ensureChat(String peerHex) {
     final existing = chats.where((c) => c.contactHex == peerHex);
     if (existing.isNotEmpty) return existing.first;
+
+    final known = _app
+        ?.listContacts()
+        .where((c) => c.identityHex == peerHex)
+        .firstOrNull;
     final chat = Chat(
       contactHex: peerHex,
-      name: L.t('chats.unknown'),
-      onion: '',
-      userCode: peerHex.length >= 16 ? peerHex.substring(0, 16).toUpperCase() : peerHex,
-    )..status = 0; // someone we do not know yet
-    chats.insert(0, chat);
+      name: (known == null || known.displayName.isEmpty)
+          ? L.t('chats.unknown')
+          : known.displayName,
+      onion: known?.onion ?? '',
+      userCode: known?.userCode ??
+          (peerHex.length >= 16 ? peerHex.substring(0, 16).toUpperCase() : peerHex),
+    )..status = known?.status ?? 0;
+    if (known != null) {
+      chat.saved = known.saved;
+      chat.verified = known.verified;
+      for (final m in _app!.listMessages(contactHex: peerHex, limit: 500)) {
+        chat.messages.add(Message(
+          m.body,
+          outgoing: m.outgoing,
+          at: DateTime.fromMillisecondsSinceEpoch(m.sentAt.toInt() * 1000),
+          pending: m.outgoing && m.state == 0,
+        )..delivered = m.state == 2);
+      }
+      chats.insert(0, chat);
+    }
     return chat;
   }
 
