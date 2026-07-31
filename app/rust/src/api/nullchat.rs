@@ -1122,6 +1122,17 @@ impl UmbraApp {
         *FILES_DIR.lock().unwrap() = Some(dir.join("files"));
         let _ = std::fs::create_dir_all(dir.join("files"));
         {
+            // Files sent or received before attachments were kept with the
+            // message are sitting in there unreferenced; put them back into
+            // the conversation so old photos and GIFs show up too.
+            let g = self.inner.lock().unwrap();
+            if let Ok(n) = g.store.backfill_attachments(&dir.join("files")) {
+                if n > 0 {
+                    log_line(&format!("{n} starším zprávám se vrátila příloha"));
+                }
+            }
+        }
+        {
             let g = self.inner.lock().unwrap();
             let picture = g
                 .store

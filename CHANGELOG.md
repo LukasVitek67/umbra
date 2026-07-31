@@ -8,6 +8,19 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.2.2
+
+- **Older photos and GIFs get their preview too.** 2.2.1 started keeping the
+  attachment with the message, but only for what was sent or received after
+  installing it — everything before stayed a line of text with the file sitting
+  unreferenced beside it. Those files are still on disk and the message still
+  names them, so they are matched back together on sign-in.
+
+  The matching is deliberately timid: a file must end with exactly the name the
+  message gives, a file already claimed by another message is never reused, and
+  where that is not enough to be sure, the message is left as text rather than
+  shown the wrong picture.
+
 ## 2.2.1
 
 - **The preview of a file you sent actually stays.** 2.2.0 could show it, but

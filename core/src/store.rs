@@ -47,7 +47,7 @@ use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
 use hmac::{Hmac, Mac};
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::Sha256;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
 
 const NONCE_LEN: usize = 24;
@@ -1186,6 +1186,91 @@ impl Store {
         }
     }
 
+    /// Attach files that are on disk to the messages that describe them.
+    ///
+    /// Attachments were only recorded with the message from 2.2.1 onwards, so
+    /// anything sent or received before that is a line of text with a sealed
+    /// file sitting beside it, unreferenced. The file is still there, and the
+    /// message still says which name it had, so the two can be put back
+    /// together.
+    ///
+    /// Matching is deliberately timid: a candidate must end with exactly the
+    /// name the message names, and a file already claimed by another message is
+    /// never reused. Where several files could fit, the oldest message takes
+    /// the oldest file — and if anything is ambiguous beyond that, the message
+    /// is left as text rather than shown the wrong picture.
+    ///
+    /// Returns how many messages gained their file back.
+    pub fn backfill_attachments(&self, files_dir: &Path) -> Result<usize, StoreError> {
+        let Ok(entries) = std::fs::read_dir(files_dir) else { return Ok(0) };
+        let mut on_disk: Vec<(std::time::SystemTime, PathBuf)> = entries
+            .flatten()
+            .filter(|e| e.path().is_file())
+            .map(|e| {
+                let t = e
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(std::time::UNIX_EPOCH);
+                (t, e.path())
+            })
+            .collect();
+        on_disk.sort_by_key(|(t, _)| *t);
+
+        // Files already spoken for must not be handed to a second message.
+        let mut claimed: Vec<String> = Vec::new();
+        {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT file_path FROM messages WHERE file_path IS NOT NULL")?;
+            let rows = stmt.query_map([], |r| r.get::<_, Vec<u8>>(0))?;
+            for row in rows {
+                if let Some(p) = self.try_decrypt_string(&row?) {
+                    claimed.push(p);
+                }
+            }
+        }
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, body FROM messages WHERE file_path IS NULL ORDER BY sent_at ASC, id ASC",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?)))?;
+        let pending: Vec<(i64, Vec<u8>)> = rows.collect::<Result<_, _>>()?;
+
+        let mut fixed = 0;
+        for (id, body_ct) in pending {
+            let Some(body) = self.try_decrypt_string(&body_ct) else { continue };
+            // The marker the app writes in front of an attachment's name.
+            let Some(name) = body.strip_prefix("📎 ") else { continue };
+            let name = name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let found = on_disk.iter().find(|(_, p)| {
+                let Some(file) = p.file_name().and_then(|n| n.to_str()) else { return false };
+                if !file.ends_with(name) {
+                    return false;
+                }
+                let full = p.to_string_lossy().to_string();
+                !claimed.contains(&full)
+            });
+            let Some((_, path)) = found else { continue };
+            let full = path.to_string_lossy().to_string();
+            let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+            self.conn.execute(
+                "UPDATE messages SET file_path = ?2, file_name = ?3, file_size = ?4 WHERE id = ?1",
+                params![
+                    id,
+                    self.seal(full.as_bytes())?,
+                    self.seal(name.as_bytes())?,
+                    size as i64
+                ],
+            )?;
+            claimed.push(full);
+            fixed += 1;
+        }
+        Ok(fixed)
+    }
+
     /// Is this file sealed, or still a plain attachment from an older version?
     pub fn file_is_encrypted(&self, path: &Path) -> bool {
         std::fs::read(path)
@@ -2248,6 +2333,53 @@ mod tests {
         assert_eq!(msgs[0].direction, Direction::Outgoing);
         assert_eq!(msgs[1].body, b"hey");
         assert_eq!(msgs[1].sent_at, 101);
+    }
+
+    /// Attachments from before they were kept with the message: the file is on
+    /// disk, the message names it, and the two can be put back together.
+    #[test]
+    fn old_attachments_are_matched_back_to_their_messages() {
+        let s = Store::open_in_memory(&[29u8; 32]).unwrap();
+        let peer = [6u8; 32];
+        let dir = std::env::temp_dir().join(format!(
+            "nullchat-backfill-{}",
+            u64::from_le_bytes({
+                let mut b = [0u8; 8];
+                getrandom::getrandom(&mut b).unwrap();
+                b
+            })
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("sent-aaaa-kotatko.gif"), b"sealed bytes").unwrap();
+        std::fs::write(dir.join("nesouvisejici.bin"), b"x").unwrap();
+
+        let add = |body: &str| {
+            s.insert_message(&NewMessage {
+                contact_pubkey: peer,
+                direction: Direction::Outgoing,
+                sent_at: 10,
+                body: body.as_bytes(),
+                file: None,
+            })
+            .unwrap()
+        };
+        add("📎 kotatko.gif");
+        add("📎 nikdy-neexistoval.gif"); // no file for this one
+        add("obycejny text");
+
+        assert_eq!(s.backfill_attachments(&dir).unwrap(), 1);
+        let msgs = s.messages_for(&peer, 10).unwrap();
+        assert!(msgs[0].file_path.as_deref().unwrap().ends_with("sent-aaaa-kotatko.gif"));
+        assert_eq!(msgs[0].file_name.as_deref(), Some("kotatko.gif"));
+        assert!(msgs[1].file_path.is_none(), "no file, so nothing is invented");
+        assert!(msgs[2].file_path.is_none(), "plain text is left alone");
+
+        // The same file is never handed to a second message, and running the
+        // repair twice changes nothing.
+        add("📎 kotatko.gif");
+        assert_eq!(s.backfill_attachments(&dir).unwrap(), 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A sent GIF showed no preview because the attachment lived only in the
