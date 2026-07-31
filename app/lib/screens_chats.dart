@@ -67,6 +67,69 @@ Future<void> showDeleteChat(BuildContext context, Chat chat) async {
   }
 }
 
+/// Pick the conversation this one should be folded into.
+///
+/// Two identities are two identities as far as the app is concerned; the person
+/// on the other side is something only the user knows. So this asks, showing
+/// each candidate's own code, rather than pairing anybody up by display name —
+/// two people who share a name are not one person.
+Future<void> showMergeDialog(BuildContext context, Chat chat) async {
+  final others = appState.chats.where((c) => c.contactHex != chat.contactHex).toList();
+  if (others.isEmpty) return;
+
+  final target = await showDialog<Chat>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: UmbraColors.surfaceHigh,
+      title: Text(L.t('merge.title').replaceAll('{name}', chat.name)),
+      content: SizedBox(
+        width: 460,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              L.t('merge.body').replaceAll('{name}', chat.name),
+              style: TextStyle(
+                  color: UmbraColors.textMuted, fontSize: 13, height: 1.45),
+            ),
+            const SizedBox(height: 14),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final other in others)
+                    ListTile(
+                      dense: true,
+                      title: Text(other.name),
+                      subtitle: Text(
+                        '${other.userCode}  ·  ${other.messages.length}',
+                        style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            color: UmbraColors.textMuted),
+                      ),
+                      onTap: () => Navigator.of(ctx).pop(other),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: Text(L.t('common.cancel')),
+        ),
+      ],
+    ),
+  );
+  if (target != null) {
+    appState.mergeChats(chat, target);
+  }
+}
+
 /// Show the safety number and let the user say whether it matched.
 ///
 /// This is the only check in NullChat that needs a person. Everything else proves
@@ -939,6 +1002,9 @@ class _ContactRow extends StatelessWidget {
             case 'unblock':
               appState.setChatStatus(chat, 1);
               break;
+            case 'merge':
+              showMergeDialog(context, chat);
+              break;
             case 'delete':
               showDeleteChat(context, chat);
               break;
@@ -947,6 +1013,9 @@ class _ContactRow extends StatelessWidget {
         itemBuilder: (context) => [
           if (!blocked) ...[
             PopupMenuItem(value: 'rename', child: Text(L.t('contacts.rename'))),
+            // Only worth offering when there is something to merge with.
+            if (appState.chats.length > 1)
+              PopupMenuItem(value: 'merge', child: Text(L.t('merge.action'))),
             PopupMenuItem(value: 'unsave', child: Text(L.t('contacts.forget'))),
             PopupMenuItem(
               value: 'block',

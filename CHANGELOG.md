@@ -8,6 +8,21 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.1.32
+
+- **Two conversations with the same person can be merged.** 2.1.31 removed the
+  empty rows an older build had invented, but it did not touch the real case:
+  someone reinstalled NullChat or made a new account, so they have a second
+  identity and a second thread. The app cannot pair those up on its own — two
+  identities are two identities, and matching by display name would merge
+  strangers who happen to share one.
+
+  So it asks. In a conversation's menu, **"Merge into another chat…"**, pick the
+  one to keep, and every message moves there — along with anything still waiting
+  in the outbox for the old identity. Nothing is deleted. Each candidate is
+  listed with its own code, because that is the part that actually identifies a
+  person.
+
 ## 2.1.31
 
 - **Every conversation appearing twice is fixed.** The second copy was not a

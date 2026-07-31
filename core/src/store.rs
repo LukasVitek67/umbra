@@ -1587,6 +1587,62 @@ impl Store {
         Ok(removed)
     }
 
+    /// Fold one contact's history into another and drop the empty one.
+    ///
+    /// This is for the case the app cannot decide by itself: the same person
+    /// with two identities, because they reinstalled or made a new account.
+    /// Both are real contacts with real history, so nothing here guesses —
+    /// the user says which is which and the messages move, they are never
+    /// deleted.
+    ///
+    /// Anything still queued for the old identity moves too, so a message
+    /// waiting in the outbox is not stranded on a contact that no longer
+    /// exists. It will be delivered to the *new* identity, which is what
+    /// "these are the same person" means.
+    ///
+    /// Returns how many messages were moved.
+    pub fn merge_contacts(
+        &self,
+        from: &[u8; 32],
+        into: &[u8; 32],
+    ) -> Result<usize, StoreError> {
+        if from == into {
+            return Ok(0);
+        }
+        if self.get_contact(into)?.is_none() {
+            return Err(StoreError::Corrupt);
+        }
+        let from_bi = self.bi(from);
+        let into_bi = self.indexed(into)?;
+
+        self.conn.execute("BEGIN IMMEDIATE", [])?;
+        let result = (|| -> Result<usize, StoreError> {
+            let moved = self.conn.execute(
+                "UPDATE messages SET contact_pubkey = ?2 WHERE contact_pubkey = ?1",
+                params![from_bi, into_bi],
+            )?;
+            self.conn.execute(
+                "UPDATE outbox SET peer_pubkey = ?2 WHERE peer_pubkey = ?1",
+                params![from_bi, into_bi],
+            )?;
+            self.conn.execute(
+                "DELETE FROM contacts WHERE identity_pubkey = ?1",
+                params![from_bi],
+            )?;
+            Ok(moved)
+        })();
+        match result {
+            Ok(moved) => {
+                self.conn.execute_batch("COMMIT")?;
+                Ok(moved)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
+    }
+
     /// How many messages we hold for a peer.
     pub fn message_count(&self, identity_pubkey: &[u8; 32]) -> Result<u64, StoreError> {
         let n: i64 = self.conn.query_row(
@@ -1867,6 +1923,58 @@ mod tests {
 
         // Idempotent: nothing left to remove on the next sign-in.
         assert_eq!(s.purge_empty_contacts().unwrap(), 0);
+    }
+
+    /// Merging is for one person with two identities. It must move history,
+    /// never drop it, and must leave the surviving contact's own details alone.
+    #[test]
+    fn merging_moves_history_and_keeps_nothing_behind() {
+        let s = Store::open_in_memory(&[23u8; 32]).unwrap();
+        let old_pk = [1u8; 32];
+        let new_pk = [2u8; 32];
+
+        let mut old = sample_contact();
+        old.identity_pubkey = old_pk;
+        old.display_name = "Petr (stary ucet)".into();
+        s.upsert_contact(&old).unwrap();
+
+        let mut new = sample_contact();
+        new.identity_pubkey = new_pk;
+        new.display_name = "Petr".into();
+        new.onion_addr = "new.onion".into();
+        s.upsert_contact(&new).unwrap();
+
+        for (pk, body, at) in [
+            (old_pk, &b"stara zprava"[..], 1_700_000_000),
+            (old_pk, &b"dalsi stara"[..], 1_700_000_100),
+            (new_pk, &b"nova zprava"[..], 1_700_000_200),
+        ] {
+            s.insert_message(&NewMessage {
+                contact_pubkey: pk,
+                direction: Direction::Incoming,
+                sent_at: at,
+                body,
+            })
+            .unwrap();
+        }
+
+        assert_eq!(s.merge_contacts(&old_pk, &new_pk).unwrap(), 2);
+        assert!(s.get_contact(&old_pk).unwrap().is_none());
+
+        let kept = s.get_contact(&new_pk).unwrap().unwrap();
+        assert_eq!(kept.display_name, "Petr");
+        assert_eq!(kept.onion_addr, "new.onion");
+
+        // All three messages are now one thread, still in order.
+        let msgs = s.messages_for(&new_pk, 100).unwrap();
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0].body, b"stara zprava");
+        assert_eq!(msgs[2].body, b"nova zprava");
+        assert_eq!(s.message_count(&old_pk).unwrap(), 0);
+
+        // Merging into someone who does not exist must not delete anything.
+        assert!(s.merge_contacts(&new_pk, &[9u8; 32]).is_err());
+        assert!(s.get_contact(&new_pk).unwrap().is_some());
     }
 
     #[test]

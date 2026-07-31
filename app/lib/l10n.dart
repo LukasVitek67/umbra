@@ -161,6 +161,15 @@ class L {
       'chat.saveFile': 'Save file…',
       'file.queued':
           '{name} is waiting — it goes out as soon as {who} is online.',
+      'merge.action': 'Merge into another chat…',
+      'merge.title': 'Merge {name} into',
+      'merge.body':
+          'If this is the same person under a new identity — they reinstalled '
+          'or made a new account — pick the conversation to keep. Every message '
+          'from {name} moves there, along with anything still waiting to be '
+          'sent. Nothing is deleted. Check the codes: two people can share a '
+          'name, and NullChat cannot tell them apart.',
+      'merge.done': '{n} message(s) moved here.',
       'files.sealedTitle': 'Attachments encrypted',
       'files.sealedBody':
           '{n} received file(s) were stored unencrypted by an older version and '
@@ -547,6 +556,15 @@ class L {
       'chat.showFile': 'Zobrazit ve složce',
       'chat.saveFile': 'Uložit soubor…',
       'file.queued': '{name} čeká — odejde, jakmile bude {who} online.',
+      'merge.action': 'Sloučit s jiným chatem…',
+      'merge.title': 'Sloučit {name} do',
+      'merge.body':
+          'Pokud je to tentýž člověk pod novou identitou — přeinstaloval si '
+          'appku nebo si udělal nový účet — vyber konverzaci, která zůstane. '
+          'Všechny zprávy od {name} se přesunou do ní, včetně toho, co ještě '
+          'čeká na odeslání. Nic se nemaže. Zkontroluj kódy: dva lidi se můžou '
+          'jmenovat stejně a NullChat je od sebe nepozná.',
+      'merge.done': 'Přesunuto {n} zpráv.',
       'files.sealedTitle': 'Přílohy zašifrovány',
       'files.sealedBody':
           '{n} přijatých souborů leželo nezašifrovaně po starší verzi a nyní jsou '

@@ -1669,6 +1669,32 @@ impl UmbraApp {
         Ok(())
     }
 
+    /// Fold one conversation into another: the same person with two identities,
+    /// because they reinstalled or made a new account.
+    ///
+    /// The app cannot decide this by itself — two identities are two identities,
+    /// and matching people by display name would merge strangers who share a
+    /// name. So the user picks, and nothing is deleted: the older thread's
+    /// messages (and anything still queued for it) move to the identity that
+    /// stays. Returns how many messages moved.
+    #[frb(sync)]
+    pub fn merge_contact(&self, from_hex: String, into_hex: String) -> Result<u32, String> {
+        let from = unhex(&from_hex).ok_or_else(|| "neplatná identita".to_string())?;
+        let into = unhex(&into_hex).ok_or_else(|| "neplatná identita".to_string())?;
+        if from == into {
+            return Err("nelze sloučit kontakt sám se sebou".to_string());
+        }
+        let moved = {
+            let g = self.inner.lock().unwrap();
+            g.store.merge_contacts(&from, &into).map_err(|e| e.to_string())?
+        };
+        // The identity that no longer exists must not be dialled again.
+        if let Some(map) = CONTACTS.lock().unwrap().as_mut() {
+            map.remove(&from_hex);
+        }
+        Ok(moved as u32)
+    }
+
     /// The 60 digits this contact and I must both see, in groups of five.
     ///
     /// Empty when we have no such contact. Both sides compute it from the same

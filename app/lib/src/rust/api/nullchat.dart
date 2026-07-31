@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `account_file`, `broadcast_group_info`, `dial_once`, `duress_key`, `emit`, `flush_pending`, `gif_circuit`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `pq_fingerprint_of`, `read_kdf`, `remember_group_routes`, `remember_peer`, `remember_pq_fingerprint`, `rt`, `safe_file_name`, `safe_gif_name`, `send_or_queue`, `send_profile`, `socks_port_now`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `view_of`
+// These functions are ignored because they are not marked as `pub`: `account_file`, `broadcast_group_info`, `dial_once`, `duress_key`, `emit`, `flush_pending`, `gif_circuit`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `pq_fingerprint_of`, `read_kdf`, `remember_group_routes`, `remember_peer_inner`, `remember_peer`, `remember_pq_fingerprint`, `rt`, `safe_file_name`, `safe_gif_name`, `send_file_or_queue`, `send_or_queue`, `send_profile`, `socks_port_now`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `update_peer_details`, `view_of`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Incoming`, `Inner`, `Pending`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `from`
 
@@ -195,6 +195,16 @@ abstract class UmbraApp implements RustOpaqueInterface {
     required int limit,
   });
 
+  /// Fold one conversation into another: the same person with two identities,
+  /// because they reinstalled or made a new account.
+  ///
+  /// The app cannot decide this by itself — two identities are two identities,
+  /// and matching people by display name would merge strangers who share a
+  /// name. So the user picks, and nothing is deleted: the older thread's
+  /// messages (and anything still queued for it) move to the identity that
+  /// stays. Returns how many messages moved.
+  int mergeContact({required String fromHex, required String intoHex});
+
   /// Everything one person has sent us, in the 1:1 thread and in groups.
   List<SearchHitView> messagesFromContact({
     required String contactHex,
@@ -276,8 +286,9 @@ abstract class UmbraApp implements RustOpaqueInterface {
     required int limit,
   });
 
-  /// Send a file to a connected contact: read it, split it into chunks and
-  /// push each one through the encrypted session. Progress arrives as events.
+  /// Send a file: read it, split it into chunks and push each one through the
+  /// encrypted session — or leave it in the outbox if the contact is offline,
+  /// the same way a text message waits. Progress arrives as events.
   void sendFile({required String contactHex, required String path});
 
   /// Send a GIF to a contact.
@@ -286,6 +297,10 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// channel. The recipient's device never contacts GIPHY — sending a link
   /// instead would hand their IP address and the time to a third party, which
   /// is the one thing this whole design exists to prevent.
+  ///
+  /// The download needs Tor; delivery does not need the contact to be online.
+  /// If they are away the GIF waits in the encrypted outbox and goes out by
+  /// itself when they appear, exactly like a text message.
   void sendGif({
     required String contactHex,
     required String gifUrl,

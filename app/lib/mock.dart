@@ -1286,6 +1286,32 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Fold [from] into [into]: the same person under two identities. The
+  /// messages move, nothing is deleted, and the thread that stays is the one
+  /// the user is still writing to.
+  void mergeChats(Chat from, Chat into) {
+    try {
+      final moved = _app?.mergeContact(
+            fromHex: from.contactHex,
+            intoHex: into.contactHex,
+          ) ??
+          0;
+      _reloadContacts();
+      selectedChat = chats.firstWhere(
+        (c) => c.contactHex == into.contactHex,
+        orElse: () => into,
+      );
+      showInAppNotice(
+        into.name,
+        L.t('merge.done').replaceAll('{n}', moved.toString()),
+      );
+      notifyListeners();
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+    }
+  }
+
   /// Remove a contact and its conversation, here and in the encrypted store.
   void deleteChat(Chat chat) {
     try {
