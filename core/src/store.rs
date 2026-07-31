@@ -1039,6 +1039,140 @@ impl Store {
         }
     }
 
+    /// Make every contact row use the index derived from its own identity.
+    ///
+    /// This is the fault under the "same conversation twice", the "no messages
+    /// yet" beside a full thread, and contacts vanishing: a row can be stored
+    /// under one routing index while everything else — its messages, its queue,
+    /// every lookup by identity — uses the index derived from the identity. The
+    /// two only have to disagree once for the row and its history to stop
+    /// finding each other, and then any repair that assumes one of them picks
+    /// the wrong row.
+    ///
+    /// So instead of working around it: move the row, its messages and its
+    /// queue onto the derived index. When a row is already there, the two are
+    /// the same person and are merged — keeping anything the user decided
+    /// (saved, verified, blocked) from whichever row carries it.
+    ///
+    /// Returns how many rows were moved or merged.
+    pub fn normalise_contact_indexes(&self) -> Result<usize, StoreError> {
+        let mut stmt = self.conn.prepare("SELECT identity_pubkey FROM contacts")?;
+        let rows = stmt.query_map([], |r| r.get::<_, Vec<u8>>(0))?;
+        let stored: Vec<Vec<u8>> = rows.collect::<Result<_, _>>()?;
+        drop(stmt);
+
+        let mut fixed = 0;
+        for old in stored {
+            let Some(identity) = self.try_key32_of(&old) else { continue };
+            let canonical = self.indexed(&identity)?;
+            if old == canonical {
+                continue;
+            }
+
+            let existing: Option<i64> = self
+                .conn
+                .query_row(
+                    "SELECT 1 FROM contacts WHERE identity_pubkey = ?1",
+                    params![canonical],
+                    |r| r.get(0),
+                )
+                .optional()?;
+
+            if existing.is_some() {
+                // Two rows, one person: keep the decisions from both.
+                let (Some(a), Some(b)) = (
+                    self.contact_at_index(&old)?,
+                    self.contact_at_index(&canonical)?,
+                ) else {
+                    continue;
+                };
+                let merged = Contact {
+                    identity_pubkey: identity,
+                    display_name: if b.display_name.is_empty() {
+                        a.display_name
+                    } else {
+                        b.display_name
+                    },
+                    onion_addr: if b.onion_addr.is_empty() { a.onion_addr } else { b.onion_addr },
+                    added_at: a.added_at.min(b.added_at),
+                    // Blocking must survive; otherwise it would quietly undo.
+                    status: if a.status == ContactStatus::Blocked
+                        || b.status == ContactStatus::Blocked
+                    {
+                        ContactStatus::Blocked
+                    } else if a.status == ContactStatus::Accepted
+                        || b.status == ContactStatus::Accepted
+                    {
+                        ContactStatus::Accepted
+                    } else {
+                        ContactStatus::Waiting
+                    },
+                    saved: a.saved || b.saved,
+                    verified: a.verified || b.verified,
+                    pq_fingerprint: b.pq_fingerprint.or(a.pq_fingerprint),
+                };
+                self.upsert_contact(&merged)?;
+                self.conn
+                    .execute("DELETE FROM contacts WHERE identity_pubkey = ?1", params![old])?;
+            } else {
+                self.conn.execute(
+                    "UPDATE contacts SET identity_pubkey = ?2 WHERE identity_pubkey = ?1",
+                    params![old, canonical],
+                )?;
+            }
+
+            // The history has to come with it, or the row keeps its name and
+            // loses the conversation.
+            self.conn.execute(
+                "UPDATE messages SET contact_pubkey = ?2 WHERE contact_pubkey = ?1",
+                params![old, canonical],
+            )?;
+            self.conn.execute(
+                "UPDATE outbox SET peer_pubkey = ?2 WHERE peer_pubkey = ?1",
+                params![old, canonical],
+            )?;
+            fixed += 1;
+        }
+        Ok(fixed)
+    }
+
+    /// Read a contact row by the exact index it is stored under.
+    fn contact_at_index(&self, bi: &[u8]) -> Result<Option<Contact>, StoreError> {
+        let row: Option<ContactRow> = self
+            .conn
+            .query_row(
+                "SELECT display_name, onion_addr, added_at, status, saved, verified, pq_fingerprint
+                 FROM contacts WHERE identity_pubkey = ?1",
+                params![bi],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((name_ct, onion_ct, added, status, saved, verified, pq_ct)) = row else {
+            return Ok(None);
+        };
+        let Some(identity) = self.try_key32_of(bi) else { return Ok(None) };
+        Ok(Some(Contact {
+            identity_pubkey: identity,
+            display_name: self.try_decrypt_string(&name_ct).unwrap_or_default(),
+            onion_addr: self.try_decrypt_string(&onion_ct).unwrap_or_default(),
+            added_at: added as u64,
+            status: ContactStatus::from_i64(status),
+            saved: saved != 0,
+            verified: verified != 0,
+            pq_fingerprint: self.unseal_fingerprint(pq_ct.as_deref()),
+        }))
+    }
+
     /// Remove contact rows that stand for a person another row already covers.
     ///
     /// Two rows can carry different routing indexes and still resolve to the
@@ -1068,24 +1202,86 @@ impl Store {
         }
 
         let mut removed = 0;
-        for (identity, rows) in groups {
+        for (_identity, rows) in groups {
             if rows.len() < 2 {
                 continue;
             }
-            let canonical = self.bi(&identity);
-            let keep = rows
-                .iter()
-                .find(|bi| **bi == canonical)
-                .cloned()
-                .unwrap_or_else(|| rows[0].clone());
-            for bi in rows {
-                if bi == keep {
+            // Keep the row the conversation is attached to. Preferring the
+            // "canonical" index instead is what deleted a contact with forty
+            // messages and left the thread with nobody attached to it.
+            let mut keep = rows[0].clone();
+            let mut best = -1i64;
+            for bi in &rows {
+                let n: i64 = self.conn.query_row(
+                    "SELECT COUNT(*) FROM messages WHERE contact_pubkey = ?1",
+                    params![bi],
+                    |r| r.get(0),
+                )?;
+                if n > best {
+                    best = n;
+                    keep = bi.clone();
+                }
+            }
+
+            // Whatever the user decided lives on, wherever it was recorded.
+            let mut merged = match self.contact_at_index(&keep)? {
+                Some(c) => c,
+                None => continue,
+            };
+            for bi in &rows {
+                if *bi == keep {
                     continue;
                 }
+                if let Some(other) = self.contact_at_index(bi)? {
+                    if merged.display_name.is_empty() {
+                        merged.display_name = other.display_name;
+                    }
+                    if merged.onion_addr.is_empty() {
+                        merged.onion_addr = other.onion_addr;
+                    }
+                    merged.saved |= other.saved;
+                    merged.verified |= other.verified;
+                    if other.status == ContactStatus::Blocked {
+                        merged.status = ContactStatus::Blocked;
+                    }
+                    merged.pq_fingerprint = merged.pq_fingerprint.or(other.pq_fingerprint);
+                    merged.added_at = merged.added_at.min(other.added_at);
+                }
+            }
+
+            for bi in &rows {
+                if *bi == keep {
+                    continue;
+                }
+                // Any history on the row being dropped moves to the survivor.
+                self.conn.execute(
+                    "UPDATE messages SET contact_pubkey = ?2 WHERE contact_pubkey = ?1",
+                    params![bi, keep],
+                )?;
+                self.conn.execute(
+                    "UPDATE outbox SET peer_pubkey = ?2 WHERE peer_pubkey = ?1",
+                    params![bi, keep],
+                )?;
                 self.conn
                     .execute("DELETE FROM contacts WHERE identity_pubkey = ?1", params![bi])?;
                 removed += 1;
             }
+
+            // Write the merged decisions back onto the row that survived.
+            self.conn.execute(
+                "UPDATE contacts SET display_name = ?2, onion_addr = ?3, status = ?4,
+                                     saved = ?5, verified = ?6, added_at = ?7
+                 WHERE identity_pubkey = ?1",
+                params![
+                    keep,
+                    self.seal(merged.display_name.as_bytes())?,
+                    self.seal(merged.onion_addr.as_bytes())?,
+                    merged.status.to_i64(),
+                    merged.saved as i64,
+                    merged.verified as i64,
+                    merged.added_at as i64,
+                ],
+            )?;
         }
         Ok(removed)
     }
@@ -2112,6 +2308,123 @@ mod tests {
             verified: false,
             pq_fingerprint: None,
         }
+    }
+
+    /// The fault under all of it: a row stored under an index that is not the
+    /// one derived from its identity. Its messages are unreachable by identity,
+    /// so the contact looks empty — and a repair that trusts the derived index
+    /// deletes the row that actually has the history.
+    #[test]
+    fn a_row_on_the_wrong_index_keeps_its_history() {
+        let s = Store::open_in_memory(&[29u8; 32]).unwrap();
+        let identity = [9u8; 32];
+
+        // A row under a stray index, with its thread stored under the same one.
+        let stray = b"an-index-that-is-not-derived-yet".to_vec();
+        s.conn
+            .execute(
+                "INSERT INTO blind_index(bi, sealed) VALUES(?1, ?2)",
+                params![stray, s.seal(&identity).unwrap()],
+            )
+            .unwrap();
+        s.conn
+            .execute(
+                "INSERT INTO contacts(identity_pubkey, display_name, onion_addr, added_at,
+                                      status, saved, verified)
+                 VALUES(?1, ?2, ?3, 100, 1, 1, 1)",
+                params![
+                    stray,
+                    s.seal(b"Petr").unwrap(),
+                    s.seal(b"petr.onion").unwrap()
+                ],
+            )
+            .unwrap();
+        for body in [b"prvni".as_slice(), b"druha".as_slice()] {
+            s.conn
+                .execute(
+                    "INSERT INTO messages(contact_pubkey, direction, sent_at, body)
+                     VALUES(?1, 0, 100, ?2)",
+                    params![stray, s.seal(body).unwrap()],
+                )
+                .unwrap();
+        }
+
+        // Before: looking the person up by identity finds nothing.
+        assert!(s.get_contact(&identity).unwrap().is_none());
+        assert_eq!(s.message_count(&identity).unwrap(), 0);
+
+        assert_eq!(s.normalise_contact_indexes().unwrap(), 1);
+
+        // After: one contact, with its name, its decisions and its thread.
+        let c = s.get_contact(&identity).unwrap().expect("contact is findable");
+        assert_eq!(c.display_name, "Petr");
+        assert!(c.saved && c.verified);
+        assert_eq!(s.message_count(&identity).unwrap(), 2);
+        assert_eq!(s.list_contacts().unwrap().len(), 1);
+
+        // Nothing is left to move, and dedupe has no reason to touch it.
+        assert_eq!(s.normalise_contact_indexes().unwrap(), 0);
+        assert_eq!(s.dedupe_contacts().unwrap(), 0);
+        assert_eq!(s.message_count(&identity).unwrap(), 2);
+    }
+
+    /// Deduping must keep the row the conversation is attached to, and must not
+    /// drop a decision the user made on the row it removes.
+    #[test]
+    fn deduping_keeps_the_history_and_the_decisions() {
+        let s = Store::open_in_memory(&[31u8; 32]).unwrap();
+        let identity = [4u8; 32];
+
+        // The row with the history, but nothing the user chose.
+        let with_history = s.indexed(&identity).unwrap();
+        s.upsert_contact(&Contact {
+            identity_pubkey: identity,
+            display_name: String::new(),
+            onion_addr: String::new(),
+            added_at: 200,
+            status: ContactStatus::Accepted,
+            saved: false,
+            verified: false,
+            pq_fingerprint: None,
+        })
+        .unwrap();
+        s.insert_message(&NewMessage {
+            contact_pubkey: identity,
+            direction: Direction::Incoming,
+            sent_at: 200,
+            body: b"ctyricet zprav",
+            file: None,
+        })
+        .unwrap();
+
+        // A second row for the same person: named, saved, no messages.
+        let stray = b"second-row-for-the-same-person!!".to_vec();
+        s.conn
+            .execute(
+                "INSERT INTO blind_index(bi, sealed) VALUES(?1, ?2)",
+                params![stray, s.seal(&identity).unwrap()],
+            )
+            .unwrap();
+        s.conn
+            .execute(
+                "INSERT INTO contacts(identity_pubkey, display_name, onion_addr, added_at,
+                                      status, saved, verified)
+                 VALUES(?1, ?2, ?3, 100, 1, 1, 0)",
+                params![
+                    stray,
+                    s.seal(b"Petr").unwrap(),
+                    s.seal(b"petr.onion").unwrap()
+                ],
+            )
+            .unwrap();
+
+        assert_eq!(s.dedupe_contacts().unwrap(), 1);
+        let c = s.get_contact(&identity).unwrap().unwrap();
+        assert_eq!(c.display_name, "Petr", "the name must survive");
+        assert!(c.saved, "being in the address book must survive");
+        assert_eq!(c.onion_addr, "petr.onion");
+        assert_eq!(s.message_count(&identity).unwrap(), 1, "history must survive");
+        assert_eq!(with_history, s.bi(&identity));
     }
 
     /// Two rows resolving to one identity is what put the same person in the

@@ -8,6 +8,29 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.3.1
+
+- **Contacts that disappeared come back, and the fault under them is fixed.**
+  2.1.35 deleted a contact that had forty messages: it kept the row whose
+  routing index is derived from the identity, but the conversation was attached
+  to the *other* row, so the repair chose the wrong one.
+
+  The real fault was older and caused all of it — the duplicate conversations,
+  a full thread showing "no messages yet", and now the missing contacts. A
+  contact row could sit under one routing index while everything that looks a
+  person up by identity used another. Signing in now moves every row, its
+  messages and its queue onto one index, so the row and its history can no
+  longer lose each other. Where two rows described one person they are merged,
+  keeping the name, the address and anything you decided — saved, verified,
+  blocked — from whichever row carried it.
+
+  **A contact deleted by 2.1.35 comes back without its name**, because the row
+  that held it is gone. The thread is intact, and the name returns by itself
+  the next time that person connects; until then you can rename them.
+
+- **The address is out of the conversation header.** It belongs on the contact,
+  where an address is what you came for — not above every message you write.
+
 ## 2.3.0
 
 - **A photo, video or GIF is shown, not described.** The filename above a

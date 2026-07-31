@@ -1423,14 +1423,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           children: [
             ContactAvatar(chat: chat, radius: 16),
             const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(chat.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                Text(chat.onion, style: TextStyle(fontSize: 11, color: UmbraColors.textMuted)),
-              ],
-            ),
+            // Just the name. The onion address is how the app reaches them, not
+            // something to read while writing to them — it lives in the contact
+            // detail, where an address is what you came for.
+            Text(chat.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
           ],
         ),
         actions: [

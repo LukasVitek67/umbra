@@ -864,6 +864,16 @@ impl UmbraApp {
         // contacts: their messages were in the database, but with no contact
         // row the app showed nothing and never dialled them back. Done here, so
         // the UI already sees them on the first load after sign-in.
+        // Before anything else looks for a contact by identity: put every row
+        // on the index derived from it. Repairs that run on a database where
+        // those disagree pick the wrong row — that is how a contact with forty
+        // messages was deleted in 2.1.35.
+        match store.normalise_contact_indexes() {
+            Ok(n) if n > 0 => log_line(&format!("srovnáno {n} kontaktů na index podle identity")),
+            Err(e) => log_line(&format!("srovnání indexů selhalo: {e}")),
+            _ => {}
+        }
+
         let _ = store.backfill_missing_contacts(now_secs());
 
         // Clear out rows an older build created from empty PROFILE/ADDRESS
