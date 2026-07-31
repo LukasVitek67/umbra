@@ -576,13 +576,18 @@ class AppState extends ChangeNotifier {
     final stored = parts.length > 3 && parts[3].isNotEmpty ? parts[3] : null;
 
     final chat = _ensureChat(peerHex);
-    // The live path emits both `file_sent` and, on some routes, nothing else;
-    // guard against the same bubble being added twice.
-    final last = chat.messages.isEmpty ? null : chat.messages.last;
-    if (last != null && last.outgoing && last.body == label) {
-      last.pending = pending;
-      last.filePath ??= stored;
-      return;
+    // Guard against the same send producing two bubbles — but match on the
+    // stored file, which is unique per send, not on the text. Every GIF the
+    // picker sends is called `gif.gif` when the service gives no description,
+    // so comparing labels made the second one look like a repeat of the first
+    // and nothing appeared at all.
+    if (stored != null) {
+      for (final m in chat.messages.reversed) {
+        if (m.outgoing && m.filePath == stored) {
+          m.pending = pending;
+          return;
+        }
+      }
     }
     chat.messages.add(Message(
       label,

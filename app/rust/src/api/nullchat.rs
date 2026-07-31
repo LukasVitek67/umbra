@@ -572,6 +572,31 @@ fn account_file(dir: &Path, name: &str) -> PathBuf {
 }
 
 #[cfg(test)]
+mod gif_name_tests {
+    use super::safe_gif_name;
+
+    #[test]
+    fn a_description_becomes_the_name() {
+        assert_eq!(safe_gif_name("happy cat", "abc12345"), "happy-cat.gif");
+        // Path separators and anything else unpleasant are dropped, not escaped.
+        assert_eq!(safe_gif_name("../../etc/passwd", "abc12345"), "etcpasswd.gif");
+    }
+
+    #[test]
+    fn without_a_description_two_gifs_get_different_names() {
+        // The service usually sends none, and every GIF being `gif.gif` is what
+        // made the second one look like a repeat of the first.
+        let a = safe_gif_name("", "XD4qHZpkyUFfq");
+        let b = safe_gif_name("", "Ra1bmpxpsppNC");
+        assert_ne!(a, b);
+        assert!(a.ends_with(".gif") && b.ends_with(".gif"));
+        // Nothing from the URL can turn into a path.
+        assert_eq!(safe_gif_name("", "../../../evil"), "gif-evil.gif");
+        assert_eq!(safe_gif_name("", ""), "gif.gif");
+    }
+}
+
+#[cfg(test)]
 mod account_file_tests {
     use super::account_file;
 
@@ -616,18 +641,31 @@ fn gif_circuit() -> String {
     "nullchat-gifs".to_string()
 }
 
-/// A filename for a received GIF that cannot do anything unpleasant.
-fn safe_gif_name(description: &str) -> String {
+/// A filename for a GIF that cannot do anything unpleasant.
+///
+/// `fallback` distinguishes GIFs the service gave no description for, which is
+/// most of them. Calling every one of them `gif.gif` made a conversation full
+/// of identical lines, and anything matching sends by name could not tell two
+/// apart.
+fn safe_gif_name(description: &str, fallback: &str) -> String {
     let cleaned: String = description
         .chars()
         .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-' || *c == '_')
         .take(40)
         .collect();
     let trimmed = cleaned.trim();
-    if trimmed.is_empty() {
+    if !trimmed.is_empty() {
+        return format!("{}.gif", trimmed.replace(' ', "-"));
+    }
+    let tag: String = fallback
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(8)
+        .collect();
+    if tag.is_empty() {
         "gif.gif".to_string()
     } else {
-        format!("{}.gif", trimmed.replace(' ', "-"))
+        format!("gif-{tag}.gif")
     }
 }
 
@@ -1455,7 +1493,14 @@ impl UmbraApp {
             // A name from the description, not from the URL: a remote-supplied
             // filename has no business reaching a filesystem, and the receiving
             // side sanitises it anyway.
-            let name = safe_gif_name(&description);
+            // The fallback comes from the URL's own id segment, which is the
+            // one part of it that identifies the GIF. It is filtered to
+            // alphanumerics before it is used, so it cannot become a path.
+            let url_tag = gif_url
+                .rsplit('/')
+                .find(|s| s.len() > 4 && s.chars().any(|c| c.is_ascii_alphanumeric()))
+                .unwrap_or("");
+            let name = safe_gif_name(&description, url_tag);
             send_file_or_queue(&contact_hex, &name, data).await;
         });
     }

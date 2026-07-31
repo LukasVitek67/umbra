@@ -8,6 +8,21 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.2.3
+
+- **The second GIF you send appears too.** The bubble was there for the first
+  one and then nothing — because the guard against showing one send twice
+  compared the message text, and every GIF is called `gif.gif` when the service
+  gives no description. The second send looked like a repeat of the first, so
+  it silently updated that bubble instead of adding its own. It was always sent
+  and always stored; only the conversation stayed quiet about it.
+
+  Sends are now told apart by the file itself, which is unique per send.
+
+- **GIFs get distinguishable names.** Without a description they were all
+  `gif.gif`; they now carry a short tag from the GIF's own id, so a thread of
+  them reads as separate files and not one repeated line.
+
 ## 2.2.2
 
 - **Older photos and GIFs get their preview too.** 2.2.1 started keeping the
