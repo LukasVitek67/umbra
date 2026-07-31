@@ -161,6 +161,26 @@ class L {
       'chat.saveFile': 'Save file…',
       'file.queued':
           '{name} is waiting — it goes out as soon as {who} is online.',
+      'msg.info': 'Message info',
+      'msg.infoWho': 'From',
+      'msg.infoMe': 'You',
+      'msg.infoWhen': 'Sent',
+      'msg.infoState': 'Status',
+      'msg.infoFile': 'File',
+      'msg.infoSize': 'Size',
+      'msg.infoLocal':
+          'What this device knows. There is no server to ask, so nothing here '
+          'reports what happened on the other side beyond their confirmation.',
+      'msg.copy': 'Copy',
+      'msg.copied': 'Copied.',
+      'msg.open': 'Open',
+      'msg.forward': 'Forward',
+      'msg.forwardTo': 'Forward to',
+      'msg.forwardNobody': 'No other conversation to forward this to.',
+      'msg.delete': 'Delete',
+      'msg.deleteBody':
+          'Removes it from this device, with the file it carried. The copy the '
+          'other side has is theirs — nothing here can reach it.',
       'file.mediaNote': 'Video and audio play only after you save them.',
       'file.tooBig': 'Too large to preview — save it to open it.',
       'file.badImage': 'This file is not a picture that can be shown.',
@@ -559,6 +579,27 @@ class L {
       'chat.showFile': 'Zobrazit ve složce',
       'chat.saveFile': 'Uložit soubor…',
       'file.queued': '{name} čeká — odejde, jakmile bude {who} online.',
+      'msg.info': 'Informace o zprávě',
+      'msg.infoWho': 'Od',
+      'msg.infoMe': 'Ty',
+      'msg.infoWhen': 'Odesláno',
+      'msg.infoState': 'Stav',
+      'msg.infoFile': 'Soubor',
+      'msg.infoSize': 'Velikost',
+      'msg.infoLocal':
+          'Co ví tohle zařízení. Žádný server, kterého by se šlo zeptat, '
+          'neexistuje — kromě potvrzení od protějšku se odsud o druhé straně '
+          'nic zjistit nedá.',
+      'msg.copy': 'Zkopírovat',
+      'msg.copied': 'Zkopírováno.',
+      'msg.open': 'Otevřít',
+      'msg.forward': 'Přeposlat',
+      'msg.forwardTo': 'Přeposlat komu',
+      'msg.forwardNobody': 'Není kam přeposlat — jiná konverzace neexistuje.',
+      'msg.delete': 'Odstranit',
+      'msg.deleteBody':
+          'Smaže ji z tohohle zařízení i se souborem, který nesla. Kopie, '
+          'kterou má protějšek, je jeho — odsud se na ni nedosáhne.',
       'file.mediaNote': 'Video a zvuk přehraješ až po uložení.',
       'file.tooBig': 'Příliš velké na náhled — otevřeš ho po uložení.',
       'file.badImage': 'Tenhle soubor není obrázek, který jde zobrazit.',

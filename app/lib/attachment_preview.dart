@@ -47,6 +47,24 @@ enum MediaKind {
 /// photo and far below what would make decoding a comfortable place to attack.
 const int kPreviewMaxBytes = 12 * 1024 * 1024;
 
+/// Extensions people recognise as "a photo, a video, a GIF" — the ones that do
+/// not need their filename announced above them.
+///
+/// This decides *presentation* only. What actually reaches a decoder is still
+/// chosen by the file's own header, so a name here buys a sender nothing.
+const Set<String> kMediaExtensions = {
+  'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'heif',
+  'mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi', '3gp',
+};
+
+/// Is this the kind of file a chat app shows rather than lists?
+bool looksLikeMedia(String? name) {
+  if (name == null) return false;
+  final dot = name.lastIndexOf('.');
+  if (dot < 0 || dot == name.length - 1) return false;
+  return kMediaExtensions.contains(name.substring(dot + 1).toLowerCase());
+}
+
 /// Identify a file from its leading bytes.
 ///
 /// Deliberately small: a handful of formats that Flutter can render, plus the
@@ -85,11 +103,18 @@ class AttachmentPreview extends StatefulWidget {
     required this.path,
     required this.name,
     required this.size,
+    this.onShown,
   });
 
   final String path;
   final String name;
   final int? size;
+
+  /// Called once it is known whether a picture is actually on screen. The
+  /// bubble uses it to drop the filename above a photo: showing
+  /// `IMG_20260731.jpg` over the photo itself is noise, but a file that turned
+  /// out not to be viewable still needs its name.
+  final void Function(bool showing)? onShown;
 
   @override
   State<AttachmentPreview> createState() => _AttachmentPreviewState();
@@ -136,6 +161,7 @@ class _AttachmentPreviewState extends State<AttachmentPreview> {
       _kind = sniff(bytes);
       if (_kind == MediaKind.image || _kind == MediaKind.gif) _bytes = bytes;
     });
+    widget.onShown?.call(_bytes != null);
   }
 
   @override
@@ -160,7 +186,7 @@ class _AttachmentPreviewState extends State<AttachmentPreview> {
     }
 
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: EdgeInsets.zero,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
         child: ConstrainedBox(
@@ -180,6 +206,34 @@ class _AttachmentPreviewState extends State<AttachmentPreview> {
       ),
     );
   }
+}
+
+/// Open an attachment full screen from outside the bubble (the message menu).
+///
+/// Decrypts on demand and shows nothing if the file is not a picture — there is
+/// no viewer here for anything else, and writing a copy somewhere so the system
+/// could open it is exactly what this app does not do.
+Future<void> openAttachmentFullScreen(
+  BuildContext context,
+  String path,
+  String name,
+) async {
+  final bytes = await appState.attachmentBytes(path);
+  if (!context.mounted) return;
+  if (bytes == null || bytes.length > kPreviewMaxBytes) {
+    appState.showInAppNotice(name, L.t('file.tooBig'));
+    return;
+  }
+  final kind = sniff(bytes);
+  if (kind != MediaKind.image && kind != MediaKind.gif) {
+    appState.showInAppNotice(
+      name,
+      kind == MediaKind.media ? L.t('file.mediaNote') : L.t('file.badImage'),
+    );
+    return;
+  }
+  if (!context.mounted) return;
+  _openFull(context, bytes, name);
 }
 
 void _openFull(BuildContext context, Uint8List bytes, String name) {

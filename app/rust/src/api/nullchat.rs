@@ -686,6 +686,8 @@ pub struct ContactView {
 
 /// A stored message, flattened for the UI.
 pub struct MessageView {
+    /// Row id, so a single message can be acted on (deleted, for one).
+    pub id: i64,
     pub outgoing: bool,
     pub sent_at: u64,
     pub body: String,
@@ -1325,6 +1327,40 @@ impl UmbraApp {
             .decrypt_file(&PathBuf::from(path))
             .map(|d| d.to_vec())
             .map_err(|e| e.to_string())
+    }
+
+    /// Send an attachment we already hold to somebody else.
+    ///
+    /// The bytes are read from our sealed copy, so forwarding never goes back
+    /// to whoever originally served the file: the recipient learns nothing
+    /// about where it came from, and no third party learns it was forwarded.
+    #[frb(sync)]
+    pub fn forward_attachment(&self, contact_hex: String, path: String, name: String) {
+        let data = {
+            let g = self.inner.lock().unwrap();
+            g.store.decrypt_file(&PathBuf::from(&path)).map(|d| d.to_vec())
+        };
+        rt().spawn(async move {
+            match data {
+                Ok(bytes) => send_file_or_queue(&contact_hex, &name, bytes).await,
+                Err(e) => emit("error", &format!("přílohu nelze přečíst: {e}"), &contact_hex),
+            }
+        });
+    }
+
+    /// Remove one message from this device, with the file it carried.
+    #[frb(sync)]
+    pub fn delete_message(&self, id: i64) -> Result<(), String> {
+        let removed = {
+            let g = self.inner.lock().unwrap();
+            g.store.delete_message(id).map_err(|e| e.to_string())?
+        };
+        // The sealed file is useless once nothing points at it, and leaving it
+        // would keep the picture on disk after the user deleted it.
+        if let Some(path) = removed {
+            let _ = std::fs::remove_file(path);
+        }
+        Ok(())
     }
 
     /// Write a decrypted copy where the user asked for it.
@@ -1990,6 +2026,7 @@ impl UmbraApp {
             .map_err(|e| e.to_string())?
             .into_iter()
             .map(|m| MessageView {
+                id: m.id,
                 outgoing: matches!(m.direction, Direction::Outgoing),
                 sent_at: m.sent_at,
                 body: String::from_utf8_lossy(&m.body).to_string(),

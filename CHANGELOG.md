@@ -8,6 +8,28 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.3.0
+
+- **A photo, video or GIF is shown, not described.** The filename above a
+  picture was noise, so it is gone for the formats people recognise as media.
+  A document — or a file that turns out not to be viewable — keeps its name and
+  size, because there the name is the only thing identifying it.
+
+- **Right-click a message for what you can do with it** (long press on a
+  phone): message info, copy, open, save, forward, delete.
+
+  - **Forward** sends a file from your own stored copy, so the service it came
+    from is never asked again and learns nothing about it being passed on.
+  - **Delete** removes the message from this device and deletes the file it
+    carried. It says plainly that it is local: the copy the other side has is
+    theirs, and nothing here can reach it.
+
+  **Reply and pin/star are deliberately not there.** A reply has to point at a
+  message, and frames carry no message id — that is a wire change both sides
+  must understand, not a menu item. Pinning would be a second place recording
+  which messages matter to you, and that deserves the same care as the rest of
+  the encrypted store rather than being bolted on.
+
 ## 2.2.3
 
 - **The second GIF you send appears too.** The bubble was there for the first

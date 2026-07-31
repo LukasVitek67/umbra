@@ -103,6 +103,9 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// Delete a contact together with its whole conversation.
   void deleteContact({required String contactHex});
 
+  /// Remove one message from this device, with the file it carried.
+  void deleteMessage({required PlatformInt64 id});
+
   /// Which duress passphrases this account has, as far as *we* can tell.
   ///
   /// Returns e.g. `["decoy"]`. This is a note we wrote for ourselves; a
@@ -145,6 +148,17 @@ abstract class UmbraApp implements RustOpaqueInterface {
         root: root,
         id: id,
       );
+
+  /// Send an attachment we already hold to somebody else.
+  ///
+  /// The bytes are read from our sealed copy, so forwarding never goes back
+  /// to whoever originally served the file: the recipient learns nothing
+  /// about where it came from, and no third party learns it was forwarded.
+  void forwardAttachment({
+    required String contactHex,
+    required String path,
+    required String name,
+  });
 
   /// The GIPHY API key this account uses, empty when none is set.
   ///
@@ -589,6 +603,8 @@ class GroupView {
 
 /// A stored message, flattened for the UI.
 class MessageView {
+  /// Row id, so a single message can be acted on (deleted, for one).
+  final PlatformInt64 id;
   final bool outgoing;
   final BigInt sentAt;
   final String body;
@@ -607,6 +623,7 @@ class MessageView {
   final BigInt fileSize;
 
   const MessageView({
+    required this.id,
     required this.outgoing,
     required this.sentAt,
     required this.body,
@@ -618,6 +635,7 @@ class MessageView {
 
   @override
   int get hashCode =>
+      id.hashCode ^
       outgoing.hashCode ^
       sentAt.hashCode ^
       body.hashCode ^
@@ -631,6 +649,7 @@ class MessageView {
       identical(this, other) ||
       other is MessageView &&
           runtimeType == other.runtimeType &&
+          id == other.id &&
           outgoing == other.outgoing &&
           sentAt == other.sentAt &&
           body == other.body &&

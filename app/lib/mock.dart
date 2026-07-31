@@ -60,6 +60,12 @@ class Message {
 
   /// Who wrote it, in a group. Null in 1:1 chats, where the header says it.
   final String? senderName;
+
+  /// Row id in the store, when this message came from there. Null for one that
+  /// only exists in this session, which cannot be deleted from the database
+  /// because it is not in it yet.
+  int? id;
+
   /// Outgoing message that has not reached the peer yet (no session). It waits
   /// in the encrypted outbox and goes out on its own once they are back.
   bool pending;
@@ -617,6 +623,7 @@ class AppState extends ChangeNotifier {
       fileName: hasFile ? m.fileName : null,
       fileSize: hasFile ? m.fileSize.toInt() : null,
     )
+      ..id = m.id
       ..delivered = m.state == 2
       ..filePath = hasFile ? m.filePath : null
       ..progress = hasFile ? 1 : null;
@@ -1351,6 +1358,46 @@ class AppState extends ChangeNotifier {
       lastError = _clean(e);
       notifyListeners();
     }
+  }
+
+  /// Send the same message to somebody else.
+  ///
+  /// A file is forwarded from our own sealed copy, so it is never fetched from
+  /// wherever it came from a second time.
+  void forwardMessage(Chat to, Message msg) {
+    final app = _app;
+    if (app == null) return;
+    try {
+      if (msg.filePath != null) {
+        app.forwardAttachment(
+          contactHex: to.contactHex,
+          path: msg.filePath!,
+          name: msg.fileName ?? 'file',
+        );
+      } else {
+        sendMessage(to, msg.body);
+      }
+    } catch (e) {
+      lastError = _clean(e);
+    }
+    notifyListeners();
+  }
+
+  /// Remove one message from this device.
+  ///
+  /// Local only, and the UI says so: the copy the other side holds is theirs.
+  void deleteMessage(Chat chat, Message msg) {
+    final app = _app;
+    if (app != null && msg.id != null) {
+      try {
+        app.deleteMessage(id: msg.id!);
+      } catch (e) {
+        lastError = _clean(e);
+      }
+    }
+    chat.messages.remove(msg);
+    if (msg.filePath != null) _attachmentCache.remove(msg.filePath);
+    notifyListeners();
   }
 
   /// Attachment bytes, decrypted into memory for the preview.

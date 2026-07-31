@@ -1299,6 +1299,33 @@ impl Store {
         Ok(messages)
     }
 
+    /// Remove one message, and the sealed file it carried.
+    ///
+    /// Local only: the copy on the other side is theirs and nothing here can
+    /// reach it. The attachment goes with the row — leaving the file behind
+    /// would keep the picture on disk after the user asked for it to be gone,
+    /// which is the opposite of what "delete" means.
+    ///
+    /// Returns the path that was removed, so the caller can delete the file.
+    pub fn delete_message(&self, id: i64) -> Result<Option<String>, StoreError> {
+        let path: Option<Option<Vec<u8>>> = self
+            .conn
+            .query_row("SELECT file_path FROM messages WHERE id = ?1", params![id], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        let path = path
+            .flatten()
+            .and_then(|ct| self.try_decrypt_string(&ct));
+        self.conn
+            .execute("DELETE FROM messages WHERE id = ?1", params![id])?;
+        // Anything still queued for it would be sent to a peer for a message
+        // that no longer exists here.
+        self.conn
+            .execute("DELETE FROM outbox WHERE message_id = ?1", params![id])?;
+        Ok(path)
+    }
+
     /// Accept, park or block a contact.
     pub fn set_contact_status(
         &self,

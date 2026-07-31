@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'gif_picker.dart';
 import 'attachment_preview.dart';
 import 'l10n.dart';
+import 'message_menu.dart';
 import 'mock.dart';
 import 'src/rust/api/nullchat.dart' show SearchHitView;
 import 'theme.dart';
@@ -1569,9 +1570,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       prev.day != msg.at.day ||
                       prev.month != msg.at.month ||
                       prev.year != msg.at.year;
-                  if (!newDay) return _Bubble(msg: msg);
+                  if (!newDay) return _Bubble(msg: msg, chat: chat);
                   return Column(
-                    children: [_DaySeparator(day: msg.at), _Bubble(msg: msg)],
+                    children: [_DaySeparator(day: msg.at), _Bubble(msg: msg, chat: chat)],
                   );
                 },
               ),
@@ -1890,12 +1891,29 @@ void showAddGroupMember(BuildContext context, GroupChat group) {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.msg});
+  const _Bubble({required this.msg, this.chat});
   final Message msg;
+
+  /// The conversation this belongs to. Null in places that only display
+  /// messages (search results, a contact's history), where acting on one has
+  /// no obvious target.
+  final Chat? chat;
 
   @override
   Widget build(BuildContext context) {
     final out = msg.outgoing;
+    final c = chat;
+    if (c == null) return _body(context, out);
+    // Right-click on the desktop, long press on a phone — both land here.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onSecondaryTapDown: (d) => showMessageMenu(context, c, msg, d.globalPosition),
+      onLongPressStart: (d) => showMessageMenu(context, c, msg, d.globalPosition),
+      child: _body(context, out),
+    );
+  }
+
+  Widget _body(BuildContext context, bool out) {
     return Align(
       alignment: out ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(
@@ -2045,11 +2063,26 @@ class _Composer extends StatelessWidget {
 }
 
 
-/// A file inside a chat bubble: name, size, transfer progress and — once it has
-/// arrived — a way to open the folder it was saved to.
-class _FileBody extends StatelessWidget {
+/// A file inside a chat bubble.
+///
+/// A photo, a video or a GIF is shown, not described: the filename above a
+/// picture is noise, and every other chat app leaves it out. Anything else —
+/// a document, an archive, a file that turned out not to be viewable — keeps
+/// the row with its name and size, because there the name is the only thing
+/// identifying it. Saving moved to the right-click menu, where the rest of the
+/// per-message actions live.
+class _FileBody extends StatefulWidget {
   const _FileBody({required this.msg});
   final Message msg;
+
+  @override
+  State<_FileBody> createState() => _FileBodyState();
+}
+
+class _FileBodyState extends State<_FileBody> {
+  /// Null until the preview reports back; keeps the row from flashing in and
+  /// out while the file is being decrypted.
+  bool? _picture;
 
   String _size(int? bytes) {
     final b = bytes ?? 0;
@@ -2060,28 +2093,35 @@ class _FileBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final msg = widget.msg;
     final done = (msg.progress ?? 0) >= 1;
+    final media = looksLikeMedia(msg.fileName);
+    // Hide the name for something that reads as media, unless the preview came
+    // back saying it cannot be shown after all.
+    final hideName = media && _picture != false;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(done ? Icons.insert_drive_file : Icons.downloading,
-                size: 18, color: UmbraColors.accent),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                msg.fileName ?? msg.body,
-                style: TextStyle(color: UmbraColors.textPrimary, height: 1.3),
+        if (!hideName)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(done ? Icons.insert_drive_file : Icons.downloading,
+                  size: 18, color: UmbraColors.accent),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  msg.fileName ?? msg.body,
+                  style: TextStyle(color: UmbraColors.textPrimary, height: 1.3),
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Text(_size(msg.fileSize),
-                style: TextStyle(color: UmbraColors.textMuted, fontSize: 11)),
-          ],
-        ),
+              const SizedBox(width: 8),
+              Text(_size(msg.fileSize),
+                  style: TextStyle(color: UmbraColors.textMuted, fontSize: 11)),
+            ],
+          ),
         if (!done) ...[
           const SizedBox(height: 8),
           ClipRRect(
@@ -2093,31 +2133,20 @@ class _FileBody extends StatelessWidget {
             ),
           ),
         ],
-        if (done && msg.filePath != null) ...[
-          // Photos and GIFs show themselves; everything else stays a tile.
-          AttachmentPreview(
-            path: msg.filePath!,
-            name: msg.fileName ?? 'file',
-            size: msg.fileSize,
-          ),
-          const SizedBox(height: 6),
-          TextButton.icon(
-            // Not "show in folder" any more: the file on disk is encrypted, so
-            // there is nothing for Explorer to open. Saving decrypts it exactly
-            // where the user chose to put it, and nowhere else.
-            onPressed: () => appState.saveAttachment(
-              msg.filePath!,
-              msg.fileName ?? 'file',
-            ),
-            icon: const Icon(Icons.download, size: 15),
-            label: Text(L.t('chat.saveFile')),
-            style: TextButton.styleFrom(
-              padding: EdgeInsets.zero,
-              minimumSize: const Size(0, 28),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        if (done && msg.filePath != null)
+          Padding(
+            padding: EdgeInsets.only(top: hideName ? 0 : 8),
+            child: AttachmentPreview(
+              path: msg.filePath!,
+              name: msg.fileName ?? 'file',
+              size: msg.fileSize,
+              onShown: (showing) {
+                if (mounted && _picture != showing) {
+                  setState(() => _picture = showing);
+                }
+              },
             ),
           ),
-        ],
       ],
     );
   }
