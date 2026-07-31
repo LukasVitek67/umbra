@@ -159,6 +159,8 @@ class L {
       'chat.attach': 'Send a file (encrypted)',
       'chat.showFile': 'Show in folder',
       'chat.saveFile': 'Save file…',
+      'file.queued':
+          '{name} is waiting — it goes out as soon as {who} is online.',
       'files.sealedTitle': 'Attachments encrypted',
       'files.sealedBody':
           '{n} received file(s) were stored unencrypted by an older version and '
@@ -544,6 +546,7 @@ class L {
       'chat.attach': 'Poslat soubor (šifrovaně)',
       'chat.showFile': 'Zobrazit ve složce',
       'chat.saveFile': 'Uložit soubor…',
+      'file.queued': '{name} čeká — odejde, jakmile bude {who} online.',
       'files.sealedTitle': 'Přílohy zašifrovány',
       'files.sealedBody':
           '{n} přijatých souborů leželo nezašifrovaně po starší verzi a nyní jsou '

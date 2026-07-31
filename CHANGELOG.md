@@ -8,6 +8,27 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.1.31
+
+- **Every conversation appearing twice is fixed.** The second copy was not a
+  copy: an older build turned an empty `PROFILE` or `ADDRESS` frame from a peer
+  into a contact with no name, no address and no messages, and the chat list
+  showed it as "unknown contact" beside the real one. Those frames no longer
+  create anything, and the empty rows already in your database are removed when
+  you next sign in. Nothing with a name, an address, any history, or one you
+  saved or blocked is touched.
+
+- **Files and GIFs can be sent to someone who is offline.** They waited in the
+  encrypted outbox for text messages since 1.1.0 but not for attachments, which
+  simply failed with "not connected". Now they queue the same way and go out by
+  themselves once the contact appears — closing the app does not lose them.
+  Either the whole file is sent or none of it is, so nobody is left holding
+  chunks of a transfer that never finishes.
+
+- Version numbers change shape from here: bug fixes append a digit
+  (2.1.3 → 2.1.31), a new feature moves the middle part (2.2.00), and something
+  that changes what NullChat is moves the first (3.0.00). See `CONTRIBUTING.md`.
+
 ## 2.1.3
 
 - **GIF search is back, and there is nothing to set up.** It now uses GIPHY

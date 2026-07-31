@@ -144,6 +144,80 @@ fn log_line(text: &str) {
     }
 }
 
+/// Send a file as offer + chunks + end, or leave the whole thing in the outbox
+/// when there is no session.
+///
+/// "They are offline, try later" was the behaviour for files and GIFs while
+/// text messages had waited in the outbox since 1.1.0. Same promise now applies
+/// to both: it goes out by itself once the peer appears.
+///
+/// Either everything is sent or nothing is. Sending half a file and queuing the
+/// rest would leave the receiver holding chunks for a transfer that never ends.
+async fn send_file_or_queue(peer_hex: &str, name: &str, data: Vec<u8>) {
+    let mut id = [0u8; 16];
+    if getrandom::getrandom(&mut id).is_err() {
+        emit("error", "RNG selhal", peer_hex);
+        return;
+    }
+    let total = data.len() as u64;
+    let mut frames = Vec::with_capacity(data.len() / envelope::CHUNK + 2);
+    frames.push(envelope::encode_file_offer(&id, name, total));
+    for (seq, chunk) in data.chunks(envelope::CHUNK).enumerate() {
+        frames.push(envelope::encode_file_chunk(&id, seq as u32, chunk));
+    }
+    frames.push(envelope::encode_file_end(&id));
+
+    let svc = SERVICE.lock().unwrap().clone();
+    if let Some(svc) = svc {
+        // A live session: send now, with progress, exactly as before.
+        if svc.send_bytes(peer_hex, frames[0].clone()).await.is_ok() {
+            emit("file_send_start", &format!("{name}|{total}"), peer_hex);
+            for (i, frame) in frames.iter().enumerate().skip(1) {
+                if svc.send_bytes(peer_hex, frame.clone()).await.is_err() {
+                    emit("error", "přenos souboru se přerušil", peer_hex);
+                    return;
+                }
+                if i < frames.len() - 1 {
+                    let sent = (i * envelope::CHUNK).min(data.len()) as u64;
+                    emit("file_send_progress", &format!("{sent}|{total}"), peer_hex);
+                }
+            }
+            emit("file_sent", name, peer_hex);
+            return;
+        }
+    }
+
+    // Nobody to send to. Park every frame in the encrypted outbox, in order.
+    let Some(app) = APP.lock().unwrap().clone() else { return };
+    let Some(pk) = unhex(peer_hex) else { return };
+    {
+        let g = app.lock().unwrap();
+        for frame in &frames {
+            // message_id 0: a file has no row in `messages`, and the flush only
+            // uses the id to move a message from "sent" to "delivered".
+            // An empty body marks the frame as one the UI must not announce —
+            // otherwise a 3 MB GIF would report itself as 60-odd sent messages.
+            if let Err(e) = g.store.queue_outgoing(&pk, 0, None, frame, b"", now_secs()) {
+                log_line(&format!("soubor nelze zařadit do fronty: {e}"));
+                emit("error", "soubor nelze uložit do fronty", peer_hex);
+                return;
+            }
+        }
+    }
+    emit("file_queued", &format!("{name}|{total}"), peer_hex);
+    emit("queued", &format!("{}", pending_count()), peer_hex);
+
+    let onion = {
+        let g = CONTACTS.lock().unwrap();
+        g.as_ref().and_then(|m| m.get(peer_hex).cloned())
+    };
+    if let Some(onion) = onion {
+        if !onion.is_empty() {
+            dial_once(peer_hex.to_string(), onion);
+        }
+    }
+}
+
 /// Deliver everything the database has waiting for `peer_hex`.
 ///
 /// The queue lives in the encrypted store, not in memory: "it will be delivered
@@ -173,6 +247,12 @@ async fn flush_pending(peer_hex: &str) {
             if item.group_id.is_none() {
                 let _ = g.store.set_message_state(item.message_id, MessageState::Sent);
             }
+        }
+        // An empty body is a file frame (see `send_file_or_queue`): one file is
+        // dozens of rows, and announcing each as a sent message would be wrong
+        // and loud.
+        if ui.is_empty() {
+            continue;
         }
         match item.group_id {
             None => emit("sent", &ui, peer_hex),
@@ -687,6 +767,15 @@ impl UmbraApp {
         // the UI already sees them on the first load after sign-in.
         let _ = store.backfill_missing_contacts(now_secs());
 
+        // Clear out rows an older build created from empty PROFILE/ADDRESS
+        // frames: no name, no address, no history, so nothing to lose — but in
+        // the chat list they looked like every conversation existing twice.
+        if let Ok(n) = store.purge_empty_contacts() {
+            if n > 0 {
+                log_line(&format!("odstraněno {n} prázdných kontaktů bez historie"));
+            }
+        }
+
         Ok(UmbraApp {
             inner: Arc::new(Mutex::new(Inner {
                 store,
@@ -1156,16 +1245,12 @@ impl UmbraApp {
             .unwrap_or_default()
     }
 
-    /// Send a file to a connected contact: read it, split it into chunks and
-    /// push each one through the encrypted session. Progress arrives as events.
+    /// Send a file: read it, split it into chunks and push each one through the
+    /// encrypted session — or leave it in the outbox if the contact is offline,
+    /// the same way a text message waits. Progress arrives as events.
     #[frb(sync)]
     pub fn send_file(&self, contact_hex: String, path: String) {
         rt().spawn(async move {
-            let svc = SERVICE.lock().unwrap().clone();
-            let Some(svc) = svc else {
-                emit("error", "síť ještě neběží", &contact_hex);
-                return;
-            };
             let p = PathBuf::from(&path);
             let name = p
                 .file_name()
@@ -1178,37 +1263,7 @@ impl UmbraApp {
                     return;
                 }
             };
-
-            let mut id = [0u8; 16];
-            if getrandom::getrandom(&mut id).is_err() {
-                emit("error", "RNG selhal", &contact_hex);
-                return;
-            }
-            let total = data.len() as u64;
-            if svc
-                .send_bytes(&contact_hex, envelope::encode_file_offer(&id, &name, total))
-                .await
-                .is_err()
-            {
-                emit("error", "soubor nelze odeslat: nejsi spojen", &contact_hex);
-                return;
-            }
-            emit("file_send_start", &format!("{name}|{total}"), &contact_hex);
-
-            for (seq, chunk) in data.chunks(envelope::CHUNK).enumerate() {
-                if svc
-                    .send_bytes(&contact_hex, envelope::encode_file_chunk(&id, seq as u32, chunk))
-                    .await
-                    .is_err()
-                {
-                    emit("error", "přenos souboru se přerušil", &contact_hex);
-                    return;
-                }
-                let sent = ((seq + 1) * envelope::CHUNK).min(data.len()) as u64;
-                emit("file_send_progress", &format!("{sent}|{total}"), &contact_hex);
-            }
-            let _ = svc.send_bytes(&contact_hex, envelope::encode_file_end(&id)).await;
-            emit("file_sent", &name, &contact_hex);
+            send_file_or_queue(&contact_hex, &name, data).await;
         });
     }
 
@@ -1278,15 +1333,14 @@ impl UmbraApp {
     /// channel. The recipient's device never contacts GIPHY — sending a link
     /// instead would hand their IP address and the time to a third party, which
     /// is the one thing this whole design exists to prevent.
+    ///
+    /// The download needs Tor; delivery does not need the contact to be online.
+    /// If they are away the GIF waits in the encrypted outbox and goes out by
+    /// itself when they appear, exactly like a text message.
     #[frb(sync)]
     pub fn send_gif(&self, contact_hex: String, gif_url: String, description: String) {
         rt().spawn(async move {
             let Some(port) = socks_port_now() else {
-                emit("error", "síť ještě neběží", &contact_hex);
-                return;
-            };
-            let svc = SERVICE.lock().unwrap().clone();
-            let Some(svc) = svc else {
                 emit("error", "síť ještě neběží", &contact_hex);
                 return;
             };
@@ -1304,35 +1358,7 @@ impl UmbraApp {
             // filename has no business reaching a filesystem, and the receiving
             // side sanitises it anyway.
             let name = safe_gif_name(&description);
-            let mut id = [0u8; 16];
-            if getrandom::getrandom(&mut id).is_err() {
-                emit("error", "RNG selhal", &contact_hex);
-                return;
-            }
-            let total = data.len() as u64;
-            if svc
-                .send_bytes(&contact_hex, envelope::encode_file_offer(&id, &name, total))
-                .await
-                .is_err()
-            {
-                emit("error", "GIF nelze odeslat: nejsi spojen", &contact_hex);
-                return;
-            }
-            emit("file_send_start", &format!("{name}|{total}"), &contact_hex);
-            for (seq, chunk) in data.chunks(envelope::CHUNK).enumerate() {
-                if svc
-                    .send_bytes(&contact_hex, envelope::encode_file_chunk(&id, seq as u32, chunk))
-                    .await
-                    .is_err()
-                {
-                    emit("error", "přenos se přerušil", &contact_hex);
-                    return;
-                }
-                let sent = ((seq + 1) * envelope::CHUNK).min(data.len()) as u64;
-                emit("file_send_progress", &format!("{sent}|{total}"), &contact_hex);
-            }
-            let _ = svc.send_bytes(&contact_hex, envelope::encode_file_end(&id)).await;
-            emit("file_sent", &name, &contact_hex);
+            send_file_or_queue(&contact_hex, &name, data).await;
         });
     }
 
@@ -2119,12 +2145,38 @@ async fn send_profile(peer_hex: &str) {
 /// again. `onion` may be empty — an entry with no address is still a visible
 /// conversation, and the address arrives with their next [`Payload::Address`].
 fn remember_peer(peer_hex: &str, name: Option<&str>, onion: Option<&str>) {
+    remember_peer_inner(peer_hex, name, onion, true)
+}
+
+/// The same, but it will not invent a contact out of nothing.
+///
+/// A `PROFILE` or `ADDRESS` frame whose fields are empty says nothing about
+/// anybody: acting on it created a row with no name, no address and no
+/// history, which the chat list then showed as a second "unknown contact"
+/// beside the real one — the duplicate-conversation bug. Frames that carry
+/// actual content (a message, a file) still create the contact, because
+/// otherwise the thread would not survive a restart.
+fn update_peer_details(peer_hex: &str, name: Option<&str>, onion: Option<&str>) {
+    let has_something = name.is_some_and(|n| !n.trim().is_empty())
+        || onion.is_some_and(|o| !o.trim().is_empty());
+    remember_peer_inner(peer_hex, name, onion, has_something)
+}
+
+fn remember_peer_inner(
+    peer_hex: &str,
+    name: Option<&str>,
+    onion: Option<&str>,
+    create_if_missing: bool,
+) {
     let Some(app) = APP.lock().unwrap().clone() else { return };
     let Some(pk) = unhex(peer_hex) else { return };
     let mut changed = false;
     {
         let g = app.lock().unwrap();
         let existing = g.store.get_contact(&pk).ok().flatten();
+        if existing.is_none() && !create_if_missing {
+            return;
+        }
         let is_new = existing.is_none();
         let mut contact = existing.clone().unwrap_or(Contact {
             identity_pubkey: pk,
@@ -2219,7 +2271,7 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
             }
         }
         Payload::Address { onion, name } => {
-            remember_peer(peer_hex, Some(&name), Some(&onion));
+            update_peer_details(peer_hex, Some(&name), Some(&onion));
         }
         Payload::Profile { name, picture } => {
             // Cache the picture next to the app data; the UI reads it by path.
@@ -2230,7 +2282,7 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
                     let _ = std::fs::write(&p, &picture);
                 }
             }
-            remember_peer(peer_hex, Some(&name), None);
+            update_peer_details(peer_hex, Some(&name), None);
             emit("profile", &name, peer_hex);
         }
         Payload::FileOffer { id, name, size } => {

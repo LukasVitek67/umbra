@@ -6,6 +6,20 @@
 **Not here.** See [`SECURITY.md`](SECURITY.md) — report it privately, so there
 is a fix before there is an announcement.
 
+## Version numbers
+
+Three parts, `MAJOR.MINOR.PATCH`, but the patch part grows a digit rather than
+rolling over:
+
+| What shipped | What changes | Example |
+|---|---|---|
+| Bug fixes only | a digit is appended to the patch part | 2.1.3 → **2.1.31** → 2.1.32 |
+| A new feature | minor +1, patch back to `00` | 2.1.31 → **2.2.00** |
+| Something that changes what NullChat *is* | major +1 | 2.2.00 → **3.0.00** |
+
+Each part is still compared as a number, so 2.1.31 is newer than 2.1.3 and the
+in-app updater orders them correctly.
+
 ## Reporting a bug
 
 Open an [issue](https://github.com/LukasVitek67/umbra/issues) with:

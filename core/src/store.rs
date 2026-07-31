@@ -1551,6 +1551,52 @@ impl Store {
         Ok(added)
     }
 
+    /// Remove contact rows that are not conversations: no name, no address, no
+    /// message ever, never saved by the user.
+    ///
+    /// Such a row is an artefact, not a person. It appears when a peer connects
+    /// and sends a `PROFILE` or `ADDRESS` frame whose fields are empty — the
+    /// row is created, and the chat list then shows an "unknown contact" next
+    /// to the real one, which reads as the same conversation twice.
+    ///
+    /// Deliberately narrow. A contact with a name, an address, any history, or
+    /// one the user saved or blocked is left alone, so this cannot eat a real
+    /// conversation: blocked ones especially must survive, or blocking would
+    /// undo itself.
+    ///
+    /// Returns how many rows were removed.
+    pub fn purge_empty_contacts(&self) -> Result<usize, StoreError> {
+        let mut removed = 0;
+        for c in self.list_contacts()? {
+            if !c.display_name.is_empty()
+                || !c.onion_addr.is_empty()
+                || c.saved
+                || c.status == ContactStatus::Blocked
+            {
+                continue;
+            }
+            if self.message_count(&c.identity_pubkey)? > 0 {
+                continue;
+            }
+            self.conn.execute(
+                "DELETE FROM contacts WHERE identity_pubkey = ?1",
+                params![self.bi(&c.identity_pubkey)],
+            )?;
+            removed += 1;
+        }
+        Ok(removed)
+    }
+
+    /// How many messages we hold for a peer.
+    pub fn message_count(&self, identity_pubkey: &[u8; 32]) -> Result<u64, StoreError> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE contact_pubkey = ?1",
+            params![self.bi(identity_pubkey)],
+            |r| r.get(0),
+        )?;
+        Ok(n as u64)
+    }
+
     // --- groups ---
 
     /// Insert or update a group *and* its roster. The member list is replaced
@@ -1769,6 +1815,58 @@ mod tests {
             verified: false,
             pq_fingerprint: None,
         }
+    }
+
+    /// The duplicate-conversation bug: an empty `PROFILE`/`ADDRESS` frame used
+    /// to create a contact with nothing in it, and the chat list showed it next
+    /// to the real one. Purging those must not touch anything a user would miss.
+    #[test]
+    fn purging_empties_leaves_every_real_contact_alone() {
+        let s = Store::open_in_memory(&[19u8; 32]).unwrap();
+        let empty = |pk: [u8; 32]| Contact {
+            identity_pubkey: pk,
+            display_name: String::new(),
+            onion_addr: String::new(),
+            added_at: 1_700_000_000,
+            status: ContactStatus::Accepted,
+            saved: false,
+            verified: false,
+            pq_fingerprint: None,
+        };
+
+        s.upsert_contact(&empty([1u8; 32])).unwrap(); // the artefact
+        s.upsert_contact(&sample_contact()).unwrap(); // has a name and an onion
+
+        // Empty, but the user chose to keep it.
+        let mut kept = empty([2u8; 32]);
+        kept.saved = true;
+        s.upsert_contact(&kept).unwrap();
+
+        // Empty, but blocked — purging it would silently unblock them.
+        let mut blocked = empty([3u8; 32]);
+        blocked.status = ContactStatus::Blocked;
+        s.upsert_contact(&blocked).unwrap();
+
+        // Empty name and address, but a real conversation happened.
+        let talked = empty([4u8; 32]);
+        s.upsert_contact(&talked).unwrap();
+        s.insert_message(&NewMessage {
+            contact_pubkey: talked.identity_pubkey,
+            direction: Direction::Incoming,
+            sent_at: 1_700_000_100,
+            body: b"ahoj",
+        })
+        .unwrap();
+
+        assert_eq!(s.purge_empty_contacts().unwrap(), 1);
+        assert!(s.get_contact(&[1u8; 32]).unwrap().is_none());
+        assert!(s.get_contact(&[7u8; 32]).unwrap().is_some());
+        assert!(s.get_contact(&[2u8; 32]).unwrap().is_some());
+        assert!(s.get_contact(&[3u8; 32]).unwrap().is_some());
+        assert!(s.get_contact(&[4u8; 32]).unwrap().is_some());
+
+        // Idempotent: nothing left to remove on the next sign-in.
+        assert_eq!(s.purge_empty_contacts().unwrap(), 0);
     }
 
     #[test]

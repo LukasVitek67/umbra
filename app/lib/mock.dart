@@ -484,6 +484,17 @@ class AppState extends ChangeNotifier {
         case 'file_sent':
           _fileSent(ev.peerHex);
           break;
+        // The contact was away, so the file (or GIF) sits in the encrypted
+        // outbox instead of failing. Say so, or it looks like nothing happened.
+        case 'file_queued':
+          final name = ev.data.split('|').first;
+          final chat = _ensureChat(ev.peerHex);
+          showInAppNotice(
+            chat.name,
+            L.t('file.queued').replaceAll('{name}', name).replaceAll('{who}', chat.name),
+          );
+          pendingMessages = _app?.pendingMessages() ?? pendingMessages;
+          break;
         // The Rust side does the whole update: check over Tor, verify the
         // signature, unpack next to the app. Here we only tell the user.
         case 'update_available':
