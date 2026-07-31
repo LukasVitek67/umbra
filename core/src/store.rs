@@ -1000,7 +1000,62 @@ impl Store {
         }
     }
 
+    /// Remove contact rows that stand for a person another row already covers.
+    ///
+    /// Two rows can carry different routing indexes and still resolve to the
+    /// same identity key. When that happens the chat list shows the same person
+    /// twice: one tile with the history and one without, because messages are
+    /// found under the index derived from the identity, which only one of the
+    /// rows matches.
+    ///
+    /// The row whose index matches the identity is the one everything else in
+    /// the database is keyed by, so that is the one kept. Nothing is merged and
+    /// no message is touched — the duplicates hold no history of their own.
+    ///
+    /// Returns how many rows were removed.
+    pub fn dedupe_contacts(&self) -> Result<usize, StoreError> {
+        let mut stmt = self.conn.prepare("SELECT identity_pubkey FROM contacts")?;
+        let rows = stmt.query_map([], |r| r.get::<_, Vec<u8>>(0))?;
+        let stored: Vec<Vec<u8>> = rows.collect::<Result<_, _>>()?;
+
+        // identity -> the rows that resolve to it
+        let mut groups: Vec<([u8; 32], Vec<Vec<u8>>)> = Vec::new();
+        for bi in stored {
+            let Some(identity) = self.try_key32_of(&bi) else { continue };
+            match groups.iter_mut().find(|(id, _)| *id == identity) {
+                Some((_, list)) => list.push(bi),
+                None => groups.push((identity, vec![bi])),
+            }
+        }
+
+        let mut removed = 0;
+        for (identity, rows) in groups {
+            if rows.len() < 2 {
+                continue;
+            }
+            let canonical = self.bi(&identity);
+            let keep = rows
+                .iter()
+                .find(|bi| **bi == canonical)
+                .cloned()
+                .unwrap_or_else(|| rows[0].clone());
+            for bi in rows {
+                if bi == keep {
+                    continue;
+                }
+                self.conn
+                    .execute("DELETE FROM contacts WHERE identity_pubkey = ?1", params![bi])?;
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
+
     /// List all contacts, newest first.
+    ///
+    /// One person appears once: rows that resolve to an identity already seen
+    /// are skipped, so a database that still holds duplicates cannot put the
+    /// same conversation in the list twice.
     pub fn list_contacts(&self) -> Result<Vec<Contact>, StoreError> {
         let mut stmt = self.conn.prepare(
             "SELECT identity_pubkey, display_name, onion_addr, added_at, status, saved, verified,
@@ -1022,7 +1077,7 @@ impl Store {
         #[allow(clippy::type_complexity)]
         let found: Vec<(Vec<u8>, Vec<u8>, Vec<u8>, i64, i64, i64, i64, Option<Vec<u8>>)> =
             rows.collect::<Result<_, _>>()?;
-        let mut out = Vec::new();
+        let mut out: Vec<Contact> = Vec::new();
         for (pk, name_ct, onion_ct, added, status, saved, verified, pq_ct) in found {
             // Rows belonging to another passphrase are skipped, not reported.
             let (Some(identity_pubkey), Some(display_name), Some(onion_addr)) = (
@@ -1032,6 +1087,11 @@ impl Store {
             ) else {
                 continue;
             };
+            // One person, one entry: a second row resolving to the same identity
+            // is a duplicate, and showing it would be the chat-list bug again.
+            if out.iter().any(|c| c.identity_pubkey == identity_pubkey) {
+                continue;
+            }
             out.push(Contact {
                 identity_pubkey,
                 display_name,
@@ -1883,6 +1943,54 @@ mod tests {
             verified: false,
             pq_fingerprint: None,
         }
+    }
+
+    /// Two rows resolving to one identity is what put the same person in the
+    /// chat list twice — once with the history, once without, because messages
+    /// are found under the index derived from the identity.
+    #[test]
+    fn one_person_appears_once() {
+        let s = Store::open_in_memory(&[23u8; 32]).unwrap();
+        let c = sample_contact();
+        s.upsert_contact(&c).unwrap();
+        s.insert_message(&NewMessage {
+            contact_pubkey: c.identity_pubkey,
+            direction: Direction::Incoming,
+            sent_at: 1_700_000_100,
+            body: b"nikdy",
+        })
+        .unwrap();
+
+        // A second row for the same person, as an older build could leave
+        // behind: its own routing index, resolving to the same identity.
+        let stray = b"stray-index-for-the-same-person!".to_vec();
+        let sealed_identity = s.seal(&c.identity_pubkey).unwrap();
+        s.conn
+            .execute(
+                "INSERT INTO blind_index(bi, sealed) VALUES(?1, ?2)",
+                params![stray, sealed_identity],
+            )
+            .unwrap();
+        s.conn
+            .execute(
+                "INSERT INTO contacts(identity_pubkey, display_name, onion_addr, added_at,
+                                      status, saved, verified, pq_fingerprint)
+                 SELECT ?1, display_name, onion_addr, added_at, status, saved, verified,
+                        pq_fingerprint FROM contacts WHERE identity_pubkey = ?2",
+                params![stray, s.bi(&c.identity_pubkey)],
+            )
+            .unwrap();
+
+        // Listing hides it even before anything is repaired.
+        assert_eq!(s.list_contacts().unwrap().len(), 1);
+
+        assert_eq!(s.dedupe_contacts().unwrap(), 1);
+        assert_eq!(s.list_contacts().unwrap().len(), 1);
+        // The surviving row is the one the messages are keyed by.
+        assert_eq!(s.message_count(&c.identity_pubkey).unwrap(), 1);
+        assert!(s.get_contact(&c.identity_pubkey).unwrap().is_some());
+        // Idempotent, and it never touches a lone contact.
+        assert_eq!(s.dedupe_contacts().unwrap(), 0);
     }
 
     /// The duplicate-conversation bug: an empty `PROFILE`/`ADDRESS` frame used

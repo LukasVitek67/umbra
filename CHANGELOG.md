@@ -8,6 +8,19 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.1.35
+
+- **The same person twice in the chat list is fixed at the source.** Two
+  contact rows could carry different routing indexes and still stand for one
+  identity. The list then showed that person twice: one tile with the history
+  and one without, because messages are found under the index derived from the
+  identity, which only one of the rows matched. That is why one copy said "no
+  messages yet" while the conversation was plainly there.
+
+  Listing now returns one entry per identity, so duplicates cannot show up even
+  before anything is repaired, and the redundant row is deleted on sign-in. No
+  message is touched: the duplicate holds none of its own.
+
 ## 2.1.34
 
 - **The duplicate conversations are gone for real this time.** 2.1.31 stopped

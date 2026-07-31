@@ -806,6 +806,14 @@ impl UmbraApp {
             }
         }
 
+        // Two rows standing for one person: the chat list showed the same
+        // conversation twice, one copy with the history and one without.
+        if let Ok(n) = store.dedupe_contacts() {
+            if n > 0 {
+                log_line(&format!("sloučeno {n} duplicitních kontaktů (stejná identita)"));
+            }
+        }
+
         // What the chat list is built from, so a report of "the same
         // conversation twice" can be settled from the log instead of guessed
         // at. Identities are truncated and names are never written: this says
