@@ -159,6 +159,29 @@ async fn send_file_or_queue(peer_hex: &str, name: &str, data: Vec<u8>) {
         emit("error", "RNG selhal", peer_hex);
         return;
     }
+
+    // A row in `messages`, so the conversation shows what was sent instead of
+    // nothing at all. Sending a GIF used to leave no trace anywhere: the picker
+    // closed, the file went out (or waited), and the thread looked untouched —
+    // which is indistinguishable from the feature being broken.
+    let ui_body = format!("📎 {name}");
+    let message_id = APP
+        .lock()
+        .unwrap()
+        .clone()
+        .zip(unhex(peer_hex))
+        .and_then(|(app, pk)| {
+            let g = app.lock().unwrap();
+            g.store
+                .insert_message(&NewMessage {
+                    contact_pubkey: pk,
+                    direction: Direction::Outgoing,
+                    sent_at: now_secs(),
+                    body: ui_body.as_bytes(),
+                })
+                .ok()
+        })
+        .unwrap_or(0);
     let total = data.len() as u64;
     let mut frames = Vec::with_capacity(data.len() / envelope::CHUNK + 2);
     frames.push(envelope::encode_file_offer(&id, name, total));
@@ -182,7 +205,13 @@ async fn send_file_or_queue(peer_hex: &str, name: &str, data: Vec<u8>) {
                     emit("file_send_progress", &format!("{sent}|{total}"), peer_hex);
                 }
             }
-            emit("file_sent", name, peer_hex);
+            if message_id != 0 {
+                if let Some(app) = APP.lock().unwrap().clone() {
+                    let g = app.lock().unwrap();
+                    let _ = g.store.set_message_state(message_id, MessageState::Sent);
+                }
+            }
+            emit("file_sent", &format!("{ui_body}|{name}"), peer_hex);
             return;
         }
     }
@@ -193,18 +222,19 @@ async fn send_file_or_queue(peer_hex: &str, name: &str, data: Vec<u8>) {
     {
         let g = app.lock().unwrap();
         for frame in &frames {
-            // message_id 0: a file has no row in `messages`, and the flush only
-            // uses the id to move a message from "sent" to "delivered".
-            // An empty body marks the frame as one the UI must not announce —
-            // otherwise a 3 MB GIF would report itself as 60-odd sent messages.
-            if let Err(e) = g.store.queue_outgoing(&pk, 0, None, frame, b"", now_secs()) {
+            // Every frame carries the same message id, so the bubble flips from
+            // "waiting" to "sent" as the queue drains. An empty body marks the
+            // frame as one the UI must not announce as a message — otherwise a
+            // 3 MB GIF would report itself as 60-odd sent messages, and would
+            // be counted as 60-odd waiting ones.
+            if let Err(e) = g.store.queue_outgoing(&pk, message_id, None, frame, b"", now_secs()) {
                 log_line(&format!("soubor nelze zařadit do fronty: {e}"));
                 emit("error", "soubor nelze uložit do fronty", peer_hex);
                 return;
             }
         }
     }
-    emit("file_queued", &format!("{name}|{total}"), peer_hex);
+    emit("file_queued", &format!("{ui_body}|{name}"), peer_hex);
     emit("queued", &format!("{}", pending_count()), peer_hex);
 
     let onion = {

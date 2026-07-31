@@ -8,6 +8,18 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.1.33
+
+- **A sent GIF or file now appears in the conversation.** It was being sent —
+  or queued when the contact was offline — and leaving no trace anywhere: the
+  picker closed and the thread looked untouched, which is indistinguishable
+  from the feature being broken. It is stored as a message like any other, so
+  it shows as waiting, then sent, and is still there after a restart.
+
+- **"84 waiting messages" for one GIF is fixed.** A file is queued as an offer,
+  dozens of chunks and an end marker; those frames were each counted as a
+  waiting message. Only real messages are counted now.
+
 ## 2.1.32
 
 - **Two conversations with the same person can be merged.** 2.1.31 removed the

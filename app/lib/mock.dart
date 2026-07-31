@@ -481,14 +481,21 @@ class AppState extends ChangeNotifier {
         case 'file_done':
           _fileDone(ev.peerHex, ev.data);
           break;
+        // "label|name": the label is what the conversation shows, and the Rust
+        // side has already stored it as a message so it survives a restart.
         case 'file_sent':
           _fileSent(ev.peerHex);
+          _addOutgoingAttachment(ev.peerHex, ev.data.split('|').first, pending: false);
           break;
         // The contact was away, so the file (or GIF) sits in the encrypted
-        // outbox instead of failing. Say so, or it looks like nothing happened.
+        // outbox instead of failing. Show it as waiting, exactly like a text
+        // message — otherwise sending a GIF looks like nothing happened.
         case 'file_queued':
-          final name = ev.data.split('|').first;
+          final parts = ev.data.split('|');
+          final label = parts.first;
+          final name = parts.length > 1 ? parts[1] : label;
           final chat = _ensureChat(ev.peerHex);
+          _addOutgoingAttachment(ev.peerHex, label, pending: true);
           showInAppNotice(
             chat.name,
             L.t('file.queued').replaceAll('{name}', name).replaceAll('{who}', chat.name),
@@ -555,6 +562,23 @@ class AppState extends ChangeNotifier {
   }
 
   /// Make sure a chat row exists for a peer that contacted us.
+  /// Put a sent file or GIF into the open conversation.
+  ///
+  /// The row already exists in the database; this is only so the bubble shows
+  /// up now instead of after the next sign-in.
+  void _addOutgoingAttachment(String peerHex, String label, {required bool pending}) {
+    if (label.isEmpty) return;
+    final chat = _ensureChat(peerHex);
+    // The live path emits both `file_sent` and, on some routes, nothing else;
+    // guard against the same bubble being added twice.
+    final last = chat.messages.isEmpty ? null : chat.messages.last;
+    if (last != null && last.outgoing && last.body == label) {
+      last.pending = pending;
+      return;
+    }
+    chat.messages.add(Message(label, outgoing: true, at: DateTime.now())..pending = pending);
+  }
+
   Chat _ensureChat(String peerHex) {
     final existing = chats.where((c) => c.contactHex == peerHex);
     if (existing.isNotEmpty) return existing.first;

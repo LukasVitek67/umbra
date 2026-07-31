@@ -381,6 +381,10 @@ pub struct Message {
     pub state: MessageState,
 }
 
+/// How long a sealed empty value is: a 24-byte nonce and a 16-byte tag with no
+/// ciphertext between them. Anything longer carries at least one byte.
+const SEALED_EMPTY_LEN: usize = 24 + 16;
+
 /// A `contacts` row exactly as SQLite hands it back: display name, onion,
 /// added_at, status, saved, verified, PQ fingerprint — all still sealed or
 /// blind-indexed. Named only so the query below does not carry a seven-element
@@ -1294,11 +1298,19 @@ impl Store {
     }
 
     /// Every peer with something waiting, and how much.
+    /// One waiting *item* per row would be wrong for attachments: a file is
+    /// queued as an offer, dozens of chunks and an end marker, and counting
+    /// those as messages turned one GIF into "84 waiting". Frames belonging to
+    /// a file are stored with an empty body, so counting the rest gives the
+    /// number a person would recognise.
     pub fn outbox_summary(&self) -> Result<Vec<([u8; 32], u32)>, StoreError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT peer_pubkey, COUNT(*) FROM outbox GROUP BY peer_pubkey")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut stmt = self.conn.prepare(
+            "SELECT peer_pubkey, COUNT(*) FROM outbox
+             WHERE length(body) > ?1 GROUP BY peer_pubkey",
+        )?;
+        let rows = stmt.query_map(params![SEALED_EMPTY_LEN as i64], |r| {
+            Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, i64>(1)?))
+        })?;
         let mut out = Vec::new();
         for row in rows {
             let (pk, n) = row?;
