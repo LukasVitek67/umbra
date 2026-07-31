@@ -8,7 +8,7 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
-## 2.2.00
+## 2.2.0
 
 - **Pictures and GIFs show themselves in the conversation.** A received photo
   or GIF appears in the bubble instead of a filename, animates, and opens full
@@ -103,8 +103,8 @@ NullChat is experimental and has not been independently audited.
   chunks of a transfer that never finishes.
 
 - Version numbers change shape from here: bug fixes append a digit
-  (2.1.3 → 2.1.31), a new feature moves the middle part (2.2.00), and something
-  that changes what NullChat is moves the first (3.0.00). See `CONTRIBUTING.md`.
+  (2.1.3 → 2.1.31), a new feature moves the middle part (2.2.0), and something
+  that changes what NullChat is moves the first (3.0.0). See `CONTRIBUTING.md`.
 
 ## 2.1.3
 

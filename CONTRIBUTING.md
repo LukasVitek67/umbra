@@ -14,11 +14,17 @@ rolling over:
 | What shipped | What changes | Example |
 |---|---|---|
 | Bug fixes only | a digit is appended to the patch part | 2.1.3 → **2.1.31** → 2.1.32 |
-| A new feature | minor +1, patch back to `00` | 2.1.31 → **2.2.00** |
-| Something that changes what NullChat *is* | major +1 | 2.2.00 → **3.0.00** |
+| A new feature | minor +1, patch back to `0` | 2.1.35 → **2.2.0** |
+| Something that changes what NullChat *is* | major +1 | 2.2.0 → **3.0.0** |
 
-Each part is still compared as a number, so 2.1.31 is newer than 2.1.3 and the
-in-app updater orders them correctly.
+Each part is compared as a number, so 2.1.31 is newer than 2.1.3 and the in-app
+updater orders them correctly.
+
+**A part may not start with a zero.** `2.2.00` looks tidier next to `2.1.35`,
+but Cargo rejects it outright — *"invalid leading zero in patch version
+number"* — because semantic versioning forbids it, and the build stops before
+anything is produced. So the patch part goes back to a single `0`, and the next
+fix after a feature is `2.2.1`.
 
 ## Reporting a bug
 
