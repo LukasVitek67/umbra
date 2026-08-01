@@ -73,7 +73,23 @@ $cargo = Join-Path $app 'rust\Cargo.toml'
 $text = (Get-Content $cargo -Raw) -replace '(?m)^version = "\d+\.\d+\.\d+"', "version = `"$Version`""
 [System.IO.File]::WriteAllText($cargo, $text, $noBom)
 $pubspec = Join-Path $app 'pubspec.yaml'
-$text = (Get-Content $pubspec -Raw) -replace '(?m)^version: .*$', "version: $Version+1"
+# Android's versionCode, which is what the *system* compares - the name beside
+# it is only for people. This used to be a hardcoded 1, so every release NullChat
+# ever shipped looked like the same version to Android, and it could not tell an
+# upgrade from a reinstall.
+#
+# Days since 1970 times ten thousand. It always goes up, it does not care about
+# the shape of the version name (2.4.11 sorts after 2.4.1 by date, not by
+# arithmetic on the digits), and the ten thousand leaves room for the offset
+# Flutter adds to each split APK - 1000 per ABI - so a later release always
+# outranks an earlier one whichever variant is installed.
+#
+# Two releases on the same day get the same code. Android treats that as a
+# reinstall rather than refusing it, which is what happens today for every
+# release, so this is no worse in the one case and correct in all the others.
+$buildNumber = [int]((Get-Date).ToUniversalTime().Date - [datetime]'1970-01-01').TotalDays * 10000
+Write-Host "Android versionCode: $buildNumber"
+$text = (Get-Content $pubspec -Raw) -replace '(?m)^version: .*$', "version: $Version+$buildNumber"
 [System.IO.File]::WriteAllText($pubspec, $text, $noBom)
 
 Write-Host "== core tests =="
@@ -202,4 +218,6 @@ Write-Host "  1. wait for the Linux build: gh run list -R LukasVitek67/umbra -w 
 Write-Host "  2. sign it:  powershell -File tools\sign-linux.ps1 -Version $Version -KeyFile <key>"
 Write-Host '  3. paste the printed hashes into packaging/arch/PKGBUILD and commit'
 Write-Host "  4. APKs: flutter build apk --release --split-per-abi --no-tree-shake-icons"
+Write-Host "     and the universal one (all ABIs, the safe download):"
+Write-Host "     flutter build apk --release --no-tree-shake-icons"
 Write-Host "     then sign each and upload: gh release upload v$Version <apk> <apk>.sig"
