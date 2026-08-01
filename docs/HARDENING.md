@@ -133,6 +133,59 @@ secret, so nothing marks which row it is or how many there are — but a wrapped
 copy still exists, and the passphrase is still the whole of the secret. This
 raises the cost of guessing; it does not remove guessing as an approach.
 
+## Fixed since — 2.5.1
+
+### 8. Reactions were a write primitive for strangers — high
+
+Introduced in 2.5.0 and found on a read of it. `Payload::Reaction` carries a
+message *reference*, and a reference is a 16-byte value the sender picks. The
+handler filed whatever arrived. Two consequences:
+
+* **Anyone who could reach the onion address could fill the disk.** Each new
+  reference took a row in `reactions` *and* a row in `blind_index`, because the
+  reference is blind-indexed on the way in. Nothing bounded how many.
+* **A peer could put an emoji on a conversation they are not in**, if they knew
+  or guessed the reference — they could not read it, but it would appear on the
+  screen as though they had.
+
+`Store::reaction_is_allowed` now gates the write: the message has to be one we
+hold, and the sender has to be a party to it — the other side of that 1:1
+thread, or a member of that group. A reference we have never seen is refused
+whoever sends it, which is what removes the unbounded write. Frames carrying
+more than 64 bytes of "emoji" are dropped before the store is asked.
+
+### 9. A reply could quote another conversation — medium
+
+Same shape, same release. A reply's reference was resolved across the whole
+history, so a peer could send one pointing at something said in a conversation
+they had no part in and have it drawn as a quote above their own message. They
+could not *read* it — the resolution happens on our side — but a quote is an
+assertion about who said what, and this let a stranger author one.
+
+Quotes are now resolved within the conversation they are displayed in
+(`message_by_ref_in`). A reference from elsewhere resolves to nothing and the
+message shows without a quote.
+
+### D. ~~Anyone can make us do a PQXDH~~ — **bounded**
+
+At most four inbound handshakes run at once, and one that has not finished in
+30 seconds is abandoned. Both halves are needed: a bound without a timeout is a
+bound an attacker holds open by saying nothing. A connection arriving while all
+four are busy is dropped rather than queued, because queueing moves the same
+exhaustion into memory; the dialler retries, so a real peer gets in.
+
+Not covered: refusing a handshake from an identity we have already blocked. The
+transport does not know what the app has blocked, and threading that through is
+a larger change than the bound is worth on its own.
+
+### E. ~~Deleting an account does not erase it~~ — **best effort, and says so**
+
+Every file under the account directory is overwritten with random bytes before
+it is unlinked. On an SSD the controller may still hold a copy the filesystem
+cannot reach, so this is the difference between "undelete" and "forensics"
+rather than a guarantee — which is what the confirmation dialog now tells the
+user, instead of "this cannot be undone" alone.
+
 ## Open — worth doing, in this order
 
 ### A. ~~There is no way to verify a contact~~ — **done**
@@ -194,7 +247,7 @@ stand, and the codebase already knows better in another module.
 **Plan:** prefix both with their own tags. It is a wire change, so it belongs
 with the next version bump that both sides must take.
 
-### D. Anyone can make us do a PQXDH — medium
+### D-original. Anyone can make us do a PQXDH — high (bounded in 2.5.1)
 
 `accept()` answers any connection that sends the magic bytes, generating Kyber
 and X25519 keys before it knows who is calling. Blocking is applied afterwards,
@@ -204,7 +257,7 @@ app do real cryptographic work in a loop.
 **Plan:** cheap per-source throttling, and refuse a new handshake from an
 identity already blocked as soon as it is known.
 
-### E. Deleting an account does not erase it — medium
+### E-original. Deleting an account does not erase it — medium (addressed in 2.5.1)
 
 `remove()` calls `remove_dir_all`. The bytes stay on the disk until something
 overwrites them, and on an SSD even that is not assured.

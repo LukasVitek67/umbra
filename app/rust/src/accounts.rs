@@ -71,14 +71,66 @@ pub fn upsert(root: &Path, entry: AccountEntry) -> Result<(), String> {
 }
 
 /// Remove an account from the list **and delete its data directory**.
+///
+/// Every file is overwritten before it is unlinked. That is worth what it is
+/// worth and no more: on a modern SSD the controller may have written the
+/// original somewhere the filesystem cannot reach, so this raises the cost of
+/// recovery rather than making it impossible. It is still the difference
+/// between "undelete" and "forensics", and the UI says so rather than promising
+/// the file is gone.
 pub fn remove(root: &Path, id: &str) -> Result<(), String> {
     let mut all = load(root);
     all.retain(|a| a.id != id);
     save(root, &all)?;
     let dir = account_dir(root, id);
     if dir.exists() {
+        shred_tree(&dir);
         std::fs::remove_dir_all(dir).map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+/// Overwrite every file under `dir` with random bytes, in place.
+///
+/// Best effort throughout: a file that cannot be opened is one we cannot help,
+/// and refusing to delete the account because of it would be worse than the
+/// leftover. Random rather than zeroes so a half-overwritten file does not
+/// advertise which parts were reached.
+fn shred_tree(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            shred_tree(&path);
+            continue;
+        }
+        let Ok(meta) = std::fs::metadata(&path) else { continue };
+        let len = meta.len();
+        if len == 0 {
+            continue;
+        }
+        let _ = shred_file(&path, len);
+    }
+}
+
+fn shred_file(path: &Path, len: u64) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new().write(true).open(path)?;
+    // A megabyte at a time: the database can be large, and a buffer the size of
+    // the file would be a memory spike at the worst possible moment.
+    const CHUNK: usize = 1024 * 1024;
+    let mut buf = vec![0u8; CHUNK.min(len.max(1) as usize)];
+    let mut left = len;
+    while left > 0 {
+        let n = (left as usize).min(buf.len());
+        if getrandom::getrandom(&mut buf[..n]).is_err() {
+            break;
+        }
+        f.write_all(&buf[..n])?;
+        left -= n as u64;
+    }
+    f.flush()?;
+    f.sync_all()?;
     Ok(())
 }
 

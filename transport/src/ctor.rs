@@ -30,7 +30,29 @@ use std::time::Duration;
 use anyhow::{anyhow, bail, Context, Result};
 use tokio::io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, Semaphore};
+
+/// How many inbound handshakes may be in flight at once.
+///
+/// `accept` answers anyone who sends the magic bytes, and answering means
+/// generating Kyber and X25519 keys — real work, done before we know who is
+/// calling. Without a bound, anybody who knows the onion address can make this
+/// machine do that in a loop, which costs them a TCP connection and costs us a
+/// core.
+///
+/// Four is far above what a person's conversations need (a handshake takes
+/// milliseconds) and far below what makes the app a free CPU. A connection that
+/// arrives while all four are busy is dropped, not queued: queueing would move
+/// the same exhaustion into memory. The dialler retries, so a legitimate peer
+/// arriving at a bad moment gets in on the next attempt.
+static HANDSHAKES: Semaphore = Semaphore::const_new(4);
+
+/// How long an inbound handshake may take before we give up on it.
+///
+/// Without this, holding a connection open and sending nothing would hold one
+/// of the permits above for as long as the attacker likes — the bound would
+/// exist and buy nothing.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 
 use crate::{
     accept, initiate_at, read_frame, write_frame, LocalNode, Session, WireLevel,
@@ -715,6 +737,18 @@ impl TorService {
                 };
                 let inner2 = accept_inner.clone();
                 tokio::spawn(async move {
+                    // Taken before any cryptography happens, and held until the
+                    // handshake is done or has run out of time.
+                    let Ok(_permit) = HANDSHAKES.try_acquire() else {
+                        let g = inner2.lock().await;
+                        let _ = g.tx.send(Incoming {
+                            peer_hex: String::new(),
+                            body: "příchozí spojení odmítnuto: příliš mnoho najednou".to_string(),
+                            bytes: Vec::new(),
+                            kind: "status".to_string(),
+                        });
+                        return;
+                    };
                     {
                         let g = inner2.lock().await;
                         let _ = g.tx.send(Incoming {
@@ -725,7 +759,13 @@ impl TorService {
                         });
                     }
                     let mut node = LocalNode::from_seed(&seed);
-                    match accept(&mut stream, &mut node).await {
+                    let handshake = tokio::time::timeout(
+                        HANDSHAKE_TIMEOUT,
+                        accept(&mut stream, &mut node),
+                    )
+                    .await
+                    .unwrap_or_else(|_| Err(anyhow!("handshake did not finish in time")));
+                    match handshake {
                         Ok((session, peer, level)) => {
                             // Tell the app which handshake this peer managed, so
                             // a conversation without post-quantum protection is

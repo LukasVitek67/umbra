@@ -8,6 +8,37 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.5.1
+
+Security. Two of these are faults in 2.5.0 itself, found by reading it back.
+
+- **A stranger could fill your disk with reactions.** A reaction says which
+  message it belongs to, and that identifier is chosen by whoever sends it.
+  Every one that arrived was filed, so anyone who could reach your address could
+  send an endless stream of them and each took storage. A reaction is now only
+  accepted for a message you actually have, from someone who is part of that
+  conversation — which also stops a peer putting an emoji on a conversation they
+  are not in.
+
+- **A reply could quote a different conversation.** A reply points at the
+  message it answers, and that pointer was looked up across your whole history.
+  Someone could send a reply pointing at something said in a conversation they
+  had nothing to do with, and it would be drawn as a quote above their message.
+  They could not read it — the lookup happens on your side — but a quote says
+  who said what, and this let a stranger write one. Quotes now only come from
+  the conversation they are shown in.
+
+- **Answering an incoming connection is bounded.** Accepting a connection means
+  doing real cryptographic work before knowing who is calling, so anyone who
+  knew your address could keep this machine busy. Four at a time now, and one
+  that has not finished in 30 seconds is dropped. A real contact arriving at a
+  busy moment retries and gets in.
+
+- **Deleting an account overwrites its files** before removing them, instead of
+  just unlinking them and leaving the contents on the disk. The dialog now says
+  what that is worth: it puts recovery beyond ordinary tools, but on an SSD the
+  drive may still hold a copy the system cannot reach.
+
 ## 2.5.0
 
 - **Media.** A new section beside Contacts holding every file you have sent or

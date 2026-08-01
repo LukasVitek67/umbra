@@ -2014,6 +2014,25 @@ impl Store {
         }
     }
 
+    /// The message a reference stands for, within one conversation.
+    ///
+    /// Scoped on purpose. A reply carries a reference the sender chose, and
+    /// resolving it across the whole history would let a peer draw a quote of
+    /// something said in a conversation they are not in — they could not read
+    /// it, but it would appear above their message as though they had. So a
+    /// quote is only ever drawn from the thread it is shown in.
+    ///
+    /// # Errors
+    /// A storage error if the row cannot be read.
+    pub fn message_by_ref_in(
+        &self,
+        msg_ref: &[u8; 16],
+        contact_pubkey: &[u8; 32],
+    ) -> Result<Option<Message>, StoreError> {
+        let found = self.message_by_ref(msg_ref)?;
+        Ok(found.filter(|m| m.contact_pubkey == *contact_pubkey))
+    }
+
     /// The message a reference stands for, if it is one of ours.
     ///
     /// # Errors
@@ -2172,6 +2191,65 @@ impl Store {
     }
 
     // --- reactions ---
+
+    /// May `who` react to the message `msg_ref` names?
+    ///
+    /// Two things have to be true, and the first one is what keeps this table
+    /// from being a place a stranger can write into. A reaction arrives with a
+    /// reference the *sender* chose, and a reference costs nothing to invent:
+    /// without this check any peer could hand us an endless stream of them, and
+    /// each one would take a row here **and** a row in `blind_index`. Filling
+    /// somebody's disk should not be one frame away.
+    ///
+    /// The second is that a reaction belongs to a conversation. In a 1:1 thread
+    /// the only person who may react is the other party; in a group, anyone on
+    /// the roster. Otherwise a peer could put an emoji on something said in a
+    /// conversation they are not in — which they cannot read, but which would
+    /// appear on our screen as though they had.
+    ///
+    /// A message we do not have is a "no": there is nothing to react to.
+    ///
+    /// # Errors
+    /// A storage error if the rows cannot be read.
+    pub fn reaction_is_allowed(
+        &self,
+        msg_ref: &[u8; 16],
+        who: &[u8; 32],
+    ) -> Result<bool, StoreError> {
+        let key = self.bi(msg_ref);
+        let them = self.bi(who);
+
+        let thread: Option<Vec<u8>> = self
+            .conn
+            .query_row(
+                "SELECT contact_pubkey FROM messages WHERE msg_ref = ?1 LIMIT 1",
+                params![key],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(thread) = thread {
+            return Ok(thread == them);
+        }
+
+        let group: Option<Vec<u8>> = self
+            .conn
+            .query_row(
+                "SELECT group_id FROM group_messages WHERE msg_ref = ?1 LIMIT 1",
+                params![key],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(group) = group else { return Ok(false) };
+        let member: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM group_members WHERE group_id = ?1 AND member_pubkey = ?2",
+                params![group, them],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(member.is_some())
+    }
 
     /// Record that `who` put `emoji` on the message `msg_ref` stands for.
     ///
@@ -4160,6 +4238,64 @@ mod tests {
         };
         assert_eq!(raw.len(), 1);
         assert_ne!(raw[0].as_slice(), &original[..]);
+    }
+
+    /// A reaction carries a reference the sender chose. Writing a row for one we
+    /// cannot tie to them is how a stranger fills somebody's disk, one frame at
+    /// a time — and how an emoji from someone lands on a conversation they are
+    /// not in.
+    #[test]
+    fn a_reaction_needs_a_message_the_sender_is_party_to() {
+        let tmp = TempDb::new();
+        let s = Store::open(&tmp.0, &[1u8; 32]).unwrap();
+        let peer = [0xAAu8; 32];
+        let stranger = [0xBBu8; 32];
+        let theirs = crate::envelope::message_ref(&peer, b"ahoj");
+        s.insert_message(&NewMessage {
+            contact_pubkey: peer,
+            direction: Direction::Incoming,
+            sent_at: 1,
+            body: b"ahoj",
+            file: None,
+            msg_ref: Some(theirs),
+            reply_to: None,
+        })
+        .unwrap();
+
+        // The other party in that thread: yes.
+        assert!(s.reaction_is_allowed(&theirs, &peer).unwrap());
+        // Somebody else, on the same message: no.
+        assert!(!s.reaction_is_allowed(&theirs, &stranger).unwrap());
+        // A reference we have never seen: no, whoever asks. This is the one
+        // that matters — it is the only limit on how many a peer can invent.
+        let invented = crate::envelope::message_ref(&stranger, b"vymyslene");
+        assert!(!s.reaction_is_allowed(&invented, &peer).unwrap());
+        assert!(!s.reaction_is_allowed(&invented, &stranger).unwrap());
+    }
+
+    /// A quote is drawn from the conversation it is shown in, never from
+    /// another one — otherwise a peer could make their message appear to answer
+    /// something said where they were not.
+    #[test]
+    fn a_quote_cannot_come_from_another_conversation() {
+        let tmp = TempDb::new();
+        let s = Store::open(&tmp.0, &[1u8; 32]).unwrap();
+        let alice = [0xAAu8; 32];
+        let mallory = [0xBBu8; 32];
+        let secret = crate::envelope::message_ref(&alice, b"neco duverneho");
+        s.insert_message(&NewMessage {
+            contact_pubkey: alice,
+            direction: Direction::Incoming,
+            sent_at: 1,
+            body: b"neco duverneho",
+            file: None,
+            msg_ref: Some(secret),
+            reply_to: None,
+        })
+        .unwrap();
+
+        assert!(s.message_by_ref_in(&secret, &alice).unwrap().is_some());
+        assert!(s.message_by_ref_in(&secret, &mallory).unwrap().is_none());
     }
 
     #[test]

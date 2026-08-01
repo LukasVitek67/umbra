@@ -2672,7 +2672,7 @@ impl UmbraApp {
                 reply_to: m.reply_to.map(|r| hex16(&r)).unwrap_or_default(),
                 quoted: m
                     .reply_to
-                    .and_then(|r| g.store.message_by_ref(&r).ok().flatten())
+                    .and_then(|r| g.store.message_by_ref_in(&r, &pk).ok().flatten())
                     .map(|q| String::from_utf8_lossy(&q.body).to_string())
                     .unwrap_or_default(),
                 id: m.id,
@@ -3168,10 +3168,24 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
         Payload::Reaction { to, emoji } => {
             let Some(app) = APP.lock().unwrap().clone() else { return };
             let Some(who) = unhex(peer_hex) else { return };
+            // Nothing this long is an emoji, and refusing it here means the
+            // store is never asked to hold it.
+            if emoji.len() > 64 {
+                log_line("reaction: nesmyslně dlouhé emoji — zahozeno");
+                return;
+            }
             {
                 let g = app.lock().unwrap();
-                // Their reaction, filed under their identity, so one person
-                // cannot fill a message with emoji.
+                // The reference came from them and costs nothing to invent, so
+                // it is checked before anything is written: the message has to
+                // be one we have, and they have to be a party to it. See
+                // `Store::reaction_is_allowed`.
+                if !g.store.reaction_is_allowed(&to, &who).unwrap_or(false) {
+                    log_line("reaction: na zprávu, ke které protějšek nepatří — zahozeno");
+                    return;
+                }
+                // Filed under their identity, so one person cannot bury a
+                // message under emoji either.
                 let _ = g.store.set_reaction(&to, &who, &emoji, now_secs());
             }
             emit("reaction", &format!("{}|{}", hex16(&to), emoji), peer_hex);

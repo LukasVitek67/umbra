@@ -352,7 +352,7 @@ class L {
       'accounts.remove': 'Delete',
       'accounts.removeTitle': 'Delete this account?',
       'accounts.removeBody':
-          'its identity, contacts and message history on this computer are erased. This cannot be undone.',
+          'its identity, contacts and message history on this computer are erased. The files are overwritten before they are deleted, which puts recovery out of reach of ordinary tools — on an SSD the drive may still hold a copy the system cannot see. This cannot be undone.',
       'accounts.switch': 'Switch account',
       'accounts.signOut': 'Sign out',
       'accounts.createTitle': 'New account',
@@ -787,7 +787,7 @@ class L {
       'accounts.remove': 'Smazat',
       'accounts.removeTitle': 'Smazat tento účet?',
       'accounts.removeBody':
-          'jeho identita, kontakty i historie zpráv na tomto počítači budou vymazány. Nelze vzít zpět.',
+          'jeho identita, kontakty i historie zpráv na tomto počítači budou vymazány. Soubory se před smazáním přepíšou, což je dostane z dosahu běžných nástrojů — na SSD ale může kopie zůstat tam, kam systém nevidí. Nelze vzít zpět.',
       'accounts.switch': 'Přepnout účet',
       'accounts.signOut': 'Odhlásit se',
       'accounts.createTitle': 'Nový účet',
