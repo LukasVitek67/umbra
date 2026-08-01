@@ -1218,6 +1218,16 @@ impl UmbraApp {
             }
         }
 
+        // People who wrote first arrived unsaved, and accepting them did not
+        // change that — so a conversation could be running with someone who was
+        // nowhere in Contacts. Once per profile: after this, leaving the address
+        // book is the user's decision to make.
+        match store.save_accepted_contacts() {
+            Ok(n) if n > 0 => log_line(&format!("{n} přijatých kontaktů doplněno do adresáře")),
+            Err(e) => log_line(&format!("doplnění adresáře selhalo: {e}")),
+            _ => {}
+        }
+
         // What the chat list is built from, so a report of "the same
         // conversation twice" can be settled from the log instead of guessed
         // at. Identities are truncated and names are never written: this says
@@ -2378,6 +2388,12 @@ impl UmbraApp {
         };
         let g = self.inner.lock().unwrap();
         g.store.set_contact_status(&pk, status).map_err(|e| e.to_string())?;
+        // Accepting a conversation and keeping the person are one decision, not
+        // two. Only recording the first is why someone could have a thread going
+        // and still not be in Contacts.
+        if status == ContactStatus::Accepted {
+            g.store.set_contact_saved(&pk, true).map_err(|e| e.to_string())?;
+        }
         if status == ContactStatus::Blocked {
             for item in g.store.outbox_for(&pk).unwrap_or_default() {
                 let _ = g.store.dequeue(item.id);

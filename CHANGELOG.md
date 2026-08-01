@@ -8,6 +8,18 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.4.11
+
+- **People you talk to are in Contacts.** Someone who wrote to you first
+  arrived as a request, and accepting them started the conversation but never
+  added them to the address book — so Contacts listed only the people whose
+  invite you had pasted in yourself, while the conversations with everyone else
+  sat one tab away. Accepting someone now keeps them, which was always the same
+  decision.
+
+  Everyone you have already accepted is added on the next sign-in. That happens
+  once: if you drop someone from Contacts afterwards, they stay dropped.
+
 ## 2.4.1
 
 - **A passphrase that wipes worked once and then stopped working.** Found in

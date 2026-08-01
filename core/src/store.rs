@@ -65,6 +65,15 @@ const BLIND_INDEX_MARK: &str = "schema.blind_index.v1";
 /// as a wrong passphrase.
 const SECRET_NAMES_MARK: &str = "schema.secret_names.v1";
 
+/// Marks a profile whose accepted contacts have been put in the address book.
+///
+/// Unlike the two above this is *per profile*, not per file, so it goes through
+/// the ordinary sealed-and-indexed secrets. It also has to be a mark rather
+/// than a repair that runs every time: dropping someone from the address book
+/// is a decision, and a repair with no memory would undo it at the next
+/// sign-in.
+const SAVED_CONTACTS_MARK: &str = "repair.saved_contacts.v1";
+
 /// Domain separator, so the index key cannot coincide with any other use of
 /// the data key.
 const INDEX_KEY_INFO: &[u8] = b"nullchat blind index v1";
@@ -1813,6 +1822,31 @@ impl Store {
             params![self.bi(identity_pubkey), status.to_i64()],
         )?;
         Ok(())
+    }
+
+    /// Put everyone this profile has accepted into the address book, once.
+    ///
+    /// Accepting a conversation and keeping the person are the same decision,
+    /// but only one of them was ever recorded: a contact who wrote to us first
+    /// arrives unsaved, and accepting them left it that way. So the Contacts
+    /// screen showed only the people whose invite the user had pasted in
+    /// themselves, while the conversations with everyone else sat one tab away.
+    ///
+    /// Runs once per profile. Dropping someone from the address book afterwards
+    /// is a decision, and this must not keep overruling it.
+    ///
+    /// # Errors
+    /// A storage error if the rows cannot be read or written.
+    pub fn save_accepted_contacts(&self) -> Result<usize, StoreError> {
+        if self.get_secret(SAVED_CONTACTS_MARK)?.is_some() {
+            return Ok(0);
+        }
+        let changed = self.conn.execute(
+            "UPDATE contacts SET saved = 1 WHERE saved = 0 AND status = ?1",
+            params![ContactStatus::Accepted.to_i64()],
+        )?;
+        self.put_secret(SAVED_CONTACTS_MARK, b"1")?;
+        Ok(changed)
     }
 
     /// Keep (or drop) a contact in the address book.
@@ -3707,6 +3741,39 @@ mod tests {
         assert!(found
             .iter()
             .any(|(name, value)| name == b"the name" && value == b"the wrapped bytes"));
+    }
+
+    /// Someone who wrote first, and whom the user then accepted, belongs in the
+    /// address book — and a later decision to drop them has to stick.
+    #[test]
+    fn accepting_someone_puts_them_in_the_address_book() {
+        let tmp = TempDb::new();
+        let s = Store::open(&tmp.0, &[1u8; 32]).unwrap();
+
+        // Two people who wrote to us first: one accepted, one still waiting.
+        for (pk, status) in [([0xAAu8; 32], ContactStatus::Accepted), ([0xBBu8; 32], ContactStatus::Waiting)] {
+            s.upsert_contact(&Contact {
+                identity_pubkey: pk,
+                display_name: "Kdosi".into(),
+                onion_addr: String::new(),
+                added_at: 1,
+                status,
+                saved: false,
+                verified: false,
+                pq_fingerprint: None,
+            })
+            .unwrap();
+        }
+
+        assert_eq!(s.save_accepted_contacts().unwrap(), 1);
+        assert!(s.get_contact(&[0xAAu8; 32]).unwrap().unwrap().saved);
+        // Waiting is a decision nobody has made yet, so it is not one to record.
+        assert!(!s.get_contact(&[0xBBu8; 32]).unwrap().unwrap().saved);
+
+        // Once. Otherwise "forget this person" would come undone at every start.
+        s.set_contact_saved(&[0xAAu8; 32], false).unwrap();
+        assert_eq!(s.save_accepted_contacts().unwrap(), 0);
+        assert!(!s.get_contact(&[0xAAu8; 32]).unwrap().unwrap().saved);
     }
 
     /// Two passphrases, one file, neither able to see the other.
