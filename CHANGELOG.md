@@ -8,6 +8,26 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.4.1
+
+- **A passphrase that wipes worked once and then stopped working.** Found in
+  2.4.0 before anyone had it installed, and it only existed in that one release.
+
+  A wipe passphrase destroys everything it cannot read. With the new key
+  handling, the copy of the key that a passphrase opens is one of the things it
+  cannot read — so it destroyed its own way in, and the second time you typed it
+  the account said the passphrase was wrong. That is exactly the kind of
+  difference this feature exists to avoid: somebody standing over you would see
+  it.
+
+  **If you are on 2.4.0 and have a wipe passphrase set, update before using
+  it.** If you already used it and it is now refused, the profile it opened
+  cannot be recovered — nothing else is affected, and the real account is
+  untouched.
+
+- The version after 2.4.0 is 2.4.1 and not 2.4.01: a version part cannot start
+  with a zero, which the build refuses outright. Same rule as 2.2.0.
+
 ## 2.4.0
 
 - **Your account is protected by a much more expensive lock, and this time an
