@@ -71,6 +71,9 @@ async fn main() -> Result<()> {
             envelope::Payload::GroupInfo { .. } => "roster skupiny",
             envelope::Payload::Address { .. } => "adresa protějšku",
             envelope::Payload::Receipt { .. } => "potvrzení doručení",
+            envelope::Payload::Reply { .. } => "odpověď na zprávu",
+            envelope::Payload::Reaction { .. } => "reakce",
+            envelope::Payload::Capabilities { .. } => "co protějšek umí",
         }
     }
 

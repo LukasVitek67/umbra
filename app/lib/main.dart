@@ -13,6 +13,7 @@ import 'mock.dart';
 import 'native_dir.dart';
 import 'notifications.dart';
 import 'screens_chats.dart';
+import 'screens_media.dart';
 import 'screens_more.dart';
 import 'single_instance.dart';
 import 'src/rust/frb_generated.dart';
@@ -358,8 +359,10 @@ class _HomeShellState extends State<HomeShell> {
     switch (_index) {
       case 1:
         return const ContactsScreen();
-      // Devices moved under Settings — it is not a place you visit often.
       case 2:
+        return const MediaScreen();
+      // Devices moved under Settings — it is not a place you visit often.
+      case 3:
         return const SettingsScreen();
       default:
         return ChatsScreen(
@@ -504,7 +507,7 @@ class _HomeShellState extends State<HomeShell> {
             // Only the top two sections live in the rail's own selection;
             // Settings sits at the bottom with the account, where you look for
             // it rather than pass it on the way to a conversation.
-            selectedIndex: _index < 2 ? _index : null,
+            selectedIndex: _index < 3 ? _index : null,
             onDestinationSelected: (i) => setState(() => appState.railSection = i),
             labelType: NavigationRailLabelType.all,
             leading: const Padding(
@@ -524,7 +527,7 @@ class _HomeShellState extends State<HomeShell> {
                         selectedIcon: Icons.settings,
                         label: L.t('nav.settings'),
                         selected: _index == 2,
-                        onTap: () => setState(() => appState.railSection = 2),
+                        onTap: () => setState(() => appState.railSection = 3),
                       ),
                       const SizedBox(height: 6),
                       const UpdateRailButton(),
@@ -545,6 +548,10 @@ class _HomeShellState extends State<HomeShell> {
                   icon: const Icon(Icons.contacts_outlined),
                   selectedIcon: const Icon(Icons.contacts),
                   label: Text(L.t('contacts.title'))),
+              NavigationRailDestination(
+                  icon: const Icon(Icons.perm_media_outlined),
+                  selectedIcon: const Icon(Icons.perm_media),
+                  label: Text(L.t('media.title'))),
             ],
           );
 
@@ -638,11 +645,18 @@ class _BottomBar extends StatelessWidget {
                     onTap: () => appState.railSection = 1,
                   ),
                   _BottomItem(
+                    icon: Icons.perm_media_outlined,
+                    selectedIcon: Icons.perm_media,
+                    label: L.t('media.title'),
+                    selected: index == 2,
+                    onTap: () => appState.railSection = 2,
+                  ),
+                  _BottomItem(
                     icon: Icons.person_outline,
                     selectedIcon: Icons.person,
                     label: L.t('nav.profile'),
-                    selected: index == 2,
-                    onTap: () => appState.railSection = 2,
+                    selected: index == 3,
+                    onTap: () => appState.railSection = 3,
                     // The one place an update has to be noticeable without
                     // taking a slot in the bar.
                     dot: appState.updateAvailableVersion != null ||

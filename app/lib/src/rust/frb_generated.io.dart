@@ -96,6 +96,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<GroupView> dco_decode_list_group_view(dynamic raw);
 
   @protected
+  List<MediaItemView> dco_decode_list_media_item_view(dynamic raw);
+
+  @protected
   List<MessageView> dco_decode_list_message_view(dynamic raw);
 
   @protected
@@ -106,6 +109,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<SearchHitView> dco_decode_list_search_hit_view(dynamic raw);
+
+  @protected
+  MediaItemView dco_decode_media_item_view(dynamic raw);
 
   @protected
   MessageView dco_decode_message_view(dynamic raw);
@@ -210,6 +216,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<GroupView> sse_decode_list_group_view(SseDeserializer deserializer);
 
   @protected
+  List<MediaItemView> sse_decode_list_media_item_view(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<MessageView> sse_decode_list_message_view(SseDeserializer deserializer);
 
   @protected
@@ -222,6 +233,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<SearchHitView> sse_decode_list_search_hit_view(
     SseDeserializer deserializer,
   );
+
+  @protected
+  MediaItemView sse_decode_media_item_view(SseDeserializer deserializer);
 
   @protected
   MessageView sse_decode_message_view(SseDeserializer deserializer);
@@ -353,6 +367,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_media_item_view(
+    List<MediaItemView> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_message_view(
     List<MessageView> self,
     SseSerializer serializer,
@@ -372,6 +392,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     List<SearchHitView> self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_media_item_view(MediaItemView self, SseSerializer serializer);
 
   @protected
   void sse_encode_message_view(MessageView self, SseSerializer serializer);

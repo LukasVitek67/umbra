@@ -131,6 +131,8 @@ fn demo() {
             sent_at: DEMO_EPOCH + 1,
             body: b"tajna zprava ulozena sifrovane",
             file: None,
+            msg_ref: None,
+            reply_to: None,
         }).unwrap();
     }
     // reopen and read back

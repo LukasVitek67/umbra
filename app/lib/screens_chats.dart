@@ -625,10 +625,16 @@ class _SearchResults extends StatelessWidget {
                   final chat = appState.chats
                       .where((c) => c.contactHex == m.peerHex)
                       .firstOrNull;
-                  if (chat != null) onSelect(chat);
+                  if (chat == null) return;
+                  // The conversation reads this as it opens and scrolls to the
+                  // line that was clicked, rather than to the bottom.
+                  appState.pendingJumpMessageId = m.messageId;
+                  onSelect(chat);
                 } else {
                   final group = appState.groupById(m.groupHex);
-                  if (group != null) onSelectGroup(group);
+                  if (group == null) return;
+                  appState.pendingJumpMessageId = m.messageId;
+                  onSelectGroup(group);
                 }
               },
             ),
@@ -1380,11 +1386,74 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
 
+  /// Put on the message we were sent to, so it can be scrolled to once it is
+  /// actually built. A `ListView.builder` only builds what is near the viewport,
+  /// so there is nothing to aim at until we are roughly in the right place.
+  final _jumpKey = GlobalKey();
+  int? _jumpTarget;
+
+  @override
+  void initState() {
+    super.initState();
+    _takePendingJump();
+  }
+
+  @override
+  void didUpdateWidget(ChatDetailScreen old) {
+    super.didUpdateWidget(old);
+    // The wide layout keeps one instance and swaps the conversation into it, so
+    // arriving at a different chat is an update, not a fresh state.
+    if (old.chat.contactHex != widget.chat.contactHex) _takePendingJump();
+  }
+
+  void _takePendingJump() {
+    final id = appState.pendingJumpMessageId;
+    if (id == null) return;
+    appState.pendingJumpMessageId = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _jumpTo(id));
+  }
+
   @override
   void dispose() {
     _input.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// Scroll until the message is on screen, then mark it.
+  ///
+  /// Closing in rather than computing an offset: bubbles are of every height,
+  /// so there is no arithmetic that lands on one. Each pass jumps to where the
+  /// message would be if they were all the same size, which is close enough
+  /// that the row gets built — and once it is built, Flutter can put it exactly
+  /// where we want it.
+  Future<void> _jumpTo(int messageId) async {
+    final messages = widget.chat.messages;
+    final index = messages.indexWhere((m) => m.id == messageId);
+    if (index < 0 || !mounted) return;
+    setState(() => _jumpTarget = messageId);
+
+    for (var pass = 0; pass < 12; pass++) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      final target = _jumpKey.currentContext;
+      if (target != null && target.mounted) {
+        await Scrollable.ensureVisible(
+          target,
+          alignment: 0.35,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+        );
+        break;
+      }
+      if (!_scroll.hasClients || messages.length < 2) break;
+      final extent = _scroll.position.maxScrollExtent;
+      _scroll.jumpTo((extent * index / (messages.length - 1)).clamp(0.0, extent));
+    }
+
+    if (!mounted) return;
+    appState.flashMessage(messageId);
+    setState(() => _jumpTarget = null);
   }
 
   Future<void> _attach() async {
@@ -1559,6 +1628,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 itemCount: chat.messages.length,
                 itemBuilder: (context, i) {
                   final msg = chat.messages[i];
+                  final anchor = msg.id == _jumpTarget ? _jumpKey : null;
                   // A date line where the day changes, so a long history stays
                   // readable.
                   final prev = i == 0 ? null : chat.messages[i - 1].at;
@@ -1566,9 +1636,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       prev.day != msg.at.day ||
                       prev.month != msg.at.month ||
                       prev.year != msg.at.year;
-                  if (!newDay) return _Bubble(msg: msg, chat: chat);
+                  if (!newDay) return _Bubble(key: anchor, msg: msg, chat: chat);
                   return Column(
-                    children: [_DaySeparator(day: msg.at), _Bubble(msg: msg, chat: chat)],
+                    children: [
+                      _DaySeparator(day: msg.at),
+                      _Bubble(key: anchor, msg: msg, chat: chat),
+                    ],
                   );
                 },
               ),
@@ -1887,7 +1960,7 @@ void showAddGroupMember(BuildContext context, GroupChat group) {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.msg, this.chat});
+  const _Bubble({super.key, required this.msg, this.chat});
   final Message msg;
 
   /// The conversation this belongs to. Null in places that only display
@@ -1910,6 +1983,21 @@ class _Bubble extends StatelessWidget {
   }
 
   Widget _body(BuildContext context, bool out) {
+    // Marked because the user was sent here from somewhere else and needs to be
+    // told which one they clicked. It fades on its own; see `flashMessage`.
+    final marked = msg.id != null && msg.id == appState.highlightedMessageId;
+    return Container(
+      decoration: marked
+          ? BoxDecoration(
+              color: UmbraColors.accent.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(18),
+            )
+          : null,
+      child: _row(context, out),
+    );
+  }
+
+  Widget _row(BuildContext context, bool out) {
     return Align(
       alignment: out ? Alignment.centerRight : Alignment.centerLeft,
       child: Column(

@@ -121,6 +121,45 @@ fn flush_lock(peer_hex: &str) -> Arc<tokio::sync::Mutex<()>> {
         .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
         .clone()
 }
+/// What each peer's build understands, as it told us when the session came up.
+///
+/// A peer that never says is one from before [`envelope::CAPABILITIES`] existed,
+/// so anything newer has to be sent in a form they can already read — or not at
+/// all, when losing it costs nothing.
+static PEER_FEATURES: Mutex<Option<HashMap<String, u16>>> = Mutex::new(None);
+
+/// Does this peer understand `feature` level or better?
+fn peer_understands(peer_hex: &str, level: u16) -> bool {
+    PEER_FEATURES
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|m| m.get(peer_hex).copied())
+        .unwrap_or(0)
+        >= level
+}
+
+/// Hex for a 16-byte message reference.
+fn hex16(v: &[u8; 16]) -> String {
+    v.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// A reply written out for a peer whose build has no idea what a reply is.
+///
+/// The quote goes in the text, the way people wrote them before any messenger
+/// did it for them. Trimmed, because a quote longer than the answer is noise
+/// and the whole line is on their screen already.
+fn flatten_quote(quoted: &str, text: &str) -> String {
+    let mut line: String = quoted.lines().next().unwrap_or("").chars().take(80).collect();
+    if line.is_empty() {
+        return text.to_string();
+    }
+    if line.chars().count() == 80 || quoted.lines().count() > 1 {
+        line.push('…');
+    }
+    format!("> {line}\n{text}")
+}
+
 /// The keep-alive loop is started once.
 static KEEPALIVE: AtomicBool = AtomicBool::new(false);
 /// The update loop is started once.
@@ -224,6 +263,13 @@ async fn send_file_or_queue(peer_hex: &str, name: &str, data: Vec<u8>) {
                         name,
                         size: total,
                     }),
+                    // Ours, so the reference is computed over our identity —
+                    // the same one the receiver will compute over it.
+                    msg_ref: Some(envelope::message_ref(
+                        &g.account.public(),
+                        ui_body.as_bytes(),
+                    )),
+                    reply_to: None,
                 })
                 .ok()
         })
@@ -764,6 +810,8 @@ mod key_wrapping_tests {
                         name: "kotatko.gif",
                         size: 18,
                     }),
+                    msg_ref: None,
+                    reply_to: None,
                 })
                 .unwrap();
         }
@@ -969,6 +1017,9 @@ pub struct MessageView {
 
 /// A message found by search, or one a contact sent us.
 pub struct SearchHitView {
+    /// The row this hit stands for, so opening it can land on the message
+    /// itself rather than at the bottom of the conversation.
+    pub message_id: i64,
     /// Who wrote it (or, in a 1:1 thread, the other party).
     pub peer_hex: String,
     /// Empty for a direct message, otherwise the group it was written in.
@@ -980,12 +1031,27 @@ pub struct SearchHitView {
 
 fn hit_view(h: nullchat_core::store::SearchHit) -> SearchHitView {
     SearchHitView {
+        message_id: h.id,
         peer_hex: hex(&h.peer_pubkey),
         group_hex: h.group_id.map(|g| hex(&g)).unwrap_or_default(),
         outgoing: h.outgoing,
         sent_at: h.sent_at,
         body: h.body,
     }
+}
+
+/// One attachment for the media overview.
+pub struct MediaItemView {
+    /// The message it arrived on, so it can be shown in place.
+    pub message_id: i64,
+    /// The conversation it belongs to.
+    pub peer_hex: String,
+    pub outgoing: bool,
+    pub sent_at: u64,
+    /// Where our sealed copy lives.
+    pub file_path: String,
+    pub file_name: String,
+    pub file_size: u64,
 }
 
 /// One member of a group, flattened for the UI.
@@ -1933,6 +1999,8 @@ impl UmbraApp {
                     sent_at: now,
                     body: text.as_bytes(),
                     file: None,
+                    msg_ref: Some(envelope::message_ref(&g.account.public(), text.as_bytes())),
+                    reply_to: None,
                 })
                 .map_err(|e| e.to_string())?
         };
@@ -2241,6 +2309,11 @@ impl UmbraApp {
                     sent_at: start_at + (i as u64) * 900,
                     body: line.as_bytes(),
                     file: None,
+                    // A decoy history is never replied to or reacted to, so it
+                    // needs no references — and computing them would mean
+                    // deriving the decoy's identity here for nothing.
+                    msg_ref: None,
+                    reply_to: None,
                 })
                 .map_err(|e| e.to_string())?;
         }
@@ -2350,6 +2423,134 @@ impl UmbraApp {
             .collect())
     }
 
+    /// Store a message that answers another one, and send it.
+    ///
+    /// `reply_to_hex` is the reference of the message being answered; see
+    /// `envelope::message_ref`. A peer whose build predates replies gets the
+    /// quoted line folded into the text instead — losing the quote is a shame,
+    /// losing the message would not be acceptable.
+    #[frb(sync)]
+    pub fn send_reply(
+        &self,
+        contact_hex: String,
+        reply_to_hex: String,
+        quoted: String,
+        text: String,
+        now: u64,
+    ) -> Result<(), String> {
+        let pk = unhex(&contact_hex).ok_or_else(|| "bad contact id".to_string())?;
+        let to = unhex16(&reply_to_hex).ok_or_else(|| "bad message reference".to_string())?;
+        let modern = peer_understands(&contact_hex, envelope::FEATURES);
+        // What we send them, and what we show ourselves, have to be the same
+        // string: the reference is computed over the body, and a receipt is
+        // matched by it.
+        let body = if modern { text.clone() } else { flatten_quote(&quoted, &text) };
+
+        let message_id = {
+            let g = self.inner.lock().unwrap();
+            g.store
+                .insert_message(&NewMessage {
+                    contact_pubkey: pk,
+                    direction: Direction::Outgoing,
+                    sent_at: now,
+                    body: body.as_bytes(),
+                    file: None,
+                    msg_ref: Some(envelope::message_ref(&g.account.public(), body.as_bytes())),
+                    reply_to: Some(to),
+                })
+                .map_err(|e| e.to_string())?
+        };
+
+        rt().spawn(async move {
+            let bytes = if modern {
+                envelope::encode_reply(&to, None, &body)
+            } else {
+                envelope::encode_text(&body)
+            };
+            send_or_queue(
+                &contact_hex,
+                Pending {
+                    bytes,
+                    ui: body,
+                    group_hex: String::new(),
+                    message_id: Some(message_id),
+                },
+            )
+            .await;
+        });
+        Ok(())
+    }
+
+    /// Put an emoji on a message, or take ours off with an empty `emoji`.
+    ///
+    /// Safe to send to anyone: a build that does not know reactions ignores the
+    /// frame, and an emoji that does not arrive costs nobody a message. Ours is
+    /// recorded locally either way, so the button does what it looks like it
+    /// does even when the other side is old or offline.
+    #[frb(sync)]
+    pub fn send_reaction(
+        &self,
+        contact_hex: String,
+        msg_ref_hex: String,
+        emoji: String,
+    ) -> Result<(), String> {
+        let to = unhex16(&msg_ref_hex).ok_or_else(|| "bad message reference".to_string())?;
+        {
+            let g = self.inner.lock().unwrap();
+            let me = g.account.public();
+            g.store
+                .set_reaction(&to, &me, &emoji, now_secs())
+                .map_err(|e| e.to_string())?;
+        }
+        rt().spawn(async move {
+            let svc = SERVICE.lock().unwrap().clone();
+            if let Some(svc) = svc {
+                let _ = svc
+                    .send_bytes(&contact_hex, envelope::encode_reaction(&to, &emoji))
+                    .await;
+            }
+        });
+        Ok(())
+    }
+
+    /// The reactions on a message, as `"emoji|identity hex"` per entry.
+    #[frb(sync)]
+    pub fn reactions(&self, msg_ref_hex: String) -> Vec<String> {
+        let Some(to) = unhex16(&msg_ref_hex) else { return Vec::new() };
+        let g = self.inner.lock().unwrap();
+        g.store
+            .reactions_for(&to)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(emoji, who)| format!("{emoji}|{}", hex(&who)))
+            .collect()
+    }
+
+    /// Every attachment across every conversation, newest first.
+    ///
+    /// Filtering and searching happen in the interface: once this list is
+    /// decrypted it is already in memory, and doing it here would mean unsealing
+    /// the same rows again on every keystroke.
+    #[frb(sync)]
+    pub fn media(&self, limit: u32) -> Result<Vec<MediaItemView>, String> {
+        let g = self.inner.lock().unwrap();
+        Ok(g
+            .store
+            .list_media(limit)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|m| MediaItemView {
+                message_id: m.message_id,
+                peer_hex: hex(&m.peer_pubkey),
+                outgoing: m.outgoing,
+                sent_at: m.sent_at,
+                file_path: m.file_path,
+                file_name: m.file_name,
+                file_size: m.file_size,
+            })
+            .collect())
+    }
+
     /// Everything one person has sent us, in the 1:1 thread and in groups.
     #[frb(sync)]
     pub fn messages_from_contact(
@@ -2421,6 +2622,9 @@ impl UmbraApp {
     ) -> Result<(), String> {
         let pk = unhex(&contact_hex).ok_or_else(|| "bad contact id".to_string())?;
         let g = self.inner.lock().unwrap();
+        // Whoever wrote it is what the reference is computed over, and that is
+        // the other side for an incoming message.
+        let author = if outgoing { g.account.public() } else { pk };
         g.store
             .insert_message(&NewMessage {
                 contact_pubkey: pk,
@@ -2428,6 +2632,8 @@ impl UmbraApp {
                 sent_at,
                 body: body.as_bytes(),
                 file: None,
+                msg_ref: Some(envelope::message_ref(&author, body.as_bytes())),
+                reply_to: None,
             })
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -2620,6 +2826,8 @@ impl UmbraApp {
                     direction: Direction::Outgoing,
                     sent_at: now,
                     body: text.as_bytes(),
+                    msg_ref: Some(envelope::message_ref(&me, text.as_bytes())),
+                    reply_to: None,
                 })
                 .map_err(|e| e.to_string())?;
             (group, id)
@@ -2754,6 +2962,15 @@ static INCOMING_FILES: Mutex<Option<HashMap<[u8; 16], Incoming>>> = Mutex::new(N
 
 /// Send our name and picture so the peer can show them.
 async fn send_profile(peer_hex: &str) {
+    // First, and regardless of whether we have a profile to send: this is what
+    // lets the other side know a reply can be sent as a reply rather than as a
+    // quote flattened into the text. A build that predates it ignores the frame.
+    {
+        let svc = SERVICE.lock().unwrap().clone();
+        if let Some(svc) = svc {
+            let _ = svc.send_bytes(peer_hex, envelope::encode_capabilities()).await;
+        }
+    }
     let profile = { MY_PROFILE.lock().unwrap().clone() };
     let Some((name, picture)) = profile else { return };
     let svc = SERVICE.lock().unwrap().clone();
@@ -2904,6 +3121,44 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
                 }
             }
         }
+        Payload::Reply { to, group_id, text } => {
+            remember_peer(peer_hex, None, None);
+            // Stored by the Dart side like any other incoming message, but
+            // carrying what it answers. A reply to something we do not have is
+            // still a message: it shows without a quote rather than not at all.
+            match group_id {
+                None => emit("message_reply", &format!("{}|{}", hex16(&to), text), peer_hex),
+                Some(gid) => emit(
+                    "group_message_reply",
+                    &format!("{}|{}|{}", hex(&gid), hex16(&to), text),
+                    peer_hex,
+                ),
+            }
+            let svc = SERVICE.lock().unwrap().clone();
+            if let Some(svc) = svc {
+                let _ = svc.send_bytes(peer_hex, envelope::encode_receipt(&text)).await;
+            }
+        }
+        Payload::Reaction { to, emoji } => {
+            let Some(app) = APP.lock().unwrap().clone() else { return };
+            let Some(who) = unhex(peer_hex) else { return };
+            {
+                let g = app.lock().unwrap();
+                // Their reaction, filed under their identity, so one person
+                // cannot fill a message with emoji.
+                let _ = g.store.set_reaction(&to, &who, &emoji, now_secs());
+            }
+            emit("reaction", &format!("{}|{}", hex16(&to), emoji), peer_hex);
+        }
+        Payload::Capabilities { features } => {
+            // Remembered so a reply to a build that predates replies can be
+            // sent as something it *can* read. See `send_reply`.
+            PEER_FEATURES
+                .lock()
+                .unwrap()
+                .get_or_insert_with(HashMap::new)
+                .insert(peer_hex.to_string(), features);
+        }
         Payload::Address { onion, name } => {
             update_peer_details(peer_hex, Some(&name), Some(&onion));
         }
@@ -2997,6 +3252,8 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
                         direction: Direction::Incoming,
                         sent_at: now_secs(),
                         body: text.as_bytes(),
+                        msg_ref: Some(envelope::message_ref(&sender, text.as_bytes())),
+                        reply_to: None,
                     });
                     drop(g);
                     emit("group_message", &format!("{}|{}", hex(&group_id), text), peer_hex);
@@ -3097,6 +3354,13 @@ async fn handle_payload(peer_hex: &str, bytes: &[u8]) {
                             name: &name,
                             size,
                         }),
+                        // Theirs, so the reference is over their identity —
+                        // matching what the sender computed when they stored it.
+                        msg_ref: Some(envelope::message_ref(
+                            &pk,
+                            format!("📎 {name}").as_bytes(),
+                        )),
+                        reply_to: None,
                     });
                 }
                 emit("file_done", &format!("{stored}|{name}|{size}"), peer_hex);

@@ -64,6 +64,44 @@ pub const GROUP_INFO: u8 = 6;
 pub const ADDRESS: u8 = 7;
 /// Confirmation that a message of ours arrived.
 pub const RECEIPT: u8 = 8;
+/// A message that answers another one.
+pub const REPLY: u8 = 9;
+/// An emoji put on a message.
+pub const REACTION: u8 = 10;
+/// What the sender's build understands, sent once per session.
+pub const CAPABILITIES: u8 = 11;
+
+/// The features this build can be sent.
+///
+/// A peer that says nothing is a build from before this existed, so anything
+/// above 0 has to degrade rather than be sent and dropped — see
+/// [`encode_capabilities`].
+pub const FEATURES: u16 = 1;
+
+/// How a message is referred to across two computers.
+///
+/// Row ids are local, and the timestamp on a message is stamped by whoever
+/// received it, so neither identifies the same message on both sides. What both
+/// sides do hold is *who wrote it* and *what it says*, so the reference is a
+/// digest of the two.
+///
+/// The consequence, stated because it is visible: the same person sending the
+/// identical text twice produces one reference. A reply then attaches to the
+/// most recent of them. Getting that last case right would need an id minted by
+/// the sender and carried on every message, which is a wire change that costs
+/// every older build its ability to read a plain message at all.
+#[must_use]
+pub fn message_ref(sender_identity: &[u8; 32], body: &[u8]) -> [u8; 16] {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(b"nullchat message ref v1");
+    h.update(sender_identity);
+    h.update(body);
+    let full: [u8; 32] = h.finalize().into();
+    let mut short = [0u8; 16];
+    short.copy_from_slice(&full[..16]);
+    short
+}
 
 /// A decoded incoming payload.
 pub enum Payload {
@@ -125,6 +163,27 @@ pub enum Payload {
     Receipt {
         /// The body of the message that arrived.
         body: String,
+    },
+    /// A message answering another one.
+    Reply {
+        /// Which message is being answered; see [`message_ref`].
+        to: [u8; 16],
+        /// Empty for a direct reply, otherwise the group it was written in.
+        group_id: Option<[u8; 16]>,
+        /// The reply itself.
+        text: String,
+    },
+    /// An emoji put on a message, or taken off it again.
+    Reaction {
+        /// Which message; see [`message_ref`].
+        to: [u8; 16],
+        /// The emoji. **Empty means the sender removed theirs.**
+        emoji: String,
+    },
+    /// What the sender's build understands.
+    Capabilities {
+        /// Feature level; see [`FEATURES`].
+        features: u16,
     },
 }
 
@@ -223,6 +282,47 @@ pub fn encode_receipt(body: &str) -> Vec<u8> {
     v
 }
 
+/// Frame a reply. `group_id` is `None` for a direct message.
+///
+/// Only send this to a peer that has announced [`FEATURES`] — an older build
+/// drops a kind it does not know, and dropping a *message* is not an acceptable
+/// way to degrade. See `send_reply` on the app side for what happens instead.
+pub fn encode_reply(to: &[u8; 16], group_id: Option<&[u8; 16]>, text: &str) -> Vec<u8> {
+    let mut v = Vec::with_capacity(1 + 16 + 17 + text.len());
+    v.push(REPLY);
+    v.extend_from_slice(to);
+    match group_id {
+        Some(g) => {
+            v.push(1);
+            v.extend_from_slice(g);
+        }
+        None => v.push(0),
+    }
+    v.extend_from_slice(text.as_bytes());
+    v
+}
+
+/// Frame a reaction. An empty `emoji` takes the sender's reaction off again.
+///
+/// Safe to send to any peer: a build that does not know this kind ignores it,
+/// and an emoji that does not arrive costs nobody a message.
+pub fn encode_reaction(to: &[u8; 16], emoji: &str) -> Vec<u8> {
+    let mut v = Vec::with_capacity(1 + 16 + emoji.len());
+    v.push(REACTION);
+    v.extend_from_slice(to);
+    v.extend_from_slice(emoji.as_bytes());
+    v
+}
+
+/// Announce what this build understands. Sent once, when a session comes up.
+#[must_use]
+pub fn encode_capabilities() -> Vec<u8> {
+    let mut v = Vec::with_capacity(3);
+    v.push(CAPABILITIES);
+    v.extend_from_slice(&FEATURES.to_be_bytes());
+    v
+}
+
 fn push_str(out: &mut Vec<u8>, s: &str) {
     let b = s.as_bytes();
     let n = b.len().min(u16::MAX as usize);
@@ -291,6 +391,33 @@ pub fn decode(bytes: &[u8]) -> Option<Payload> {
         }
         RECEIPT => Some(Payload::Receipt {
             body: String::from_utf8_lossy(rest).to_string(),
+        }),
+        REPLY => {
+            let to: [u8; 16] = rest.get(..16)?.try_into().ok()?;
+            let (&flag, rest) = rest[16..].split_first()?;
+            let (group_id, text) = match flag {
+                0 => (None, rest),
+                1 => {
+                    let g: [u8; 16] = rest.get(..16)?.try_into().ok()?;
+                    (Some(g), &rest[16..])
+                }
+                _ => return None,
+            };
+            Some(Payload::Reply {
+                to,
+                group_id,
+                text: String::from_utf8_lossy(text).to_string(),
+            })
+        }
+        REACTION => {
+            let to: [u8; 16] = rest.get(..16)?.try_into().ok()?;
+            Some(Payload::Reaction {
+                to,
+                emoji: String::from_utf8_lossy(&rest[16..]).to_string(),
+            })
+        }
+        CAPABILITIES => Some(Payload::Capabilities {
+            features: u16::from_be_bytes(rest.get(..2)?.try_into().ok()?),
         }),
         ADDRESS => {
             let (onion, rest) = take_str(rest)?;
@@ -398,6 +525,84 @@ mod tests {
             Payload::Receipt { body } => assert_eq!(body, "ahoj světe"),
             _ => panic!("wrong kind"),
         }
+    }
+
+    #[test]
+    fn a_reply_carries_what_it_answers() {
+        let to = message_ref(&[9u8; 32], b"puvodni zprava");
+        match decode(&encode_reply(&to, None, "odpoved")).unwrap() {
+            Payload::Reply { to: got, group_id, text } => {
+                assert_eq!(got, to);
+                assert_eq!(group_id, None);
+                assert_eq!(text, "odpoved");
+            }
+            _ => panic!("wrong kind"),
+        }
+        let group = [7u8; 16];
+        match decode(&encode_reply(&to, Some(&group), "ve skupine")).unwrap() {
+            Payload::Reply { group_id, text, .. } => {
+                assert_eq!(group_id, Some(group));
+                assert_eq!(text, "ve skupine");
+            }
+            _ => panic!("wrong kind"),
+        }
+    }
+
+    /// The reference is the same on both computers, and different for two
+    /// different messages — that is the whole requirement.
+    #[test]
+    fn a_message_reference_is_agreed_and_specific() {
+        let me = [1u8; 32];
+        let you = [2u8; 32];
+        assert_eq!(message_ref(&me, b"ahoj"), message_ref(&me, b"ahoj"));
+        assert_ne!(message_ref(&me, b"ahoj"), message_ref(&me, b"ahoj!"));
+        // Same words from two people are two messages.
+        assert_ne!(message_ref(&me, b"ahoj"), message_ref(&you, b"ahoj"));
+    }
+
+    #[test]
+    fn a_reaction_and_its_removal_both_travel() {
+        let to = message_ref(&[3u8; 32], b"neco");
+        match decode(&encode_reaction(&to, "🔥")).unwrap() {
+            Payload::Reaction { to: got, emoji } => {
+                assert_eq!(got, to);
+                assert_eq!(emoji, "🔥");
+            }
+            _ => panic!("wrong kind"),
+        }
+        // Empty is "I took mine off", not a malformed frame.
+        match decode(&encode_reaction(&to, "")).unwrap() {
+            Payload::Reaction { emoji, .. } => assert!(emoji.is_empty()),
+            _ => panic!("wrong kind"),
+        }
+    }
+
+    #[test]
+    fn capabilities_round_trip() {
+        match decode(&encode_capabilities()).unwrap() {
+            Payload::Capabilities { features } => assert_eq!(features, FEATURES),
+            _ => panic!("wrong kind"),
+        }
+    }
+
+    /// The reason replies and reactions could be added without forcing everyone
+    /// to update on the same day: an older build does not guess.
+    #[test]
+    fn an_unknown_kind_is_declined_not_guessed() {
+        assert!(decode(&[200, 1, 2, 3]).is_none());
+        assert!(decode(&[]).is_none());
+    }
+
+    #[test]
+    fn truncated_new_kinds_are_refused() {
+        assert!(decode(&[REPLY, 1, 2, 3]).is_none());
+        assert!(decode(&[REACTION, 1, 2]).is_none());
+        assert!(decode(&[CAPABILITIES]).is_none());
+        // A reply that claims a group id and then does not carry one.
+        let mut short = vec![REPLY];
+        short.extend_from_slice(&[0u8; 16]);
+        short.push(1);
+        assert!(decode(&short).is_none());
     }
 
     #[test]

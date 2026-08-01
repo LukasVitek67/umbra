@@ -146,6 +146,17 @@ CREATE TABLE IF NOT EXISTS group_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_group_messages
     ON group_messages(group_id, sent_at);
+-- Who put which emoji on what. Keyed by the message *reference* rather than a
+-- row id, because a reaction arrives from the other side, where our row ids
+-- mean nothing (see `envelope::message_ref`). One emoji per person per message:
+-- reacting again replaces, which is what the primary key says.
+CREATE TABLE IF NOT EXISTS reactions (
+    msg_ref BLOB NOT NULL,              -- blind index of the message reference
+    who     BLOB NOT NULL,              -- blind index of the reactor's identity
+    emoji   BLOB NOT NULL,              -- sealed
+    at      INTEGER NOT NULL,
+    PRIMARY KEY (msg_ref, who)
+);
 ";
 
 /// Secret holding [`ProfileKind`] for whichever passphrase opened the store.
@@ -324,6 +335,12 @@ pub struct NewMessage<'a> {
     pub body: &'a [u8],
     /// The attachment this message carries, if any.
     pub file: Option<NewAttachment<'a>>,
+    /// How the other side refers to this message; see
+    /// [`crate::envelope::message_ref`]. Computed by the caller, which is the
+    /// only layer that knows whose message it is.
+    pub msg_ref: Option<[u8; 16]>,
+    /// The message this one answers, if it answers one.
+    pub reply_to: Option<[u8; 16]>,
 }
 
 /// The file part of a message.
@@ -354,6 +371,10 @@ pub struct NewGroupMessage<'a> {
     pub sent_at: u64,
     /// Plaintext body; stored encrypted.
     pub body: &'a [u8],
+    /// How the other members refer to this message.
+    pub msg_ref: Option<[u8; 16]>,
+    /// The message this one answers, if it answers one.
+    pub reply_to: Option<[u8; 16]>,
 }
 
 /// A message matched by a search or a contact lookup.
@@ -371,6 +392,28 @@ pub struct SearchHit {
     pub sent_at: u64,
     /// Decrypted text.
     pub body: String,
+}
+
+/// One attachment, wherever in the history it sits.
+///
+/// Carries the message it belongs to, so the overview can hand back to the
+/// conversation rather than being a dead end.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaItem {
+    /// The message row this attachment came in on.
+    pub message_id: i64,
+    /// The other party in that conversation.
+    pub peer_pubkey: [u8; 32],
+    /// True when we sent it.
+    pub outgoing: bool,
+    /// Timestamp (unix seconds).
+    pub sent_at: u64,
+    /// Where the sealed copy lives.
+    pub file_path: String,
+    /// The name it was sent under.
+    pub file_name: String,
+    /// Size in bytes.
+    pub file_size: u64,
 }
 
 /// A stored group message (decrypted).
@@ -411,6 +454,10 @@ pub struct Message {
     pub file_name: Option<String>,
     /// The attachment's size in bytes.
     pub file_size: Option<u64>,
+    /// The message this one answers, if it answers one. What it refers to may
+    /// not be in our history at all — a reply to something from before we had
+    /// it, or from a thread that was cleared.
+    pub reply_to: Option<[u8; 16]>,
 }
 
 /// How long a sealed empty value is: a 24-byte nonce and a 16-byte tag with no
@@ -426,6 +473,21 @@ type ContactRow = (Vec<u8>, Vec<u8>, i64, i64, i64, i64, Option<Vec<u8>>);
 /// A `group_messages` row as it comes out of SQLite: id, sender, direction,
 /// timestamp, sealed body.
 type GroupMessageRow = (i64, Vec<u8>, i64, i64, Vec<u8>);
+
+/// A `messages` row as SQLite hands it back: id, contact, direction, timestamp,
+/// sealed body, state, sealed path/name, size, and the reply index.
+type MessageRow = (
+    i64,
+    Vec<u8>,
+    i64,
+    i64,
+    Vec<u8>,
+    i64,
+    Option<Vec<u8>>,
+    Option<Vec<u8>>,
+    Option<i64>,
+    Option<Vec<u8>>,
+);
 
 /// One step of a re-key: the index a value sits on now, the index it moves to,
 /// and the value itself.
@@ -1026,6 +1088,21 @@ impl Store {
         }
         if !Self::has_column(conn, "messages", "file_name")? {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN file_name BLOB")?;
+        }
+        // How the other side refers to a message, and what a reply answers.
+        // Both are blind indexes, so an older database simply has none and its
+        // messages cannot be replied to — which is true: the other side never
+        // learned a reference for them either.
+        for table in ["messages", "group_messages"] {
+            if !Self::has_column(conn, table, "msg_ref")? {
+                conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN msg_ref BLOB"))?;
+                conn.execute_batch(&format!(
+                    "CREATE INDEX IF NOT EXISTS idx_{table}_ref ON {table}(msg_ref)"
+                ))?;
+            }
+            if !Self::has_column(conn, table, "reply_to")? {
+                conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN reply_to BLOB"))?;
+            }
         }
         if !Self::has_column(conn, "messages", "file_size")? {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN file_size INTEGER")?;
@@ -1908,11 +1985,145 @@ impl Store {
         };
         self.conn.execute(
             "INSERT INTO messages(contact_pubkey, direction, sent_at, body,
-                                  file_path, file_name, file_size)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![bi, m.direction.to_i64(), m.sent_at as i64, body, path, name, size],
+                                  file_path, file_name, file_size, msg_ref, reply_to)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                bi,
+                m.direction.to_i64(),
+                m.sent_at as i64,
+                body,
+                path,
+                name,
+                size,
+                self.indexed_opt(m.msg_ref.as_ref())?,
+                self.indexed_opt(m.reply_to.as_ref())?,
+            ],
         )?;
         Ok(self.conn.last_insert_rowid())
+    }
+
+    /// The blind index of an optional reference, mapping absent to absent.
+    ///
+    /// References are digests of a message's plaintext, so storing one raw
+    /// would let anyone holding the file confirm a guess at what was said.
+    /// Indexed like every other lookup key instead.
+    fn indexed_opt(&self, value: Option<&[u8; 16]>) -> Result<Option<Vec<u8>>, StoreError> {
+        match value {
+            Some(v) => Ok(Some(self.indexed(v)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// The message a reference stands for, if it is one of ours.
+    ///
+    /// # Errors
+    /// A storage error if the row cannot be read.
+    pub fn message_by_ref(&self, msg_ref: &[u8; 16]) -> Result<Option<Message>, StoreError> {
+        let row: Option<MessageRow> = self
+            .conn
+            .query_row(
+                "SELECT id, contact_pubkey, direction, sent_at, body, state,
+                        file_path, file_name, file_size, reply_to
+                 FROM messages WHERE msg_ref = ?1 ORDER BY id DESC LIMIT 1",
+                params![self.bi(msg_ref)],
+                |r| {
+                    Ok((
+                        r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?,
+                        r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((id, peer, dir, sent_at, body_ct, state, path, name, size, reply)) = row else {
+            return Ok(None);
+        };
+        let (Some(body), Some(contact_pubkey)) =
+            (self.unseal(&body_ct).ok(), self.try_key32_of(&peer))
+        else {
+            return Ok(None); // another passphrase's row: absent, as always
+        };
+        Ok(Some(Message {
+            id,
+            contact_pubkey,
+            direction: Direction::from_i64(dir)?,
+            sent_at: sent_at as u64,
+            body: body.to_vec(),
+            state: MessageState::from_i64(state),
+            file_path: path
+                .and_then(|p| self.unseal(&p).ok())
+                .map(|p| String::from_utf8_lossy(&p).to_string()),
+            file_name: name
+                .and_then(|n| self.unseal(&n).ok())
+                .map(|n| String::from_utf8_lossy(&n).to_string()),
+            file_size: size.map(|s| s.max(0) as u64),
+            reply_to: self.ref_of(reply.as_deref())?,
+        }))
+    }
+
+    /// Turn a stored reply index back into the reference it stands for.
+    fn ref_of(&self, stored: Option<&[u8]>) -> Result<Option<[u8; 16]>, StoreError> {
+        let Some(bi) = stored else { return Ok(None) };
+        let sealed: Option<Vec<u8>> = self
+            .conn
+            .query_row("SELECT sealed FROM blind_index WHERE bi = ?1", params![bi], |r| r.get(0))
+            .optional()?;
+        Ok(sealed
+            .and_then(|s| self.unseal(&s).ok())
+            .and_then(|v| <[u8; 16]>::try_from(v.as_slice()).ok()))
+    }
+
+    /// Every attachment in the history, newest first.
+    ///
+    /// One list across all conversations, which is the only way to answer "where
+    /// is that picture" without remembering who sent it. Rows another passphrase
+    /// wrote are skipped exactly as everywhere else — not an error, just absent.
+    ///
+    /// # Errors
+    /// A storage error if the rows cannot be read.
+    pub fn list_media(&self, limit: u32) -> Result<Vec<MediaItem>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, contact_pubkey, direction, sent_at, file_path, file_name, file_size
+             FROM messages
+             WHERE file_path IS NOT NULL
+             ORDER BY sent_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Vec<u8>>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, Vec<u8>>(4)?,
+                r.get::<_, Option<Vec<u8>>>(5)?,
+                r.get::<_, Option<i64>>(6)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            if out.len() as u32 >= limit {
+                break;
+            }
+            let (id, peer, dir, sent_at, path_ct, name_ct, size) = row?;
+            let (Some(path), Some(peer_pubkey)) =
+                (self.unseal(&path_ct).ok(), self.try_key32_of(&peer))
+            else {
+                continue;
+            };
+            let name = name_ct
+                .and_then(|n| self.unseal(&n).ok())
+                .map(|n| String::from_utf8_lossy(&n).to_string())
+                .unwrap_or_default();
+            out.push(MediaItem {
+                message_id: id,
+                peer_pubkey,
+                outgoing: Direction::from_i64(dir)? == Direction::Outgoing,
+                sent_at: sent_at as u64,
+                file_path: String::from_utf8_lossy(&path).to_string(),
+                file_name: name,
+                file_size: size.unwrap_or(0).max(0) as u64,
+            });
+        }
+        Ok(out)
     }
 
     /// The most recent `limit` messages with a contact, oldest first.
@@ -1922,7 +2133,7 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<Message>, StoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, direction, sent_at, body, state, file_path, file_name, file_size
+            "SELECT id, direction, sent_at, body, state, file_path, file_name, file_size, reply_to
              FROM messages
              WHERE contact_pubkey = ?1 ORDER BY sent_at ASC, id ASC LIMIT ?2",
         )?;
@@ -1936,11 +2147,12 @@ impl Store {
                 r.get::<_, Option<Vec<u8>>>(5)?,
                 r.get::<_, Option<Vec<u8>>>(6)?,
                 r.get::<_, Option<i64>>(7)?,
+                r.get::<_, Option<Vec<u8>>>(8)?,
             ))
         })?;
         let mut out = Vec::new();
         for row in rows {
-            let (id, dir, sent_at, body_ct, state, path_ct, name_ct, size) = row?;
+            let (id, dir, sent_at, body_ct, state, path_ct, name_ct, size, reply) = row?;
             out.push(Message {
                 id,
                 contact_pubkey: *contact_pubkey,
@@ -1953,7 +2165,69 @@ impl Store {
                 file_path: path_ct.as_deref().and_then(|b| self.try_decrypt_string(b)),
                 file_name: name_ct.as_deref().and_then(|b| self.try_decrypt_string(b)),
                 file_size: size.map(|s| s as u64),
+                reply_to: self.ref_of(reply.as_deref())?,
             });
+        }
+        Ok(out)
+    }
+
+    // --- reactions ---
+
+    /// Record that `who` put `emoji` on the message `msg_ref` stands for.
+    ///
+    /// An empty `emoji` takes theirs off again. One per person per message: a
+    /// second reaction replaces the first, which is what people expect and what
+    /// keeps this from being a place to store unbounded text.
+    ///
+    /// # Errors
+    /// A storage or crypto error if the row cannot be written.
+    pub fn set_reaction(
+        &self,
+        msg_ref: &[u8; 16],
+        who: &[u8; 32],
+        emoji: &str,
+        at: u64,
+    ) -> Result<(), StoreError> {
+        let key = self.indexed(msg_ref)?;
+        let who_bi = self.indexed(who)?;
+        if emoji.is_empty() {
+            self.conn.execute(
+                "DELETE FROM reactions WHERE msg_ref = ?1 AND who = ?2",
+                params![key, who_bi],
+            )?;
+            return Ok(());
+        }
+        // Long enough for the emoji people actually use, including the ones
+        // built from several code points. Anything past that is not a reaction.
+        let emoji: String = emoji.chars().take(8).collect();
+        self.conn.execute(
+            "INSERT INTO reactions(msg_ref, who, emoji, at) VALUES(?1, ?2, ?3, ?4)
+             ON CONFLICT(msg_ref, who) DO UPDATE SET emoji = excluded.emoji, at = excluded.at",
+            params![key, who_bi, self.seal(emoji.as_bytes())?, at as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Every reaction on one message, as `(emoji, who)`.
+    ///
+    /// # Errors
+    /// A storage error if the rows cannot be read.
+    pub fn reactions_for(&self, msg_ref: &[u8; 16]) -> Result<Vec<(String, [u8; 32])>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT emoji, who FROM reactions WHERE msg_ref = ?1 ORDER BY at ASC")?;
+        let rows = stmt.query_map(params![self.bi(msg_ref)], |r| {
+            Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Vec<u8>>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (emoji_ct, who) = row?;
+            let (Some(emoji), Some(who)) =
+                (self.unseal(&emoji_ct).ok(), self.try_key32_of(&who))
+            else {
+                continue; // another passphrase's row
+            };
+            out.push((String::from_utf8_lossy(&emoji).to_string(), who));
         }
         Ok(out)
     }
@@ -2657,6 +2931,12 @@ fn bi_with(index_key: &[u8; 32], value: &[u8]) -> Vec<u8> {
 const INDEX_COLUMNS: &[(&str, &str)] = &[
     ("contacts", "identity_pubkey"),
     ("messages", "contact_pubkey"),
+    ("messages", "msg_ref"),
+    ("messages", "reply_to"),
+    ("group_messages", "msg_ref"),
+    ("group_messages", "reply_to"),
+    ("reactions", "msg_ref"),
+    ("reactions", "who"),
     ("outbox", "peer_pubkey"),
     ("outbox", "group_id"),
     ("groups", "group_id"),
@@ -2681,6 +2961,7 @@ const SEALED_COLUMNS: &[(&str, &str)] = &[
     ("group_members", "display_name"),
     ("group_members", "onion_addr"),
     ("group_messages", "body"),
+    ("reactions", "emoji"),
 ];
 
 #[cfg(test)]
@@ -2802,6 +3083,8 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 200,
             body: b"ctyricet zprav",
+            msg_ref: None,
+            reply_to: None,
             file: None,
         })
         .unwrap();
@@ -2849,6 +3132,8 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 1_700_000_100,
             body: b"nikdy",
+            msg_ref: None,
+            reply_to: None,
             file: None,
         })
         .unwrap();
@@ -2923,6 +3208,8 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 1_700_000_100,
             body: b"ahoj",
+            msg_ref: None,
+            reply_to: None,
             file: None,
         })
         .unwrap();
@@ -2968,6 +3255,8 @@ mod tests {
                 sent_at: at,
                 body,
                 file: None,
+                msg_ref: None,
+                reply_to: None,
             })
             .unwrap();
         }
@@ -3066,13 +3355,19 @@ mod tests {
         let s = Store::open_in_memory(&[3u8; 32]).unwrap();
         let peer = [9u8; 32];
         s.insert_message(&NewMessage { contact_pubkey: peer, direction: Direction::Outgoing, sent_at: 100, body: b"hi",
+        msg_ref: None,
+        reply_to: None,
  file: None,
 }).unwrap();
         s.insert_message(&NewMessage { contact_pubkey: peer, direction: Direction::Incoming, sent_at: 101, body: b"hey",
+        msg_ref: None,
+        reply_to: None,
  file: None,
 }).unwrap();
         // A message with a different peer must not show up.
         s.insert_message(&NewMessage { contact_pubkey: [1u8; 32], direction: Direction::Incoming, sent_at: 102, body: b"other",
+        msg_ref: None,
+        reply_to: None,
  file: None,
 }).unwrap();
 
@@ -3108,6 +3403,8 @@ mod tests {
                 direction: Direction::Outgoing,
                 sent_at: 10,
                 body: body.as_bytes(),
+                msg_ref: None,
+                reply_to: None,
                 file: None,
             })
             .unwrap()
@@ -3145,6 +3442,8 @@ mod tests {
                 direction: Direction::Outgoing,
                 sent_at: 10,
                 body: "📎 kotatko.gif".as_bytes(),
+                msg_ref: None,
+                reply_to: None,
                 file: Some(NewAttachment {
                     path: r"C:\files\sealed-kotatko.gif",
                     name: "kotatko.gif",
@@ -3158,6 +3457,8 @@ mod tests {
                 direction: Direction::Incoming,
                 sent_at: 11,
                 body: b"jen text",
+                msg_ref: None,
+                reply_to: None,
                 file: None,
             })
             .unwrap();
@@ -3185,6 +3486,8 @@ mod tests {
                 direction: Direction::Incoming,
                 sent_at: 5,
                 body: b"persisted",
+                msg_ref: None,
+                reply_to: None,
                 file: None,
             })
             .unwrap();
@@ -3209,6 +3512,8 @@ mod tests {
                     direction: Direction::Outgoing,
                     sent_at: 100,
                     body: b"jsi offline, ale precti si to pozdeji",
+                    msg_ref: None,
+                    reply_to: None,
                     file: None,
                 })
                 .unwrap();
@@ -3242,6 +3547,8 @@ mod tests {
                 sent_at: 1,
                 body,
                 file: None,
+                msg_ref: None,
+                reply_to: None,
             })
             .unwrap();
         }
@@ -3282,6 +3589,8 @@ mod tests {
             direction: Direction::Outgoing,
             sent_at: 1,
             body: b"po migraci",
+            msg_ref: None,
+            reply_to: None,
             file: None,
         })
         .unwrap();
@@ -3300,6 +3609,8 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 100,
             body: "sraz v pondeli".as_bytes(),
+            msg_ref: None,
+            reply_to: None,
             file: None,
         })
         .unwrap();
@@ -3309,6 +3620,8 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 200,
             body: "Sraz az v utery".as_bytes(),
+            msg_ref: None,
+            reply_to: None,
         })
         .unwrap();
         s.insert_message(&NewMessage {
@@ -3316,6 +3629,8 @@ mod tests {
             direction: Direction::Outgoing,
             sent_at: 300,
             body: "necо jineho".as_bytes(),
+            msg_ref: None,
+            reply_to: None,
             file: None,
         })
         .unwrap();
@@ -3342,6 +3657,8 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 10,
             body: b"od nich primo",
+            msg_ref: None,
+            reply_to: None,
             file: None,
         })
         .unwrap();
@@ -3351,6 +3668,8 @@ mod tests {
             direction: Direction::Outgoing,
             sent_at: 11,
             body: b"moje odpoved",
+            msg_ref: None,
+            reply_to: None,
             file: None,
         })
         .unwrap();
@@ -3360,6 +3679,8 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 12,
             body: b"od nich ve skupine",
+            msg_ref: None,
+            reply_to: None,
         })
         .unwrap();
         s.insert_group_message(&NewGroupMessage {
@@ -3368,6 +3689,8 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 13,
             body: b"od nekoho jineho",
+            msg_ref: None,
+            reply_to: None,
         })
         .unwrap();
 
@@ -3388,6 +3711,8 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 10,
             body: b"ahoj",
+            msg_ref: None,
+            reply_to: None,
             file: None,
         })
         .unwrap();
@@ -3406,6 +3731,8 @@ mod tests {
             direction: Direction::Outgoing,
             sent_at: 11,
             body: b"hi",
+            msg_ref: None,
+            reply_to: None,
             file: None,
         })
         .unwrap();
@@ -3472,6 +3799,8 @@ mod tests {
             direction: Direction::Outgoing,
             sent_at: 100,
             body: b"ahoj",
+            msg_ref: None,
+            reply_to: None,
         })
         .unwrap();
         s.insert_group_message(&NewGroupMessage {
@@ -3480,6 +3809,8 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 101,
             body: b"cau",
+            msg_ref: None,
+            reply_to: None,
         })
         .unwrap();
         // Another group's message must not leak in.
@@ -3489,6 +3820,8 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 102,
             body: b"jinde",
+            msg_ref: None,
+            reply_to: None,
         })
         .unwrap();
 
@@ -3511,6 +3844,8 @@ mod tests {
             direction: Direction::Outgoing,
             sent_at: 1,
             body: b"tajne",
+            msg_ref: None,
+            reply_to: None,
         })
         .unwrap();
         s.delete_group(&g.id).unwrap();
@@ -3564,6 +3899,8 @@ mod tests {
                 direction: Direction::Outgoing,
                 sent_at: 10,
                 body: b"ahoj",
+                msg_ref: None,
+                reply_to: None,
                 file: None,
             })
             .unwrap();
@@ -3579,6 +3916,8 @@ mod tests {
             direction: Direction::Incoming,
             sent_at: 20,
             body: b"ve skupine",
+            msg_ref: None,
+            reply_to: None,
         })
         .unwrap();
 
@@ -3776,6 +4115,79 @@ mod tests {
         assert!(!s.get_contact(&[0xAAu8; 32]).unwrap().unwrap().saved);
     }
 
+    #[test]
+    fn a_reply_remembers_what_it_answers() {
+        let tmp = TempDb::new();
+        let s = Store::open(&tmp.0, &[1u8; 32]).unwrap();
+        let peer = [0xAAu8; 32];
+        let original = crate::envelope::message_ref(&peer, b"co delas?");
+        s.insert_message(&NewMessage {
+            contact_pubkey: peer,
+            direction: Direction::Incoming,
+            sent_at: 10,
+            body: b"co delas?",
+            file: None,
+            msg_ref: Some(original),
+            reply_to: None,
+        })
+        .unwrap();
+        s.insert_message(&NewMessage {
+            contact_pubkey: peer,
+            direction: Direction::Outgoing,
+            sent_at: 11,
+            body: b"nic",
+            file: None,
+            msg_ref: None,
+            reply_to: Some(original),
+        })
+        .unwrap();
+
+        let thread = s.messages_for(&peer, 10).unwrap();
+        assert_eq!(thread[0].reply_to, None);
+        assert_eq!(thread[1].reply_to, Some(original));
+        // And the reference resolves to the message it stands for, which is
+        // what draws the quote.
+        let quoted = s.message_by_ref(&original).unwrap().unwrap();
+        assert_eq!(quoted.body, b"co delas?");
+
+        // A reference is a digest of the plaintext, so it must not be sitting in
+        // the file in the clear — that would be a way to confirm a guess at what
+        // was said without the passphrase.
+        let raw: Vec<Vec<u8>> = {
+            let mut stmt = s.conn.prepare("SELECT reply_to FROM messages WHERE reply_to IS NOT NULL").unwrap();
+            let rows = stmt.query_map([], |r| r.get::<_, Vec<u8>>(0)).unwrap();
+            rows.map(|r| r.unwrap()).collect()
+        };
+        assert_eq!(raw.len(), 1);
+        assert_ne!(raw[0].as_slice(), &original[..]);
+    }
+
+    #[test]
+    fn a_reaction_is_one_per_person_and_can_be_taken_back() {
+        let tmp = TempDb::new();
+        let s = Store::open(&tmp.0, &[1u8; 32]).unwrap();
+        let msg = crate::envelope::message_ref(&[0xAAu8; 32], b"neco");
+        let me = [1u8; 32];
+        let them = [2u8; 32];
+
+        s.set_reaction(&msg, &me, "👍", 1).unwrap();
+        s.set_reaction(&msg, &them, "🔥", 2).unwrap();
+        assert_eq!(s.reactions_for(&msg).unwrap().len(), 2);
+
+        // Reacting again replaces rather than piles up.
+        s.set_reaction(&msg, &me, "😂", 3).unwrap();
+        let now = s.reactions_for(&msg).unwrap();
+        assert_eq!(now.len(), 2);
+        assert!(now.iter().any(|(e, w)| e == "😂" && *w == me));
+        assert!(!now.iter().any(|(e, _)| e == "👍"));
+
+        // Empty takes mine off and leaves theirs alone.
+        s.set_reaction(&msg, &me, "", 4).unwrap();
+        let left = s.reactions_for(&msg).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0], ("🔥".to_string(), them));
+    }
+
     /// Two passphrases, one file, neither able to see the other.
     #[test]
     fn a_second_passphrase_gets_its_own_separate_history() {
@@ -3803,6 +4215,8 @@ mod tests {
                 direction: Direction::Incoming,
                 sent_at: 10,
                 body: b"neco co nikdo nema videt",
+                msg_ref: None,
+                reply_to: None,
                 file: None,
             })
             .unwrap();
@@ -3894,6 +4308,8 @@ mod tests {
                 direction: Direction::Incoming,
                 sent_at: 1,
                 body: b"hello",
+                msg_ref: None,
+                reply_to: None,
                 file: None,
             })
             .unwrap();
@@ -3993,6 +4409,8 @@ mod tests {
                     direction: Direction::Incoming,
                     sent_at: i,
                     body: b"tajna zprava ktera musi zmizet",
+                    msg_ref: None,
+                    reply_to: None,
                     file: None,
                 })
                 .unwrap();
@@ -4054,6 +4472,8 @@ mod tests {
                 direction: Direction::Outgoing,
                 sent_at: 2,
                 body: b"ahoj",
+                msg_ref: None,
+                reply_to: None,
                 file: None,
             })
             .unwrap();

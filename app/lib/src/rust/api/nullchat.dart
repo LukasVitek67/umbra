@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `account_file`, `broadcast_group_info`, `convert_to_wrapped_key`, `dial_once`, `duress_key`, `emit`, `flush_lock`, `flush_pending`, `gif_circuit`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `kek_for`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `pq_fingerprint_of`, `read_kdf`, `remember_group_routes`, `remember_peer_inner`, `remember_peer`, `remember_pq_fingerprint`, `rt`, `safe_file_name`, `safe_gif_name`, `send_file_or_queue`, `send_or_queue`, `send_profile`, `socks_port_now`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `update_peer_details`, `view_of`, `wrap_row`, `wrapped_key_in`, `wrapped_row_in`
+// These functions are ignored because they are not marked as `pub`: `account_file`, `broadcast_group_info`, `convert_to_wrapped_key`, `dial_once`, `duress_key`, `emit`, `flatten_quote`, `flush_lock`, `flush_pending`, `gif_circuit`, `handle_payload`, `hex16`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `kek_for`, `log_line`, `now_secs`, `peer_tag`, `peer_understands`, `pending_count`, `pq_fingerprint_of`, `read_kdf`, `remember_group_routes`, `remember_peer_inner`, `remember_peer`, `remember_pq_fingerprint`, `rt`, `safe_file_name`, `safe_gif_name`, `send_file_or_queue`, `send_or_queue`, `send_profile`, `socks_port_now`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `update_peer_details`, `view_of`, `wrap_row`, `wrapped_key_in`, `wrapped_row_in`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Incoming`, `Inner`, `Pending`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `from`
 
@@ -222,6 +222,13 @@ abstract class UmbraApp implements RustOpaqueInterface {
     required int limit,
   });
 
+  /// Every attachment across every conversation, newest first.
+  ///
+  /// Filtering and searching happen in the interface: once this list is
+  /// decrypted it is already in memory, and doing it here would mean unsealing
+  /// the same rows again on every keystroke.
+  List<MediaItemView> media({required int limit});
+
   /// Fold one conversation into another: the same person with two identities,
   /// because they reinstalled or made a new account.
   ///
@@ -277,6 +284,9 @@ abstract class UmbraApp implements RustOpaqueInterface {
 
   /// How many messages are still waiting for their peer.
   int pendingMessages();
+
+  /// The reactions on a message, as `"emoji|identity hex"` per entry.
+  List<String> reactions({required String msgRefHex});
 
   /// Decrypt an attachment so the user can open or save it.
   ///
@@ -347,6 +357,32 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// the app does not lose it.
   void sendOverNetwork({
     required String contactHex,
+    required String text,
+    required BigInt now,
+  });
+
+  /// Put an emoji on a message, or take ours off with an empty `emoji`.
+  ///
+  /// Safe to send to anyone: a build that does not know reactions ignores the
+  /// frame, and an emoji that does not arrive costs nobody a message. Ours is
+  /// recorded locally either way, so the button does what it looks like it
+  /// does even when the other side is old or offline.
+  void sendReaction({
+    required String contactHex,
+    required String msgRefHex,
+    required String emoji,
+  });
+
+  /// Store a message that answers another one, and send it.
+  ///
+  /// `reply_to_hex` is the reference of the message being answered; see
+  /// `envelope::message_ref`. A peer whose build predates replies gets the
+  /// quoted line folded into the text instead — losing the quote is a shame,
+  /// losing the message would not be acceptable.
+  void sendReply({
+    required String contactHex,
+    required String replyToHex,
+    required String quoted,
     required String text,
     required BigInt now,
   });
@@ -614,6 +650,55 @@ class GroupView {
           members == other.members;
 }
 
+/// One attachment for the media overview.
+class MediaItemView {
+  /// The message it arrived on, so it can be shown in place.
+  final PlatformInt64 messageId;
+
+  /// The conversation it belongs to.
+  final String peerHex;
+  final bool outgoing;
+  final BigInt sentAt;
+
+  /// Where our sealed copy lives.
+  final String filePath;
+  final String fileName;
+  final BigInt fileSize;
+
+  const MediaItemView({
+    required this.messageId,
+    required this.peerHex,
+    required this.outgoing,
+    required this.sentAt,
+    required this.filePath,
+    required this.fileName,
+    required this.fileSize,
+  });
+
+  @override
+  int get hashCode =>
+      messageId.hashCode ^
+      peerHex.hashCode ^
+      outgoing.hashCode ^
+      sentAt.hashCode ^
+      filePath.hashCode ^
+      fileName.hashCode ^
+      fileSize.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MediaItemView &&
+          runtimeType == other.runtimeType &&
+          messageId == other.messageId &&
+          peerHex == other.peerHex &&
+          outgoing == other.outgoing &&
+          sentAt == other.sentAt &&
+          filePath == other.filePath &&
+          fileName == other.fileName &&
+          fileSize == other.fileSize;
+}
+
 /// A stored message, flattened for the UI.
 class MessageView {
   /// Row id, so a single message can be acted on (deleted, for one).
@@ -704,6 +789,10 @@ class NetEvent {
 
 /// A message found by search, or one a contact sent us.
 class SearchHitView {
+  /// The row this hit stands for, so opening it can land on the message
+  /// itself rather than at the bottom of the conversation.
+  final PlatformInt64 messageId;
+
   /// Who wrote it (or, in a 1:1 thread, the other party).
   final String peerHex;
 
@@ -714,6 +803,7 @@ class SearchHitView {
   final String body;
 
   const SearchHitView({
+    required this.messageId,
     required this.peerHex,
     required this.groupHex,
     required this.outgoing,
@@ -723,6 +813,7 @@ class SearchHitView {
 
   @override
   int get hashCode =>
+      messageId.hashCode ^
       peerHex.hashCode ^
       groupHex.hashCode ^
       outgoing.hashCode ^
@@ -734,6 +825,7 @@ class SearchHitView {
       identical(this, other) ||
       other is SearchHitView &&
           runtimeType == other.runtimeType &&
+          messageId == other.messageId &&
           peerHex == other.peerHex &&
           groupHex == other.groupHex &&
           outgoing == other.outgoing &&

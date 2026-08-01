@@ -121,6 +121,44 @@ class Chat {
   Message? get last => messages.isEmpty ? null : messages.last;
 }
 
+/// What sort of thing an attachment is, for the media overview's filter.
+enum MediaFilter { all, photos, videos, gifs, files }
+
+/// One attachment in the media overview, with the conversation it belongs to.
+class MediaEntry {
+  MediaEntry({
+    required this.messageId,
+    required this.peerHex,
+    required this.outgoing,
+    required this.at,
+    required this.path,
+    required this.name,
+    required this.size,
+  });
+
+  final int messageId;
+  final String peerHex;
+  final bool outgoing;
+  final DateTime at;
+  final String path;
+  final String name;
+  final int size;
+
+  /// Which filter this falls under. Decided by the name's extension, the same
+  /// way the bubble in the conversation decides whether to show a preview.
+  MediaFilter get kind {
+    final n = name.toLowerCase();
+    if (n.endsWith('.gif')) return MediaFilter.gifs;
+    for (final e in const ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.heic']) {
+      if (n.endsWith(e)) return MediaFilter.photos;
+    }
+    for (final e in const ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.m4v']) {
+      if (n.endsWith(e)) return MediaFilter.videos;
+    }
+    return MediaFilter.files;
+  }
+}
+
 /// One member of a group, as the roster knows them.
 class GroupMemberInfo {
   GroupMemberInfo({required this.identityHex, required this.displayName, required this.onion});
@@ -241,12 +279,73 @@ class AppState extends ChangeNotifier {
   // whole widget tree (that is what makes every screen take the new palette),
   // and a section or an open conversation stored in a State would be thrown
   // away with it — you would land back in Chats after picking a colour.
-  /// Which rail section is open: 0 chats, 1 contacts, 2 settings.
+  /// Which rail section is open: 0 chats, 1 contacts, 2 media, 3 settings.
   int railSection = 0;
   /// The open 1:1 conversation, if any.
   Chat? selectedChat;
   /// The open group conversation, if any.
   GroupChat? selectedGroup;
+
+  /// A message the conversation should scroll to and mark as soon as it opens.
+  ///
+  /// Set by whatever sent the user there — a search hit, an entry in Media —
+  /// and cleared by the conversation once it has landed on it, so going back
+  /// and forth does not keep re-scrolling to the same place.
+  int? pendingJumpMessageId;
+
+  /// The message drawn with a highlight right now, if any.
+  int? highlightedMessageId;
+
+  /// Open the conversation this message is in and land on the message.
+  void showMessageInChat(String peerHex, int messageId) {
+    final chat = chats.where((c) => c.contactHex == peerHex).firstOrNull;
+    if (chat == null) return;
+    pendingJumpMessageId = messageId;
+    selectedGroup = null;
+    selectedChat = chat;
+    railSection = 0;
+    notifyListeners();
+  }
+
+  /// Mark a message as the one the user was sent to, then let it fade.
+  ///
+  /// A highlight that stayed would become part of how the conversation looks;
+  /// the point is only to answer "which one did I click".
+  void flashMessage(int messageId) {
+    highlightedMessageId = messageId;
+    notifyListeners();
+    Future.delayed(const Duration(seconds: 3), () {
+      if (highlightedMessageId != messageId) return;
+      highlightedMessageId = null;
+      notifyListeners();
+    });
+  }
+
+  /// Every attachment in the history, newest first.
+  ///
+  /// Read on demand rather than kept in sync: the overview is a place you visit,
+  /// not something on screen while messages arrive.
+  List<MediaEntry> media({int limit = 500}) {
+    final app = _app;
+    if (app == null) return const [];
+    try {
+      return app
+          .media(limit: limit)
+          .map((m) => MediaEntry(
+                messageId: m.messageId,
+                peerHex: m.peerHex,
+                outgoing: m.outgoing,
+                at: DateTime.fromMillisecondsSinceEpoch(m.sentAt.toInt() * 1000),
+                path: m.filePath,
+                name: m.fileName,
+                size: m.fileSize.toInt(),
+              ))
+          .toList();
+    } catch (e) {
+      lastError = _clean(e);
+      return const [];
+    }
+  }
 
   Future<String> _dir() async => AppDir.path();
 
