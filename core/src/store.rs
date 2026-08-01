@@ -657,8 +657,15 @@ impl Store {
         new_key: &[u8; 32],
         wrap_name: &[u8],
         wrap_value: &[u8],
+        files_dir: Option<&Path>,
     ) -> Result<(), StoreError> {
         let new_index_key = derive_index_key(new_key);
+        // Attachments are sealed with this same key, on disk, outside anything
+        // SQLite can roll back. They are prepared first and put in place last,
+        // so a failure anywhere in between leaves the originals alone.
+        if let Some(dir) = files_dir {
+            self.reseal_files_to_temp(dir, new_key)?;
+        }
         let backup = self.backup_before_rekey();
         self.conn.execute_batch("BEGIN IMMEDIATE")?;
         let done = (|| -> Result<(), StoreError> {
@@ -726,6 +733,11 @@ impl Store {
                 self.conn.execute_batch("COMMIT")?;
                 self.key = Zeroizing::new(*new_key);
                 self.index_key = Zeroizing::new(new_index_key);
+                // Now that the new key is the key, the prepared attachments are
+                // the readable ones.
+                if let Some(dir) = files_dir {
+                    self.finish_file_rekey(dir);
+                }
                 // The copy is protected by the key we just retired, which is the
                 // weak one this whole exercise is about. It exists only for the
                 // moment the conversion is in flight.
@@ -736,7 +748,58 @@ impl Store {
             }
             Err(e) => {
                 let _ = self.conn.execute_batch("ROLLBACK");
+                // The prepared copies describe a key nobody adopted.
+                if let Some(dir) = files_dir {
+                    self.finish_file_rekey(dir);
+                }
                 Err(e)
+            }
+        }
+    }
+
+    /// The suffix a re-sealed attachment waits under until the new key is real.
+    const REKEY_TMP: &'static str = ".rekey-tmp";
+
+    /// Write a copy of every attachment this key opens, sealed under `new_key`.
+    ///
+    /// Files this key cannot open are another profile's — or were never sealed
+    /// at all, which is how attachments from before 2.2.2 sit — and are left
+    /// alone in both cases.
+    fn reseal_files_to_temp(&self, files_dir: &Path, new_key: &[u8; 32]) -> Result<(), StoreError> {
+        let Ok(entries) = std::fs::read_dir(files_dir) else { return Ok(()) };
+        for path in entries.flatten().map(|e| e.path()).filter(|p| p.is_file()) {
+            if path.to_string_lossy().ends_with(Self::REKEY_TMP) {
+                continue;
+            }
+            let Ok(raw) = std::fs::read(&path) else { continue };
+            let Ok(plain) = self.unseal(&raw) else { continue };
+            let tmp = PathBuf::from(format!("{}{}", path.to_string_lossy(), Self::REKEY_TMP));
+            std::fs::write(&tmp, seal_with(new_key, &plain)?)
+                .map_err(|e| StoreError::Db(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Settle any half-finished attachment re-sealing.
+    ///
+    /// A prepared copy is put in place when it opens under the key this store
+    /// currently holds, and thrown away when it does not — which is exactly the
+    /// difference between "the conversion committed" and "it did not". Safe to
+    /// call at any time, and called on every sign-in, so a crash in the moment
+    /// between the database committing and the files being swapped in does not
+    /// cost anyone their pictures.
+    pub fn finish_file_rekey(&self, files_dir: &Path) {
+        let Ok(entries) = std::fs::read_dir(files_dir) else { return };
+        for tmp in entries.flatten().map(|e| e.path()).filter(|p| p.is_file()) {
+            let name = tmp.to_string_lossy().to_string();
+            let Some(target) = name.strip_suffix(Self::REKEY_TMP) else { continue };
+            match std::fs::read(&tmp).ok().map(|raw| self.unseal(&raw).is_ok()) {
+                Some(true) => {
+                    let _ = std::fs::rename(&tmp, target);
+                }
+                _ => {
+                    let _ = std::fs::remove_file(&tmp);
+                }
             }
         }
     }
@@ -3485,7 +3548,7 @@ mod tests {
         })
         .unwrap();
 
-        s.rekey(&new, b"a random looking name", b"a wrapped key").unwrap();
+        s.rekey(&new, b"a random looking name", b"a wrapped key", None).unwrap();
 
         // The handle keeps working: its key was swapped, not invalidated.
         assert_eq!(s.messages_for(&[0xAAu8; 32], 10).unwrap().len(), 1);
@@ -3541,7 +3604,7 @@ mod tests {
 
         {
             let mut real = Store::open(&tmp.0, &real_old).unwrap();
-            real.rekey(&real_new, b"wrap row for the real one", b"wrapped").unwrap();
+            real.rekey(&real_new, b"wrap row for the real one", b"wrapped", None).unwrap();
         }
 
         // The decoy still opens on the key it always had, sees its own history,
@@ -3556,7 +3619,7 @@ mod tests {
         // …and converts itself later, without disturbing the one that went first.
         {
             let mut decoy = Store::open(&tmp.0, &decoy_old).unwrap();
-            decoy.rekey(&decoy_new, b"wrap row for the decoy", b"wrapped too").unwrap();
+            decoy.rekey(&decoy_new, b"wrap row for the decoy", b"wrapped too", None).unwrap();
         }
         let real = Store::open(&tmp.0, &real_new).unwrap();
         assert_eq!(real.list_contacts().unwrap()[0].display_name, "Skutecny");
@@ -3566,6 +3629,71 @@ mod tests {
         assert!(real.get_contact(&[0xBBu8; 32]).unwrap().is_none());
     }
 
+    /// Attachments are sealed with the database key and live outside the
+    /// database, so a re-key that forgot them would turn every picture in the
+    /// history into noise — and quietly, because an unsealable file is handed
+    /// back as-is rather than reported.
+    #[test]
+    fn a_rekey_carries_the_attachments_too() {
+        let tmp = TempDb::new();
+        let files = tmp.0.with_extension("files");
+        std::fs::create_dir_all(&files).unwrap();
+        let mine = files.join("sent-aaaa-kotatko.gif");
+        let theirs = files.join("sent-bbbb-jine.gif");
+
+        let mut s = Store::open(&tmp.0, &[1u8; 32]).unwrap();
+        s.put_secret("identity_seed", b"x").unwrap();
+        s.encrypt_file(&mine, b"GIF89a pretend this is a picture").unwrap();
+        // Another profile's attachment, sealed under a key we do not have.
+        Store::open(&tmp.0, &[2u8; 32])
+            .unwrap()
+            .encrypt_file(&theirs, b"none of our business")
+            .unwrap();
+        let theirs_before = std::fs::read(&theirs).unwrap();
+
+        s.rekey(&[9u8; 32], b"name", b"wrapped", Some(&files)).unwrap();
+
+        let after = Store::open(&tmp.0, &[9u8; 32]).unwrap();
+        assert_eq!(
+            &*after.decrypt_file(&mine).unwrap(),
+            b"GIF89a pretend this is a picture"
+        );
+        // Untouched, byte for byte, and still theirs.
+        assert_eq!(std::fs::read(&theirs).unwrap(), theirs_before);
+        assert_eq!(
+            &*Store::open(&tmp.0, &[2u8; 32]).unwrap().decrypt_file(&theirs).unwrap(),
+            b"none of our business"
+        );
+        // No half-finished work left lying about.
+        assert!(!files.join("sent-aaaa-kotatko.gif.rekey-tmp").exists());
+        let _ = std::fs::remove_dir_all(files);
+    }
+
+    /// A prepared copy is only adopted when it opens under the key the store
+    /// actually ended up with. One left by an attempt that rolled back must be
+    /// thrown away, not swapped in over a perfectly good file.
+    #[test]
+    fn an_abandoned_attempt_does_not_eat_the_file() {
+        let tmp = TempDb::new();
+        let files = tmp.0.with_extension("files2");
+        std::fs::create_dir_all(&files).unwrap();
+        let real = files.join("photo.jpg");
+
+        let s = Store::open(&tmp.0, &[1u8; 32]).unwrap();
+        s.encrypt_file(&real, b"the real picture").unwrap();
+        // As if a conversion had prepared this and then failed.
+        std::fs::write(
+            files.join("photo.jpg.rekey-tmp"),
+            seal_with(&[9u8; 32], b"from a key nobody adopted").unwrap(),
+        )
+        .unwrap();
+
+        s.finish_file_rekey(&files);
+        assert!(!files.join("photo.jpg.rekey-tmp").exists());
+        assert_eq!(&*s.decrypt_file(&real).unwrap(), b"the real picture");
+        let _ = std::fs::remove_dir_all(files);
+    }
+
     /// The wrapped key is written under the exact name it was given, unsealed —
     /// it is the one row that cannot be sealed under the key it protects.
     #[test]
@@ -3573,7 +3701,7 @@ mod tests {
         let tmp = TempDb::new();
         let mut s = Store::open(&tmp.0, &[1u8; 32]).unwrap();
         s.put_secret("identity_seed", b"x").unwrap();
-        s.rekey(&[9u8; 32], b"the name", b"the wrapped bytes").unwrap();
+        s.rekey(&[9u8; 32], b"the name", b"the wrapped bytes", None).unwrap();
 
         let found = stored_secrets(&tmp.0).unwrap();
         assert!(found

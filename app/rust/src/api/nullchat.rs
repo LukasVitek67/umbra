@@ -750,13 +750,20 @@ mod key_wrapping_tests {
                     pq_fingerprint: None,
                 })
                 .unwrap();
+            std::fs::create_dir_all(dir.join("files")).unwrap();
+            let picture = dir.join("files").join("recv-aaaa-kotatko.gif");
+            store.encrypt_file(&picture, b"GIF89a a small cat").unwrap();
             store
                 .insert_message(&NewMessage {
                     contact_pubkey: [0xAAu8; 32],
                     direction: Direction::Incoming,
                     sent_at: 10,
                     body: b"ahoj",
-                    file: None,
+                    file: Some(NewAttachment {
+                        path: picture.to_string_lossy().as_ref(),
+                        name: "kotatko.gif",
+                        size: 18,
+                    }),
                 })
                 .unwrap();
         }
@@ -770,7 +777,13 @@ mod key_wrapping_tests {
             assert_eq!(contacts.len(), 1);
             assert_eq!(contacts[0].display_name, "Kamarad");
             assert!(contacts[0].verified);
-            assert_eq!(g.store.messages_for(&[0xAAu8; 32], 10).unwrap().len(), 1);
+            let msgs = g.store.messages_for(&[0xAAu8; 32], 10).unwrap();
+            assert_eq!(msgs.len(), 1);
+            // The attachment is sealed with the same key the conversion just
+            // replaced, and it lives outside the database. If it did not come
+            // along, this reads back as noise rather than as an error.
+            let path = PathBuf::from(msgs[0].file_path.as_deref().unwrap());
+            assert_eq!(&*g.store.decrypt_file(&path).unwrap(), b"GIF89a a small cat");
         }
         drop(app);
 
@@ -1045,10 +1058,14 @@ impl UmbraApp {
     /// Runs once per profile, the first time it signs in after the upgrade.
     /// Rows belonging to the other passphrases this file answers to are left
     /// exactly as they are — each converts itself when its own turn comes.
-    fn convert_to_wrapped_key(store: &mut Store, kek: &[u8; 32]) -> Result<(), String> {
+    fn convert_to_wrapped_key(store: &mut Store, kek: &[u8; 32], dir: &Path) -> Result<(), String> {
         let new_key = keystore::new_store_key().map_err(|e| e.to_string())?;
         let (name, value) = wrap_row(kek, &new_key)?;
-        store.rekey(&new_key, &name, &value).map_err(|e| e.to_string())
+        // Attachments are sealed with the database key too, so the folder has to
+        // come along or every picture in the history turns to noise.
+        store
+            .rekey(&new_key, &name, &value, Some(&dir.join("files")))
+            .map_err(|e| e.to_string())
     }
 
     /// Open an existing identity at `dir` with `passphrase`.
@@ -1100,8 +1117,13 @@ impl UmbraApp {
         // Only now — the line above is what proves the passphrase belongs to
         // this profile. Converting before it would file a wrapped key for every
         // wrong guess anyone ever typed.
+        // A conversion that was interrupted between the database committing and
+        // the attachments being swapped in leaves prepared copies behind. This
+        // settles them, and does nothing at all when there are none.
+        store.finish_file_rekey(&dir.join("files"));
+
         if !converted {
-            match Self::convert_to_wrapped_key(&mut store, &kek) {
+            match Self::convert_to_wrapped_key(&mut store, &kek, &dir) {
                 Ok(()) => log_line("klíč databáze převeden na silnější odvození"),
                 // Not fatal: the profile still opens exactly as it did, with the
                 // key it already had. Better a sign-in on the old scheme than no
