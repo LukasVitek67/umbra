@@ -25,6 +25,7 @@ Future<void> main(List<String> args) async {
   // data directory (and neither would connect), so hand over and quit instead.
   final mine = await SingleInstance.acquire(
     onSecondLaunch: () => BackgroundMode.instance.show(),
+    replacing: args.contains(kRestartFlag),
   );
   if (!mine) {
     exit(0);
@@ -40,6 +41,9 @@ Future<void> main(List<String> args) async {
   // Being reachable is the point of a messenger, so this is on unless the user
   // turns it off (asked exactly once, on first run).
   await Autostart.enableByDefaultOnce();
+  // "Add another account" from the profile menu signs out first, and signing out
+  // ends the process — so the request has to arrive as an argument.
+  if (args.contains(kNewAccountFlag)) appState.startNewAccountFlow();
   runApp(const UmbraAppRoot());
 }
 

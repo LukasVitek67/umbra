@@ -4,6 +4,8 @@
 // plus switching accounts and signing out. It is deliberately just the avatar —
 // the bar is narrow, and the name is one hover (or one click) away.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'l10n.dart';
@@ -25,17 +27,17 @@ class ProfileButton extends StatelessWidget {
           offset: const Offset(56, -20),
           color: UmbraColors.surfaceHigh,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          // All three end the session, which ends the process — see
+          // `AppState.signOut`. What differs is only what the replacement opens
+          // on, so "add an account" has to say so before we go.
           onSelected: (value) {
             switch (value) {
               case 'switch':
-                appState.signOut();
-                break;
               case 'signout':
-                appState.signOut();
+                unawaited(appState.signOut());
                 break;
               case 'new':
-                appState.signOut();
-                appState.startNewAccountFlow();
+                unawaited(appState.signOut(newAccount: true));
                 break;
             }
           },

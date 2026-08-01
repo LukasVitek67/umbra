@@ -116,7 +116,7 @@ class L {
       'connecting.subtitle':
           'NullChat needs a Tor connection before it can reach anyone. Nothing here needs your attention — it just takes a while.',
       'connecting.hint':
-          'The first start can take 2–15 minutes: Tor downloads the network directory, and on networks that block Tor it looks for a way through bridges. Later starts are much faster.',
+          'Usually well under a minute. A first start has to download the network directory, and on a network that blocks Tor it looks for a way through bridges — either can take considerably longer.',
       'chats.title': 'Chats',
       'chats.subtitle': 'Direct end-to-end conversations',
       'chats.add': 'Add',
@@ -331,7 +331,7 @@ class L {
       'accounts.autoOff': 'Asks for the passphrase',
       'accounts.remember': 'Sign in automatically on this computer',
       'accounts.rememberHelp':
-          'The passphrase is stored encrypted for your Windows user. Anyone who can use your Windows account can then open this account.',
+          'The passphrase is stored encrypted for your Windows user. Any program running as you can then open this account — including one you did not install on purpose.',
       'accounts.back': 'Back to accounts',
       'accounts.remove': 'Delete',
       'accounts.removeTitle': 'Delete this account?',
@@ -534,7 +534,7 @@ class L {
       'connecting.subtitle':
           'NullChat potřebuje spojení se sítí Tor, než na někoho dosáhne. Nic nemusíš dělat — jen to chvíli trvá.',
       'connecting.hint':
-          'První spuštění může trvat 2–15 minut: Tor stahuje adresář sítě a na sítích, které ho blokují, hledá cestu přes mosty. Další spuštění jsou výrazně rychlejší.',
+          'Obvykle to je do minuty. Při prvním spuštění se stahuje adresář sítě a na síti, která Tor blokuje, se hledá cesta přes mosty — obojí může trvat výrazně déle.',
       'chats.title': 'Chaty',
       'chats.subtitle': 'Přímé end-to-end konverzace',
       'chats.add': 'Přidat',
@@ -750,7 +750,7 @@ class L {
       'accounts.autoOff': 'Ptá se na frázi',
       'accounts.remember': 'Na tomto počítači se přihlašovat automaticky',
       'accounts.rememberHelp':
-          'Fráze se uloží zašifrovaná pro tvůj účet ve Windows. Kdo se dostane do tvých Windows, dostane se i sem.',
+          'Fráze se uloží zašifrovaná pro tvůj účet ve Windows. Otevřít tenhle účet pak dokáže jakýkoli program, který pod tvým účtem běží — i takový, který sis nenainstaloval schválně.',
       'accounts.back': 'Zpět na účty',
       'accounts.remove': 'Smazat',
       'accounts.removeTitle': 'Smazat tento účet?',

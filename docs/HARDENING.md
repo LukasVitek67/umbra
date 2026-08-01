@@ -59,6 +59,47 @@ that actually matters: joining the result onto the downloads folder always stays
 A peer chose the byte count and it went straight to `avatar-<peer>.img`. Capped
 at 8 MiB.
 
+## Fixed since — 2.3.11
+
+### 5. Signing out did not end the session — critical
+
+`AppState.signOut()` set its own fields to null and stopped there. The session
+itself lived on the Rust side and nothing let go of it: `APP`, `SERVICE`,
+`CONTACTS`, `MY_PROFILE` and the running network tasks all held the same
+`Arc<Mutex<Inner>>`, so the open database, the identity key and the live Signal
+sessions survived a sign-out intact. The account picker came up, the passphrase
+was asked for again, and none of that had any bearing on what was still in
+memory. "Locked" meant a different screen.
+
+Now `UmbraApp::end_session()` drops all of it — which also kills the tor daemon
+and closes the database cleanly — and the app then restarts itself, coming back
+at the picker. The restart is the part that matters: a passphrase-derived key
+that has been live leaves copies no destructor reaches, in the allocator, in a
+saved stack, in the page file. Leaving the process is the only thing that
+settles those, and `Store`'s keys are `Zeroizing` precisely so that the ones it
+does own go first.
+
+The cost is a Tor bootstrap on the way back in. That was the objection to doing
+it this way, and it does not hold: measured on the author's machine, from
+`start_network` to a ready onion took 6 s and 23 s on two runs, not the minutes
+the connecting screen used to claim (that string is fixed too).
+
+Not covered: an idle timer. Walking away without signing out still leaves
+everything unlocked.
+
+### 6. A contact's queue could be delivered twice at once — high
+
+`flush_pending` is called from two places — the keep-alive loop every 20 s, and
+the "connected" event. Both read the outbox for the same contact and both send
+what they find, so an overlap put every waiting message on the wire twice. The
+second copy is worse than noise: it arrives against a Double Ratchet state that
+has already moved past it.
+
+One flush per contact at a time now, with `try_lock` rather than a queue — if a
+delivery is already running there is nothing to add, and waiting would only hold
+the keep-alive loop, which walks every contact in turn, behind one slow peer.
+Anything queued during a flush goes out on the next tick.
+
 ## Open — worth doing, in this order
 
 ### A. ~~There is no way to verify a contact~~ — **done**
@@ -94,11 +135,20 @@ DPAPI ties it to the Windows account, so copying the file elsewhere is useless �
 but malware running as the user can call `CryptUnprotectData` just as easily as
 NullChat can, and that yields the passphrase, and with it the whole database.
 
-**Plan:** keep it, because typing a long passphrase at every start is what makes
-people pick short ones — but bound the damage. Add an idle lock that clears the
-key from memory and requires the passphrase again, and make the detailed
-notification setting (already restricted to auto-login accounts) consistent with
-it.
+**Partly addressed in 2.3.11, and the finding stands.** The blob is now bound to
+extra entropy derived from the account's own salt, so `accounts.json` by itself
+is no longer enough — which defeats the common shape of the attack, a tool that
+walks the disk for protected blobs and hands each one to `CryptUnprotectData`.
+It does not defeat anyone who targets NullChat: the source is public and both
+files are on the same disk. The warning next to the checkbox says as much, and
+now names the real threat (any program running as you) rather than a person at
+the keyboard.
+
+**Plan for the rest:** keep the feature, because typing a long passphrase at
+every start is what makes people pick short ones — but bound the damage. An idle
+lock that ends the session the way signing out now does (finding 5), and a
+Windows Hello gate on the stored blob so recovering it needs a person, not just
+a process.
 
 ### C. Handshake signatures lack domain separation — medium
 

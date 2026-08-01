@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart';
 import 'app_dir.dart';
 import 'l10n.dart';
 import 'notifications.dart';
+import 'single_instance.dart';
 import 'src/rust/api/nullchat.dart';
 
 const List<int> kPaddingBuckets = [256, 1024, 4096, 16384, 65536];
@@ -344,10 +345,62 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Sign out: drop the in-memory session and return to the account picker.
-  /// The network keeps running only for the signed-in account, so we stop it by
-  /// letting the app state go; Tor is torn down when the app exits.
-  void signOut() {
+  /// Sign out and come back at the account picker.
+  ///
+  /// Clearing our own fields is the smaller half of this. The session lives in
+  /// the Rust side — the open database, the identity key, the live Signal
+  /// sessions — and a key that has been in memory leaves copies nothing owns:
+  /// in the allocator's free list, in a saved stack, in the page file. No amount
+  /// of setting variables to null reaches those. Leaving the process does, so
+  /// that is what happens here: hand the session back, start a replacement, and
+  /// quit. A lock that leaves the keys in RAM is decoration, and this app is not
+  /// the place for decoration.
+  ///
+  /// [newAccount] carries "and then let me make another one" across the restart,
+  /// since the process that was asked is not the process that answers.
+  Future<void> signOut({bool newAccount = false}) async {
+    try {
+      UmbraApp.endSession();
+    } catch (_) {
+      // Nothing to hand back (never signed in, or already gone).
+    }
+    _clearSessionState();
+
+    if (!_canRestart) {
+      // Android has no second process to hand over to, and exiting there is
+      // indistinguishable from a crash. Letting go above is what we get.
+      if (newAccount) creatingAccount = true;
+      notifyListeners();
+      return;
+    }
+
+    try {
+      // Let go of the single-instance claim first: the replacement checks for
+      // it on startup and must not find us still holding it.
+      await SingleInstance.release();
+      await Process.start(
+        Platform.resolvedExecutable,
+        [kRestartFlag, if (newAccount) kNewAccountFlag],
+        mode: ProcessStartMode.detached,
+      );
+    } catch (e) {
+      // The replacement did not start. Quitting now would look like a crash and
+      // leave the user with nothing, so stay up — the session is gone either
+      // way, which was the point.
+      lastError = _clean(e);
+      if (newAccount) creatingAccount = true;
+      notifyListeners();
+      return;
+    }
+    exit(0);
+  }
+
+  /// Whether this platform can hand over to a fresh copy of itself.
+  static bool get _canRestart =>
+      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+
+  /// Forget everything the signed-in account put on screen.
+  void _clearSessionState() {
     _app = null;
     hasIdentity = false;
     username = '';
@@ -360,7 +413,6 @@ class AppState extends ChangeNotifier {
     devices.clear();
     _clearAttachmentCache();
     netStatus = '';
-    notifyListeners();
   }
 
   void _adopt(UmbraApp app) {

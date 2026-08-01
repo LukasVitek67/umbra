@@ -156,15 +156,18 @@ mod dpapi {
         fn LocalFree(mem: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
     }
 
-    /// Encrypt bytes so only this Windows user on this machine can read them.
-    pub fn protect(plain: &[u8]) -> Option<Vec<u8>> {
+    /// Encrypt bytes so only this Windows user on this machine can read them,
+    /// and only together with `entropy`.
+    pub fn protect(plain: &[u8], entropy: &[u8]) -> Option<Vec<u8>> {
         let input = DataBlob { cb_data: plain.len() as u32, pb_data: plain.as_ptr() as *mut u8 };
+        let extra = DataBlob { cb_data: entropy.len() as u32, pb_data: entropy.as_ptr() as *mut u8 };
+        let extra_ptr = if entropy.is_empty() { std::ptr::null() } else { &extra };
         let mut out = DataBlob { cb_data: 0, pb_data: std::ptr::null_mut() };
         unsafe {
             let ok = CryptProtectData(
                 &input,
                 std::ptr::null(),
-                std::ptr::null(),
+                extra_ptr,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 0,
@@ -179,15 +182,18 @@ mod dpapi {
         }
     }
 
-    /// Reverse of [`protect`]; returns `None` on another user or machine.
-    pub fn unprotect(blob: &[u8]) -> Option<Vec<u8>> {
+    /// Reverse of [`protect`]; returns `None` on another user, another machine,
+    /// or the wrong `entropy`.
+    pub fn unprotect(blob: &[u8], entropy: &[u8]) -> Option<Vec<u8>> {
         let input = DataBlob { cb_data: blob.len() as u32, pb_data: blob.as_ptr() as *mut u8 };
+        let extra = DataBlob { cb_data: entropy.len() as u32, pb_data: entropy.as_ptr() as *mut u8 };
+        let extra_ptr = if entropy.is_empty() { std::ptr::null() } else { &extra };
         let mut out = DataBlob { cb_data: 0, pb_data: std::ptr::null_mut() };
         unsafe {
             let ok = CryptUnprotectData(
                 &input,
                 std::ptr::null_mut(),
-                std::ptr::null(),
+                extra_ptr,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 0,
@@ -207,27 +213,63 @@ mod dpapi {
 mod dpapi {
     // No OS-bound secret store here: refuse rather than write a passphrase in
     // the clear, so "remember me" simply stays unavailable.
-    pub fn protect(_plain: &[u8]) -> Option<Vec<u8>> {
+    pub fn protect(_plain: &[u8], _entropy: &[u8]) -> Option<Vec<u8>> {
         None
     }
-    pub fn unprotect(_blob: &[u8]) -> Option<Vec<u8>> {
+    pub fn unprotect(_blob: &[u8], _entropy: &[u8]) -> Option<Vec<u8>> {
         None
     }
 }
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
+use sha2::{Digest, Sha256};
+
+/// Extra input the stored passphrase is bound to, on top of DPAPI's own
+/// binding to the Windows user.
+///
+/// Plain DPAPI decrypts for *anything* running as this user, and the tools that
+/// go looking for saved credentials work exactly that way: walk the disk, find
+/// protected blobs, hand each one back to `CryptUnprotectData`. Mixing in the
+/// account's own salt means `accounts.json` by itself yields nothing — the
+/// attacker also needs that account's directory, and needs to know this program
+/// well enough to pair them.
+///
+/// It is a higher fence, not a different kind of fence. The source is public and
+/// both files sit on the same disk, so anyone who targets NullChat specifically
+/// still gets through. That is what the warning next to the checkbox says, and
+/// it stays true: auto sign-in trades the passphrase's protection for not
+/// typing it.
+fn entropy_for(account_dir: &Path) -> Vec<u8> {
+    let mut h = Sha256::new();
+    h.update(b"nullchat-autologin-v2");
+    // Written when the account is created and never touched again. If it cannot
+    // be read the blob simply will not open, and an unopenable blob means the
+    // app asks for the passphrase — the safe direction to fail in.
+    for name in ["nullchat.salt", "umbra.salt"] {
+        if let Ok(salt) = std::fs::read(account_dir.join(name)) {
+            h.update(&salt);
+            break;
+        }
+    }
+    h.finalize().to_vec()
+}
 
 /// Protect a passphrase for auto sign-in. Returns base64, or `None` when the
 /// platform offers no OS-bound protection.
-pub fn protect_passphrase(passphrase: &str) -> Option<String> {
-    dpapi::protect(passphrase.as_bytes()).map(|b| B64.encode(b))
+pub fn protect_passphrase(account_dir: &Path, passphrase: &str) -> Option<String> {
+    dpapi::protect(passphrase.as_bytes(), &entropy_for(account_dir)).map(|b| B64.encode(b))
 }
 
 /// Recover a passphrase stored by [`protect_passphrase`].
-pub fn recover_passphrase(secret_b64: &str) -> Option<String> {
+///
+/// Builds before 2.3.11 wrote the blob with no entropy at all, so try that too
+/// rather than locking those accounts out of their own auto sign-in. Signing in
+/// rewrites the entry, which is how they migrate.
+pub fn recover_passphrase(account_dir: &Path, secret_b64: &str) -> Option<String> {
     let blob = B64.decode(secret_b64).ok()?;
-    let plain = dpapi::unprotect(&blob)?;
+    let plain = dpapi::unprotect(&blob, &entropy_for(account_dir))
+        .or_else(|| dpapi::unprotect(&blob, &[]))?;
     String::from_utf8(plain).ok()
 }
 
@@ -259,8 +301,33 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn dpapi_roundtrip() {
-        let secret = protect_passphrase("tajna fraze 123").expect("DPAPI available");
+        let dir = std::env::temp_dir().join(format!("nullchat-dpapi-{}", new_id().unwrap()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("nullchat.salt"), b"sixteen byte salt").unwrap();
+
+        let secret = protect_passphrase(&dir, "tajna fraze 123").expect("DPAPI available");
         assert_ne!(secret, "tajna fraze 123");
-        assert_eq!(recover_passphrase(&secret).unwrap(), "tajna fraze 123");
+        assert_eq!(recover_passphrase(&dir, &secret).unwrap(), "tajna fraze 123");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The point of the entropy: `accounts.json` on its own is not enough.
+    #[cfg(windows)]
+    #[test]
+    fn the_blob_alone_does_not_open() {
+        let mine = std::env::temp_dir().join(format!("nullchat-ent-a-{}", new_id().unwrap()));
+        let theirs = std::env::temp_dir().join(format!("nullchat-ent-b-{}", new_id().unwrap()));
+        std::fs::create_dir_all(&mine).unwrap();
+        std::fs::create_dir_all(&theirs).unwrap();
+        std::fs::write(mine.join("nullchat.salt"), b"the real salt").unwrap();
+        std::fs::write(theirs.join("nullchat.salt"), b"a different salt").unwrap();
+
+        let secret = protect_passphrase(&mine, "tajna fraze 123").expect("DPAPI available");
+        // Same Windows user, same machine, copied blob — and still nothing,
+        // because the account directory did not come with it.
+        assert!(recover_passphrase(&theirs, &secret).is_none());
+
+        let _ = std::fs::remove_dir_all(mine);
+        let _ = std::fs::remove_dir_all(theirs);
     }
 }

@@ -8,6 +8,39 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.3.11
+
+- **Signing out now actually ends the session.** Until this release it only
+  changed what was on screen. Everything the passphrase unlocks — the open
+  database, your identity key, the live encrypted sessions with the people you
+  were talking to — stayed in the running program, so anyone who reached the
+  computer afterwards reached all of it without ever being asked for anything.
+
+  Signing out now hands the session back and the app restarts itself, coming
+  back at the account picker. Expect the window to close and reopen; that is the
+  point of it. Anything you had queued for someone offline is on disk and goes
+  out after you sign in again.
+
+- **Messages waiting for someone who is offline are no longer sent twice.** Two
+  parts of the app deliver that queue — a check that runs every twenty seconds,
+  and the moment a contact connects. When they overlapped they both sent the
+  same messages, and the second copy arrived in a state the recipient could not
+  read. Only one delivery per contact runs at a time now.
+
+- **A remembered passphrase is harder to take off the disk.** With automatic
+  sign-in on, Windows stores your passphrase encrypted for your user account.
+  Tools that hunt for saved credentials work by finding such files and asking
+  Windows to open them, which used to be enough. It is now tied to the account's
+  own key material as well, so the account list on its own gives nothing.
+  Existing entries are upgraded the next time they sign you in.
+
+  This still is what the checkbox says it is: automatic sign-in means a program
+  running as you can open this account. If that matters to you, leave it off.
+
+- The connecting screen no longer claims the first start takes 2–15 minutes.
+  On an ordinary connection it is seconds; the long case is a blocked network,
+  and it now says so.
+
 ## 2.3.1
 
 - **Contacts that disappeared come back, and the fault under them is fixed.**

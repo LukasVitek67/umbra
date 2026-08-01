@@ -46,13 +46,29 @@ final int Function(int) _releaseMutex =
     _kernel32.lookupFunction<Int32 Function(IntPtr), int Function(int)>('ReleaseMutex');
 
 
+/// The flag a sign-out restart passes: this launch is replacing the NullChat
+/// that started it, so the claim below may still be held for a moment.
+const kRestartFlag = '--restarted';
+
+/// Carries "the user asked for another account" across that restart, since the
+/// process that was asked is not the process that answers.
+const kNewAccountFlag = '--new-account';
+
 class SingleInstance {
   static RandomAccessFile? _lock;
   static ServerSocket? _server;
 
   /// True when this process may continue. False means another NullChat is already
   /// running (it has been asked to come to the front) and we should quit.
-  static Future<bool> acquire({required Future<void> Function() onSecondLaunch}) async {
+  ///
+  /// [replacing] is for the restart after signing out: the process we are taking
+  /// over from lets go of its claim and then exits, and "and then" is not
+  /// instant, so wait it out rather than mistaking it for a second launch and
+  /// leaving the user with no window at all.
+  static Future<bool> acquire({
+    required Future<void> Function() onSecondLaunch,
+    bool replacing = false,
+  }) async {
     if (!Platform.isWindows && !Platform.isLinux && !Platform.isMacOS) return true;
     try {
       final dir = Directory(await AppDir.path());
@@ -60,7 +76,14 @@ class SingleInstance {
       final lockFile = File('${dir.path}${sep}instance.lock');
       final portFile = File('${dir.path}${sep}instance.port');
 
-      final claimed = _claim(lockFile);
+      var claimed = _claim(lockFile);
+      if (!claimed && replacing) {
+        for (var i = 0; i < 30 && !claimed; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+          claimed = _claim(lockFile);
+        }
+        _note('waited for the previous NullChat: ${claimed ? "it is gone" : "it is still there"}');
+      }
       _note(claimed ? 'this process is the running NullChat' : 'another NullChat is running — handing over');
       if (!claimed) {
         // Someone else is running: ask them to show their window, step aside.

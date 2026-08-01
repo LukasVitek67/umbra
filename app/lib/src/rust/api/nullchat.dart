@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `account_file`, `broadcast_group_info`, `dial_once`, `duress_key`, `emit`, `flush_pending`, `gif_circuit`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `pq_fingerprint_of`, `read_kdf`, `remember_group_routes`, `remember_peer_inner`, `remember_peer`, `remember_pq_fingerprint`, `rt`, `safe_file_name`, `safe_gif_name`, `send_file_or_queue`, `send_or_queue`, `send_profile`, `socks_port_now`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `update_peer_details`, `view_of`
+// These functions are ignored because they are not marked as `pub`: `account_file`, `broadcast_group_info`, `dial_once`, `duress_key`, `emit`, `flush_lock`, `flush_pending`, `gif_circuit`, `handle_payload`, `hex`, `hit_view`, `identity_pubkey`, `install_dir`, `kdf_line`, `log_line`, `now_secs`, `peer_tag`, `pending_count`, `pq_fingerprint_of`, `read_kdf`, `remember_group_routes`, `remember_peer_inner`, `remember_peer`, `remember_pq_fingerprint`, `rt`, `safe_file_name`, `safe_gif_name`, `send_file_or_queue`, `send_or_queue`, `send_profile`, `socks_port_now`, `spawn_keepalive`, `spawn_updater`, `unhex16`, `unhex`, `update_peer_details`, `view_of`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Incoming`, `Inner`, `Pending`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `from`
 
@@ -118,6 +118,19 @@ abstract class UmbraApp implements RustOpaqueInterface {
   /// Runs on sign-in. Returns how many were converted, so the app can say so
   /// rather than changing the user's files silently.
   Future<int> encryptExistingAttachments();
+
+  /// Let go of the signed-in session: close the database, drop the identity
+  /// key, and tear down the network.
+  ///
+  /// The store's keys zeroize on drop, so this really does take them out of
+  /// their own memory — but it does not make the session unrecoverable. A key
+  /// that has been live gets copied by the allocator, by a scheduler saving a
+  /// stack, and by the page file, and none of those copies has a destructor.
+  /// Leaving the process is what settles that, and the caller does exactly
+  /// that next; see `AppState.signOut` on the Dart side. This function's job
+  /// is to make that exit clean — no half-written database, no orphaned tor.
+  static void endSession() =>
+      RustLib.instance.api.crateApiNullchatUmbraAppEndSession();
 
   /// Whether an identity already exists at `dir`.
   static bool exists({required String dir}) =>

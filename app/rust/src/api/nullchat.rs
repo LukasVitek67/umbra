@@ -97,6 +97,30 @@ struct Pending {
 }
 /// Contacts we are currently dialling, so we never dial one twice at once.
 static DIALLING: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+/// One flush at a time per contact.
+///
+/// Two places deliver the outbox for the same person: the keep-alive loop every
+/// twenty seconds, and the "connected" event. When they overlap they both read
+/// the same rows and both put them on the wire, so the peer gets every waiting
+/// message twice — and the second copy arrives against a ratchet that has
+/// already moved past it, which is not a duplicate they can simply ignore.
+static FLUSHING: Mutex<Option<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = Mutex::new(None);
+
+/// The flush lock for one contact, creating it on first use.
+fn flush_lock(peer_hex: &str) -> Arc<tokio::sync::Mutex<()>> {
+    let mut g = FLUSHING.lock().unwrap();
+    let map = g.get_or_insert_with(HashMap::new);
+    // Locks for contacts nobody is flushing are dead weight. Sweeping only when
+    // the map has grown keeps this out of the common path, and doing it here —
+    // rather than at the end of a flush — means there is no moment where a lock
+    // is removed while its holder is still sending.
+    if map.len() > 64 {
+        map.retain(|_, v| Arc::strong_count(v) > 1);
+    }
+    map.entry(peer_hex.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+}
 /// The keep-alive loop is started once.
 static KEEPALIVE: AtomicBool = AtomicBool::new(false);
 /// The update loop is started once.
@@ -275,6 +299,13 @@ async fn send_file_or_queue(peer_hex: &str, name: &str, data: Vec<u8>) {
 /// The queue lives in the encrypted store, not in memory: "it will be delivered
 /// when they come back" has to survive closing the app, otherwise it is a lie.
 async fn flush_pending(peer_hex: &str) {
+    // Someone is already delivering this contact's queue. Waiting our turn would
+    // only send the same rows again — and it would hold up the keep-alive loop,
+    // which flushes every contact in sequence, behind one slow peer. Whatever
+    // arrives while that flush runs goes out on the next tick.
+    let lock = flush_lock(peer_hex);
+    let Ok(_flushing) = lock.try_lock() else { return };
+
     let Some(app) = APP.lock().unwrap().clone() else { return };
     let Some(pk) = unhex(peer_hex) else { return };
     let queued = {
@@ -956,7 +987,7 @@ impl UmbraApp {
             passphrase.clone(),
         )?;
         let secret = if autologin {
-            accounts::protect_passphrase(&passphrase).unwrap_or_default()
+            accounts::protect_passphrase(&dir, &passphrase).unwrap_or_default()
         } else {
             String::new()
         };
@@ -1003,7 +1034,7 @@ impl UmbraApp {
             entry.name = username;
         }
         if remember {
-            if let Some(secret) = accounts::protect_passphrase(&passphrase) {
+            if let Some(secret) = accounts::protect_passphrase(&dir, &passphrase) {
                 entry.secret = secret;
                 entry.autologin = true;
             }
@@ -1025,17 +1056,21 @@ impl UmbraApp {
             .into_iter()
             .find(|a| a.id == id)
             .ok_or_else(|| "account not found".to_string())?;
-        let passphrase = accounts::recover_passphrase(&entry.secret)
+        let dir = accounts::account_dir(&root_path, &id);
+        let passphrase = accounts::recover_passphrase(&dir, &entry.secret)
             .ok_or_else(|| "saved passphrase could not be read".to_string())?;
-        UmbraApp::open_account(root, id, passphrase, false)
+        // `remember` again, not because anything changed, but because it
+        // rewrites the stored blob in the current format. That is how entries
+        // written by an older build pick up the entropy binding.
+        UmbraApp::open_account(root, id, passphrase, true)
     }
 
     /// Turn auto sign-in on (needs the passphrase) or off for this account.
     #[frb(sync)]
     pub fn set_autologin(&self, passphrase: String, enabled: bool) -> Result<(), String> {
-        let (root, id, name) = {
+        let (root, id, name, dir) = {
             let g = self.inner.lock().unwrap();
-            (g.root.clone(), g.account_id.clone(), g.username.clone())
+            (g.root.clone(), g.account_id.clone(), g.username.clone(), g.dir.clone())
         };
         if id.is_empty() {
             return Err("account context missing".to_string());
@@ -1045,7 +1080,7 @@ impl UmbraApp {
             .find(|a| a.id == id)
             .unwrap_or(AccountEntry { id: id.clone(), name, autologin: false, secret: String::new() });
         if enabled {
-            entry.secret = accounts::protect_passphrase(&passphrase)
+            entry.secret = accounts::protect_passphrase(&dir, &passphrase)
                 .ok_or_else(|| "this system cannot store the passphrase safely".to_string())?;
             entry.autologin = true;
         } else {
@@ -1069,6 +1104,34 @@ impl UmbraApp {
     #[frb(sync)]
     pub fn forget_account(root: String, id: String) -> Result<(), String> {
         accounts::remove(&PathBuf::from(root), &id)
+    }
+
+    /// Let go of the signed-in session: close the database, drop the identity
+    /// key, and tear down the network.
+    ///
+    /// The store's keys zeroize on drop, so this really does take them out of
+    /// their own memory — but it does not make the session unrecoverable. A key
+    /// that has been live gets copied by the allocator, by a scheduler saving a
+    /// stack, and by the page file, and none of those copies has a destructor.
+    /// Leaving the process is what settles that, and the caller does exactly
+    /// that next; see `AppState.signOut` on the Dart side. This function's job
+    /// is to make that exit clean — no half-written database, no orphaned tor.
+    #[frb(sync)]
+    pub fn end_session() {
+        // The network first: its tasks reach for APP, and TorProcess kills the
+        // daemon when it drops, so nothing is left holding tor's data directory
+        // against the next sign-in.
+        *SERVICE.lock().unwrap() = None;
+        *APP.lock().unwrap() = None;
+        *ONION.lock().unwrap() = None;
+        *CONTACTS.lock().unwrap() = None;
+        *PQ_FINGERPRINTS.lock().unwrap() = None;
+        *DIALLING.lock().unwrap() = None;
+        *FLUSHING.lock().unwrap() = None;
+        *MY_PROFILE.lock().unwrap() = None;
+        // Last: the UI's event channel is how anything above would have
+        // reported itself, and there is nobody left to report to.
+        *EVENTS.lock().unwrap() = None;
     }
 
     #[frb(sync)]
