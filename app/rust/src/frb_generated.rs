@@ -179,6 +179,7 @@ fn wire__crate__api__nullchat__UmbraApp_add_message_impl(
             let api_outgoing = <bool>::sse_decode(&mut deserializer);
             let api_sent_at = <u64>::sse_decode(&mut deserializer);
             let api_body = <String>::sse_decode(&mut deserializer);
+            let api_reply_to_hex = <String>::sse_decode(&mut deserializer);
             deserializer.end();
             transform_result_sse::<_, String>((move || {
                 let mut api_that_guard = None;
@@ -201,6 +202,7 @@ fn wire__crate__api__nullchat__UmbraApp_add_message_impl(
                     api_outgoing,
                     api_sent_at,
                     api_body,
+                    api_reply_to_hex,
                 )?;
                 Ok(output_ok)
             })())
@@ -3926,6 +3928,9 @@ impl SseDecode for crate::api::nullchat::MessageView {
         let mut var_filePath = <String>::sse_decode(deserializer);
         let mut var_fileName = <String>::sse_decode(deserializer);
         let mut var_fileSize = <u64>::sse_decode(deserializer);
+        let mut var_msgRef = <String>::sse_decode(deserializer);
+        let mut var_replyTo = <String>::sse_decode(deserializer);
+        let mut var_quoted = <String>::sse_decode(deserializer);
         return crate::api::nullchat::MessageView {
             id: var_id,
             outgoing: var_outgoing,
@@ -3935,6 +3940,9 @@ impl SseDecode for crate::api::nullchat::MessageView {
             file_path: var_filePath,
             file_name: var_fileName,
             file_size: var_fileSize,
+            msg_ref: var_msgRef,
+            reply_to: var_replyTo,
+            quoted: var_quoted,
         };
     }
 }
@@ -4389,6 +4397,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::nullchat::MessageView {
             self.file_path.into_into_dart().into_dart(),
             self.file_name.into_into_dart().into_dart(),
             self.file_size.into_into_dart().into_dart(),
+            self.msg_ref.into_into_dart().into_dart(),
+            self.reply_to.into_into_dart().into_dart(),
+            self.quoted.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -4706,6 +4717,9 @@ impl SseEncode for crate::api::nullchat::MessageView {
         <String>::sse_encode(self.file_path, serializer);
         <String>::sse_encode(self.file_name, serializer);
         <u64>::sse_encode(self.file_size, serializer);
+        <String>::sse_encode(self.msg_ref, serializer);
+        <String>::sse_encode(self.reply_to, serializer);
+        <String>::sse_encode(self.quoted, serializer);
     }
 }
 

@@ -1824,6 +1824,8 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
               ),
             ),
           ),
+          // Only in groups: a mention needs somebody to mention.
+          _MentionBar(controller: _input, group: widget.group),
           _Composer(controller: _input, onSend: _send),
         ],
       ),
@@ -2025,11 +2027,22 @@ class _Bubble extends StatelessWidget {
               ),
               border: Border.all(color: out ? UmbraColors.accent.withValues(alpha: 0.3) : UmbraColors.border),
             ),
-            child: msg.isFile
-                ? _FileBody(msg: msg)
-                : Text(msg.body,
-                    style: TextStyle(color: UmbraColors.textPrimary, height: 1.35)),
+            child: Column(
+              crossAxisAlignment:
+                  out ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (msg.replyTo.isNotEmpty) _QuotedLine(msg: msg, chat: chat),
+                msg.isFile
+                    ? _FileBody(msg: msg)
+                    : _TextBody(
+                        msg: msg,
+                        style: TextStyle(
+                            color: UmbraColors.textPrimary, height: 1.35)),
+              ],
+            ),
           ),
+          if (msg.reactions.isNotEmpty) _ReactionChips(msg: msg, chat: chat),
           Padding(
             padding: const EdgeInsets.only(bottom: 6, left: 4, right: 4),
             child: Row(
@@ -2079,6 +2092,220 @@ class _Bubble extends StatelessWidget {
   }
 }
 
+/// Names to pick from while typing `@` in a group.
+///
+/// Only a way to type a name without spelling it — the mention itself is text,
+/// and nothing is sent to anyone because they were named. That matters here:
+/// a group message already goes to every member over their own session, so a
+/// mention that "notified" someone would be a promise the transport does not
+/// make, and a mention of somebody *not* in the roster must not reach them at
+/// all.
+class _MentionBar extends StatefulWidget {
+  const _MentionBar({required this.controller, required this.group});
+  final TextEditingController controller;
+  final GroupChat group;
+
+  @override
+  State<_MentionBar> createState() => _MentionBarState();
+}
+
+class _MentionBarState extends State<_MentionBar> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onType);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onType);
+    super.dispose();
+  }
+
+  void _onType() => setState(() {});
+
+  /// The `@word` the caret is sitting in, if any.
+  String? get _partial {
+    final sel = widget.controller.selection;
+    if (!sel.isValid || !sel.isCollapsed) return null;
+    final upto = widget.controller.text.substring(0, sel.baseOffset);
+    final at = upto.lastIndexOf('@');
+    if (at < 0) return null;
+    if (at > 0 && !RegExp(r'\s').hasMatch(upto[at - 1])) return null;
+    final word = upto.substring(at + 1);
+    if (word.contains(RegExp(r'\s'))) return null;
+    return word.toLowerCase();
+  }
+
+  void _insert(String name) {
+    final sel = widget.controller.selection;
+    final text = widget.controller.text;
+    final upto = text.substring(0, sel.baseOffset);
+    final at = upto.lastIndexOf('@');
+    if (at < 0) return;
+    final replacement = '@$name ';
+    final next = text.replaceRange(at, sel.baseOffset, replacement);
+    widget.controller.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: at + replacement.length),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final partial = _partial;
+    if (partial == null) return const SizedBox.shrink();
+    final matches = widget.group.members
+        .where((m) => m.displayName.isNotEmpty)
+        .where((m) => m.displayName.toLowerCase().startsWith(partial))
+        .take(6)
+        .toList();
+    if (matches.isEmpty) return const SizedBox.shrink();
+    return Container(
+      height: 44,
+      decoration: BoxDecoration(
+        color: UmbraColors.surface,
+        border: Border(top: BorderSide(color: UmbraColors.border)),
+      ),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        children: [
+          for (final m in matches)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ActionChip(
+                label: Text(m.displayName, style: const TextStyle(fontSize: 12)),
+                backgroundColor: UmbraColors.surfaceHigh,
+                side: BorderSide(color: UmbraColors.border),
+                onPressed: () => _insert(m.displayName.replaceAll(' ', '')),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A message body with `@name` picked out, so a mention reads as one.
+class _TextBody extends StatelessWidget {
+  const _TextBody({required this.msg, required this.style});
+  final Message msg;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = splitMentions(msg.body);
+    if (parts.length == 1) return Text(msg.body, style: style);
+    return RichText(
+      text: TextSpan(
+        style: style,
+        children: [
+          for (final p in parts)
+            TextSpan(
+              text: p.text,
+              style: p.isMention
+                  ? TextStyle(
+                      color: UmbraColors.accent, fontWeight: FontWeight.w600)
+                  : null,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The line a reply answers, above the reply itself. Tapping it goes there.
+class _QuotedLine extends StatelessWidget {
+  const _QuotedLine({required this.msg, this.chat});
+  final Message msg;
+  final Chat? chat;
+
+  @override
+  Widget build(BuildContext context) {
+    final gone = msg.quoted.isEmpty;
+    return InkWell(
+      borderRadius: BorderRadius.circular(6),
+      onTap: gone ? null : () => _goToQuoted(),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+        decoration: BoxDecoration(
+          border: Border(
+            left: BorderSide(color: UmbraColors.accent, width: 3),
+          ),
+          color: UmbraColors.accent.withValues(alpha: 0.06),
+        ),
+        child: Text(
+          gone ? L.t('reply.gone') : msg.quoted,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: UmbraColors.textMuted,
+            fontSize: 12,
+            height: 1.3,
+            fontStyle: gone ? FontStyle.italic : null,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _goToQuoted() {
+    final c = chat;
+    if (c == null) return;
+    final target =
+        c.messages.where((m) => m.msgRef == msg.replyTo).firstOrNull;
+    if (target?.id == null) return;
+    appState.pendingJumpMessageId = target!.id;
+    appState.showMessageInChat(c.contactHex, target.id!);
+  }
+}
+
+/// The emoji people put on a message. Tapping one adds yours, or takes it back.
+class _ReactionChips extends StatelessWidget {
+  const _ReactionChips({required this.msg, this.chat});
+  final Message msg;
+  final Chat? chat;
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = msg.reactions.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2, left: 4, right: 4),
+      child: Wrap(
+        spacing: 4,
+        children: [
+          for (final e in entries)
+            InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: chat == null ? null : () => appState.react(chat!, msg, e.key),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: msg.myReaction == e.key
+                      ? UmbraColors.accent.withValues(alpha: 0.18)
+                      : UmbraColors.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: msg.myReaction == e.key
+                        ? UmbraColors.accent
+                        : UmbraColors.border,
+                  ),
+                ),
+                child: Text(
+                  e.value > 1 ? '${e.key} ${e.value}' : e.key,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _Composer extends StatelessWidget {
   const _Composer({
     required this.controller,
@@ -2098,47 +2325,92 @@ class _Composer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final answering = appState.replyingTo;
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
       decoration: BoxDecoration(
         color: UmbraColors.surface,
         border: Border(top: BorderSide(color: UmbraColors.border)),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
-            tooltip: L.t('chat.attach'),
-            icon: Icon(Icons.attach_file, color: UmbraColors.textMuted),
-            onPressed: onAttach,
-          ),
-          if (onGif != null)
-            IconButton(
-              tooltip: L.t('gif.tooltip'),
-              icon: Icon(Icons.gif_box_outlined, color: UmbraColors.textMuted),
-              onPressed: onGif,
-            ),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              minLines: 1,
-              maxLines: 4,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => onSend(),
-              decoration: InputDecoration(hintText: L.t('chat.compose')),
-            ),
-          ),
-          const SizedBox(width: 10),
-          SizedBox(
-            height: 48,
-            width: 48,
-            child: FilledButton(
-              onPressed: onSend,
-              style: FilledButton.styleFrom(
-                padding: EdgeInsets.zero,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          // What is being answered, so it is obvious before pressing send —
+          // and cancellable, because a reply banner nobody can dismiss is how
+          // people end up answering the wrong message.
+          if (answering != null)
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+              decoration: BoxDecoration(
+                color: UmbraColors.accent.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(8),
+                border: Border(
+                    left: BorderSide(color: UmbraColors.accent, width: 3)),
               ),
-              child: const Icon(Icons.arrow_upward_rounded, size: 22),
+              child: Row(
+                children: [
+                  Icon(Icons.reply, size: 14, color: UmbraColors.accent),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      answering.isFile
+                          ? (answering.fileName ?? L.t('msg.infoFile'))
+                          : answering.body,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: UmbraColors.textMuted, fontSize: 12),
+                    ),
+                  ),
+                  IconButton(
+                    iconSize: 16,
+                    visualDensity: VisualDensity.compact,
+                    tooltip: L.t('common.cancel'),
+                    icon: Icon(Icons.close, color: UmbraColors.textMuted),
+                    onPressed: appState.cancelReply,
+                  ),
+                ],
+              ),
             ),
+          Row(
+            children: [
+              IconButton(
+                tooltip: L.t('chat.attach'),
+                icon: Icon(Icons.attach_file, color: UmbraColors.textMuted),
+                onPressed: onAttach,
+              ),
+              if (onGif != null)
+                IconButton(
+                  tooltip: L.t('gif.tooltip'),
+                  icon: Icon(Icons.gif_box_outlined, color: UmbraColors.textMuted),
+                  onPressed: onGif,
+                ),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  minLines: 1,
+                  maxLines: 4,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) => onSend(),
+                  decoration: InputDecoration(hintText: L.t('chat.compose')),
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                height: 48,
+                width: 48,
+                child: FilledButton(
+                  onPressed: onSend,
+                  style: FilledButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Icon(Icons.arrow_upward_rounded, size: 22),
+                ),
+              ),
+            ],
           ),
         ],
       ),

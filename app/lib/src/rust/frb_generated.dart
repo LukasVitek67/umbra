@@ -97,6 +97,7 @@ abstract class RustLibApi extends BaseApi {
     required bool outgoing,
     required BigInt sentAt,
     required String body,
+    required String replyToHex,
   });
 
   bool crateApiNullchatUmbraAppAutologinEnabled({required UmbraApp that});
@@ -516,6 +517,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     required bool outgoing,
     required BigInt sentAt,
     required String body,
+    required String replyToHex,
   }) {
     return handler.executeSync(
       SyncTask(
@@ -529,6 +531,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           sse_encode_bool(outgoing, serializer);
           sse_encode_u_64(sentAt, serializer);
           sse_encode_String(body, serializer);
+          sse_encode_String(replyToHex, serializer);
           return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 3)!;
         },
         codec: SseCodec(
@@ -536,7 +539,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           decodeErrorData: sse_decode_String,
         ),
         constMeta: kCrateApiNullchatUmbraAppAddMessageConstMeta,
-        argValues: [that, contactHex, outgoing, sentAt, body],
+        argValues: [that, contactHex, outgoing, sentAt, body, replyToHex],
         apiImpl: this,
       ),
     );
@@ -545,7 +548,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiNullchatUmbraAppAddMessageConstMeta =>
       const TaskConstMeta(
         debugName: "UmbraApp_add_message",
-        argNames: ["that", "contactHex", "outgoing", "sentAt", "body"],
+        argNames: [
+          "that",
+          "contactHex",
+          "outgoing",
+          "sentAt",
+          "body",
+          "replyToHex",
+        ],
       );
 
   @override
@@ -3072,8 +3082,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   MessageView dco_decode_message_view(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 8)
-      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
     return MessageView(
       id: dco_decode_i_64(arr[0]),
       outgoing: dco_decode_bool(arr[1]),
@@ -3083,6 +3093,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       filePath: dco_decode_String(arr[5]),
       fileName: dco_decode_String(arr[6]),
       fileSize: dco_decode_u_64(arr[7]),
+      msgRef: dco_decode_String(arr[8]),
+      replyTo: dco_decode_String(arr[9]),
+      quoted: dco_decode_String(arr[10]),
     );
   }
 
@@ -3485,6 +3498,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_filePath = sse_decode_String(deserializer);
     var var_fileName = sse_decode_String(deserializer);
     var var_fileSize = sse_decode_u_64(deserializer);
+    var var_msgRef = sse_decode_String(deserializer);
+    var var_replyTo = sse_decode_String(deserializer);
+    var var_quoted = sse_decode_String(deserializer);
     return MessageView(
       id: var_id,
       outgoing: var_outgoing,
@@ -3494,6 +3510,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       filePath: var_filePath,
       fileName: var_fileName,
       fileSize: var_fileSize,
+      msgRef: var_msgRef,
+      replyTo: var_replyTo,
+      quoted: var_quoted,
     );
   }
 
@@ -3870,6 +3889,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.filePath, serializer);
     sse_encode_String(self.fileName, serializer);
     sse_encode_u_64(self.fileSize, serializer);
+    sse_encode_String(self.msgRef, serializer);
+    sse_encode_String(self.replyTo, serializer);
+    sse_encode_String(self.quoted, serializer);
   }
 
   @protected
@@ -3967,17 +3989,22 @@ class UmbraAppImpl extends RustOpaque implements UmbraApp {
     contactHex: contactHex,
   );
 
+  /// Store a message the UI already has.
+  ///
+  /// `reply_to_hex` is the reference of the message it answers, or empty.
   void addMessage({
     required String contactHex,
     required bool outgoing,
     required BigInt sentAt,
     required String body,
+    required String replyToHex,
   }) => RustLib.instance.api.crateApiNullchatUmbraAppAddMessage(
     that: this,
     contactHex: contactHex,
     outgoing: outgoing,
     sentAt: sentAt,
     body: body,
+    replyToHex: replyToHex,
   );
 
   /// Whether this account signs in automatically.

@@ -1013,6 +1013,15 @@ pub struct MessageView {
     pub file_name: String,
     /// The attachment's size in bytes, 0 when there is none.
     pub file_size: u64,
+    /// How the other side refers to this message, hex; empty for messages from
+    /// before references existed, which therefore cannot be replied to.
+    pub msg_ref: String,
+    /// The message this one answers, hex; empty when it answers nothing.
+    pub reply_to: String,
+    /// The line being answered, ready to draw above the bubble. Empty when the
+    /// quoted message is not in our history — a reply to something from before
+    /// we had it still shows, just without the quote.
+    pub quoted: String,
 }
 
 /// A message found by search, or one a contact sent us.
@@ -2612,6 +2621,9 @@ impl UmbraApp {
         g.store.set_contact_saved(&pk, saved).map_err(|e| e.to_string())
     }
 
+    /// Store a message the UI already has.
+    ///
+    /// `reply_to_hex` is the reference of the message it answers, or empty.
     #[frb(sync)]
     pub fn add_message(
         &self,
@@ -2619,6 +2631,7 @@ impl UmbraApp {
         outgoing: bool,
         sent_at: u64,
         body: String,
+        reply_to_hex: String,
     ) -> Result<(), String> {
         let pk = unhex(&contact_hex).ok_or_else(|| "bad contact id".to_string())?;
         let g = self.inner.lock().unwrap();
@@ -2633,7 +2646,7 @@ impl UmbraApp {
                 body: body.as_bytes(),
                 file: None,
                 msg_ref: Some(envelope::message_ref(&author, body.as_bytes())),
-                reply_to: None,
+                reply_to: unhex16(&reply_to_hex),
             })
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -2643,12 +2656,25 @@ impl UmbraApp {
     pub fn list_messages(&self, contact_hex: String, limit: u32) -> Result<Vec<MessageView>, String> {
         let pk = unhex(&contact_hex).ok_or_else(|| "bad contact id".to_string())?;
         let g = self.inner.lock().unwrap();
+        let me = g.account.public();
         Ok(g
             .store
             .messages_for(&pk, limit)
             .map_err(|e| e.to_string())?
             .into_iter()
             .map(|m| MessageView {
+                // Recomputed rather than stored a second time: the rule is the
+                // same one that produced it, so the two cannot drift apart.
+                msg_ref: hex16(&envelope::message_ref(
+                    if matches!(m.direction, Direction::Outgoing) { &me } else { &pk },
+                    &m.body,
+                )),
+                reply_to: m.reply_to.map(|r| hex16(&r)).unwrap_or_default(),
+                quoted: m
+                    .reply_to
+                    .and_then(|r| g.store.message_by_ref(&r).ok().flatten())
+                    .map(|q| String::from_utf8_lossy(&q.body).to_string())
+                    .unwrap_or_default(),
                 id: m.id,
                 outgoing: matches!(m.direction, Direction::Outgoing),
                 sent_at: m.sent_at,

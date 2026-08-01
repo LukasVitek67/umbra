@@ -8,6 +8,37 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.5.0
+
+- **Media.** A new section beside Contacts holding every file you have sent or
+  received, with photos, video, GIFs and other files as filters and a search
+  over names and people. Tapping one opens the message it arrived on, in its
+  conversation — a file usually matters because of what was said around it.
+
+- **Clicking a found message goes to it.** Search results used to open the
+  conversation at the bottom and leave you to find the line yourself. Now the
+  thread scrolls to that message and marks it for a moment.
+
+- **Reply.** Right-click a message and answer it; the quote sits above your
+  reply and clicking it jumps to the original. If the other side is on an older
+  build, they get the quoted line folded into the text — a reply they cannot
+  read would be a message lost, which is not an acceptable way to degrade.
+
+- **Reactions.** The message menu opens with a row of emoji. One per person per
+  message; tapping the same one again takes yours back. An older build ignores
+  them, which costs nothing but the emoji.
+
+- **@mentions in groups.** Typing `@` offers the group's members, and mentions
+  are picked out in the text. It is a way to write a name, nothing more:
+  nothing extra is sent to anyone because they were mentioned, and mentioning
+  somebody who is not in the group does not reach them.
+
+  Replies and reactions refer to a message by a digest of who wrote it and what
+  it says, because row numbers are local to one computer and the timestamp is
+  stamped by whoever received it. One consequence is worth knowing: if the same
+  person sends the identical text twice, a reply attaches to the more recent of
+  the two.
+
 ## 2.4.11
 
 - **People you talk to are in Contacts.** Someone who wrote to you first

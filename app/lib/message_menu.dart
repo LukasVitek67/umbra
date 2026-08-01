@@ -24,6 +24,12 @@ import 'l10n.dart';
 import 'mock.dart';
 import 'theme.dart';
 
+/// The emoji offered without opening anything further.
+///
+/// Six, because a row people can hit without reading is worth more than a
+/// catalogue nobody scrolls. Anything else is still a message.
+const List<String> kQuickReactions = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
+
 /// Show the menu for `msg` at the pointer.
 Future<void> showMessageMenu(
   BuildContext context,
@@ -35,6 +41,61 @@ Future<void> showMessageMenu(
   if (overlay == null) return;
   final hasFile = msg.filePath != null;
 
+  // A row of emoji above the menu, because reacting is the one thing here
+  // people do without thinking about it — putting it behind a submenu would
+  // make it slower than typing the emoji as a message.
+  if (msg.msgRef.isNotEmpty) {
+    final picked = await showMenu<String>(
+      context: context,
+      color: UmbraColors.surfaceHigh,
+      position: RelativeRect.fromRect(
+        position & const Size(1, 1),
+        Offset.zero & overlay.size,
+      ),
+      items: [
+        PopupMenuItem<String>(
+          enabled: false,
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final e in kQuickReactions)
+                InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () => Navigator.pop(context, 'react:$e'),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: msg.myReaction == e
+                        ? BoxDecoration(
+                            color: UmbraColors.accent.withValues(alpha: 0.18),
+                            borderRadius: BorderRadius.circular(16),
+                          )
+                        : null,
+                    child: Text(e, style: const TextStyle(fontSize: 20)),
+                  ),
+                ),
+              const SizedBox(width: 4),
+              InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => Navigator.pop(context, 'menu'),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Icon(Icons.more_horiz, color: UmbraColors.textMuted),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+    if (picked == null || !context.mounted) return;
+    if (picked.startsWith('react:')) {
+      appState.react(chat, msg, picked.substring(6));
+      return;
+    }
+  }
+
   final choice = await showMenu<String>(
     context: context,
     color: UmbraColors.surfaceHigh,
@@ -43,6 +104,7 @@ Future<void> showMessageMenu(
       Offset.zero & overlay.size,
     ),
     items: [
+      if (msg.msgRef.isNotEmpty) _item('reply', Icons.reply, L.t('msg.reply')),
       _item('info', Icons.info_outline, L.t('msg.info')),
       if (!hasFile) _item('copy', Icons.copy_all_outlined, L.t('msg.copy')),
       if (hasFile) _item('open', Icons.open_in_full, L.t('msg.open')),
@@ -55,6 +117,8 @@ Future<void> showMessageMenu(
   if (choice == null || !context.mounted) return;
 
   switch (choice) {
+    case 'reply':
+      appState.startReply(msg);
     case 'info':
       await _showInfo(context, chat, msg);
     case 'copy':

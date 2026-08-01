@@ -39,11 +39,15 @@ abstract class UmbraApp implements RustOpaqueInterface {
     required String contactHex,
   });
 
+  /// Store a message the UI already has.
+  ///
+  /// `reply_to_hex` is the reference of the message it answers, or empty.
   void addMessage({
     required String contactHex,
     required bool outgoing,
     required BigInt sentAt,
     required String body,
+    required String replyToHex,
   });
 
   /// Whether this account signs in automatically.
@@ -720,6 +724,18 @@ class MessageView {
   /// The attachment's size in bytes, 0 when there is none.
   final BigInt fileSize;
 
+  /// How the other side refers to this message, hex; empty for messages from
+  /// before references existed, which therefore cannot be replied to.
+  final String msgRef;
+
+  /// The message this one answers, hex; empty when it answers nothing.
+  final String replyTo;
+
+  /// The line being answered, ready to draw above the bubble. Empty when the
+  /// quoted message is not in our history — a reply to something from before
+  /// we had it still shows, just without the quote.
+  final String quoted;
+
   const MessageView({
     required this.id,
     required this.outgoing,
@@ -729,6 +745,9 @@ class MessageView {
     required this.filePath,
     required this.fileName,
     required this.fileSize,
+    required this.msgRef,
+    required this.replyTo,
+    required this.quoted,
   });
 
   @override
@@ -740,7 +759,10 @@ class MessageView {
       state.hashCode ^
       filePath.hashCode ^
       fileName.hashCode ^
-      fileSize.hashCode;
+      fileSize.hashCode ^
+      msgRef.hashCode ^
+      replyTo.hashCode ^
+      quoted.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -754,7 +776,10 @@ class MessageView {
           state == other.state &&
           filePath == other.filePath &&
           fileName == other.fileName &&
-          fileSize == other.fileSize;
+          fileSize == other.fileSize &&
+          msgRef == other.msgRef &&
+          replyTo == other.replyTo &&
+          quoted == other.quoted;
 }
 
 /// An event from the network layer, pushed to the UI.

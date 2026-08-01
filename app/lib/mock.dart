@@ -80,6 +80,23 @@ class Message {
   /// 0..1 while a file is moving; null for plain messages.
   double? progress;
 
+  /// How the other side refers to this message. Empty for messages written
+  /// before references existed — those cannot be replied to or reacted to,
+  /// because the other side never learned a reference for them either.
+  String msgRef = '';
+
+  /// The message this one answers, and the line itself for the quote. Both
+  /// empty when it answers nothing; `quoted` alone is empty when the answered
+  /// message is not in our history.
+  String replyTo = '';
+  String quoted = '';
+
+  /// Emoji on this message, as `emoji -> how many people`.
+  Map<String, int> reactions = {};
+
+  /// The emoji we put on it ourselves, if any.
+  String myReaction = '';
+
   bool get isFile => fileName != null;
   int get wireBytes => wireBytesFor(body.length);
 }
@@ -119,6 +136,35 @@ class Chat {
   bool? postQuantum;
   final List<Message> messages;
   Message? get last => messages.isEmpty ? null : messages.last;
+}
+
+/// One run of a message body: ordinary text, or a `@name` mention.
+class BodyPart {
+  const BodyPart(this.text, {this.isMention = false});
+  final String text;
+  final bool isMention;
+}
+
+/// Where a mention starts and ends in a body.
+///
+/// Deliberately simple: `@` followed by letters, digits, dots, dashes and
+/// underscores. It is a *rendering* rule, not a claim about who was addressed —
+/// nothing is sent to anyone because their name appeared in a message, and a
+/// stranger writing `@petr` gets no more reach than writing "petr".
+final RegExp _mentionPattern = RegExp(r'@[\w.\-]+', unicode: true);
+
+/// Split a body into plain runs and mentions.
+List<BodyPart> splitMentions(String body) {
+  final parts = <BodyPart>[];
+  var at = 0;
+  for (final m in _mentionPattern.allMatches(body)) {
+    if (m.start > at) parts.add(BodyPart(body.substring(at, m.start)));
+    parts.add(BodyPart(m.group(0)!, isMention: true));
+    at = m.end;
+  }
+  if (parts.isEmpty) return [BodyPart(body)];
+  if (at < body.length) parts.add(BodyPart(body.substring(at)));
+  return parts;
 }
 
 /// What sort of thing an attachment is, for the media overview's filter.
@@ -595,6 +641,20 @@ class AppState extends ChangeNotifier {
         case 'message':
           _receive(ev.peerHex, ev.data);
           break;
+        // "<reference>|<text>" — a message that answers another one.
+        case 'message_reply':
+          final cut = ev.data.indexOf('|');
+          if (cut > 0) {
+            _receive(ev.peerHex, ev.data.substring(cut + 1),
+                replyTo: ev.data.substring(0, cut));
+          }
+          break;
+        // "<reference>|<emoji>", empty emoji meaning they took theirs off. Rust
+        // has already recorded it; this only refreshes what is on screen.
+        case 'reaction':
+          final cut = ev.data.indexOf('|');
+          if (cut > 0) _refreshReactions(ev.peerHex, ev.data.substring(0, cut));
+          break;
         // Group traffic: the Rust side has already stored (or refused) it, so
         // here we only mirror it into the open UI.
         case 'group_message':
@@ -777,7 +837,93 @@ class AppState extends ChangeNotifier {
       ..id = m.id
       ..delivered = m.state == 2
       ..filePath = hasFile ? m.filePath : null
-      ..progress = hasFile ? 1 : null;
+      ..progress = hasFile ? 1 : null
+      ..msgRef = m.msgRef
+      ..replyTo = m.replyTo
+      ..quoted = m.quoted
+      ..reactions = _reactionCounts(m.msgRef)
+      ..myReaction = _myReaction(m.msgRef);
+  }
+
+  /// How many people put each emoji on a message.
+  Map<String, int> _reactionCounts(String msgRef) {
+    if (msgRef.isEmpty) return {};
+    final counts = <String, int>{};
+    for (final row in _app?.reactions(msgRefHex: msgRef) ?? const <String>[]) {
+      final emoji = row.split('|').first;
+      if (emoji.isEmpty) continue;
+      counts[emoji] = (counts[emoji] ?? 0) + 1;
+    }
+    return counts;
+  }
+
+  /// Ours, so the button can show as already pressed.
+  String _myReaction(String msgRef) {
+    if (msgRef.isEmpty) return '';
+    final mine = identityFingerprint.replaceAll(' ', '').toLowerCase();
+    for (final row in _app?.reactions(msgRefHex: msgRef) ?? const <String>[]) {
+      final parts = row.split('|');
+      if (parts.length == 2 && parts[1].toLowerCase() == mine) return parts[0];
+    }
+    return '';
+  }
+
+  /// Put an emoji on a message, or take ours off by tapping the same one again.
+  void react(Chat chat, Message msg, String emoji) {
+    if (msg.msgRef.isEmpty) return;
+    final next = msg.myReaction == emoji ? '' : emoji;
+    try {
+      _app?.sendReaction(
+        contactHex: chat.contactHex,
+        msgRefHex: msg.msgRef,
+        emoji: next,
+      );
+    } catch (e) {
+      lastError = _clean(e);
+      notifyListeners();
+      return;
+    }
+    // Reflected straight away: the store already has it, and waiting for a
+    // reload would make the button feel broken.
+    final counts = Map<String, int>.from(msg.reactions);
+    if (msg.myReaction.isNotEmpty) {
+      final left = (counts[msg.myReaction] ?? 1) - 1;
+      if (left <= 0) {
+        counts.remove(msg.myReaction);
+      } else {
+        counts[msg.myReaction] = left;
+      }
+    }
+    if (next.isNotEmpty) counts[next] = (counts[next] ?? 0) + 1;
+    msg
+      ..reactions = counts
+      ..myReaction = next;
+    notifyListeners();
+  }
+
+  /// Re-read the emoji on one message after the other side changed them.
+  void _refreshReactions(String peerHex, String msgRef) {
+    final chat = chats.where((c) => c.contactHex == peerHex).firstOrNull;
+    final msg = chat?.messages.where((m) => m.msgRef == msgRef).firstOrNull;
+    if (msg == null) return;
+    msg
+      ..reactions = _reactionCounts(msgRef)
+      ..myReaction = _myReaction(msgRef);
+    notifyListeners();
+  }
+
+  /// The message the composer is currently answering, if any.
+  Message? replyingTo;
+
+  void startReply(Message msg) {
+    if (msg.msgRef.isEmpty) return;
+    replyingTo = msg;
+    notifyListeners();
+  }
+
+  void cancelReply() {
+    replyingTo = null;
+    notifyListeners();
   }
 
   /// The conversation with `peerHex`, as the database has it.
@@ -967,10 +1113,21 @@ class AppState extends ChangeNotifier {
   }
 
   /// An incoming, already-decrypted message from a peer.
-  void _receive(String peerHex, String body) {
+  void _receive(String peerHex, String body, {String replyTo = ''}) {
     final chat = _ensureChat(peerHex);
     final now = DateTime.now();
-    chat.messages.add(Message(body, outgoing: false, at: now));
+    // A reply to something we do not have shows without a quote rather than not
+    // at all — the reference points at a message that may predate this thread.
+    final quoted = replyTo.isEmpty
+        ? ''
+        : chat.messages
+                .where((m) => m.msgRef == replyTo)
+                .firstOrNull
+                ?.body ??
+            '';
+    chat.messages.add(Message(body, outgoing: false, at: now)
+      ..replyTo = replyTo
+      ..quoted = quoted);
     Notifications.message(
       conversationId: peerHex,
       account: username,
@@ -987,6 +1144,7 @@ class AppState extends ChangeNotifier {
         outgoing: false,
         sentAt: BigInt.from(now.millisecondsSinceEpoch ~/ 1000),
         body: body,
+        replyToHex: replyTo,
       );
     } catch (_) {
       // Storing history must never drop a delivered message.
@@ -1332,18 +1490,32 @@ class AppState extends ChangeNotifier {
     final t = text.trim();
     if (app == null || t.isEmpty) return;
     final now = DateTime.now();
+    final answering = replyingTo;
     try {
-      app.sendOverNetwork(
-        contactHex: chat.contactHex,
-        text: t,
-        now: BigInt.from(now.millisecondsSinceEpoch ~/ 1000),
-      );
+      if (answering != null && answering.msgRef.isNotEmpty) {
+        app.sendReply(
+          contactHex: chat.contactHex,
+          replyToHex: answering.msgRef,
+          quoted: answering.body,
+          text: t,
+          now: BigInt.from(now.millisecondsSinceEpoch ~/ 1000),
+        );
+      } else {
+        app.sendOverNetwork(
+          contactHex: chat.contactHex,
+          text: t,
+          now: BigInt.from(now.millisecondsSinceEpoch ~/ 1000),
+        );
+      }
       chat.messages.add(Message(
         t,
         outgoing: true,
         at: now,
         pending: !isConnectedTo(chat.contactHex),
-      ));
+      )
+        ..replyTo = answering?.msgRef ?? ''
+        ..quoted = answering?.body ?? '');
+      replyingTo = null;
       notifyListeners();
     } catch (e) {
       lastError = _clean(e);
