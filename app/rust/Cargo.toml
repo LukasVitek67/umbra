@@ -2,7 +2,7 @@
 name = "rust_lib_nullchat"
 # The app version the updater compares against GitHub releases. Bumped by
 # tools/release.ps1 together with app/pubspec.yaml.
-version = "2.3.11"
+version = "2.4.0"
 edition = "2021"
 
 [lib]
