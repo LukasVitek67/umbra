@@ -2220,7 +2220,7 @@ dependencies = [
 
 [[package]]
 name = "rust_lib_nullchat"
-version = "2.4.0"
+version = "2.4.1"
 dependencies = [
  "base64",
  "flutter_rust_bridge",
