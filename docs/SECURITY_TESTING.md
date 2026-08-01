@@ -62,6 +62,13 @@ known plaintext. NullChat wipes key material on drop (`Zeroizing`), but decrypte
 unavoidable in a messenger and is stated in the threat model. What must **not**
 be findable after sign-out is the identity seed or the database key.
 
+Since 2.3.11 signing out ends the process and starts a replacement, so there is
+no "after sign-out" in the same process to search — which is the point, and the
+reason the test used to fail. The test worth running now is the one either side
+of that: confirm the old process is gone (its pid no longer exists), and that
+the fresh one holds nothing until a passphrase is typed. Before 2.3.11, the
+identity seed and the database key were still there for the asking.
+
 ### 3. What is on disk
 
 Sign in, write messages, sign out, then search the account directory for
