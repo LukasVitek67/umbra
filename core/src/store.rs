@@ -968,7 +968,17 @@ impl Store {
     /// passphrase wanted a row of its own.
     fn reindex_secret_names(&self) -> Result<(), StoreError> {
         let names: Vec<String> = {
-            let mut stmt = self.conn.prepare("SELECT name FROM secrets")?;
+            // `typeof(name) = 'text'` is what makes this safe to run twice, and
+            // it *is* run twice: `migrate_blind_index` calls it inside its
+            // transaction, and `migrate_secret_names` calls it again a moment
+            // later under its own separate mark. Without the filter the second
+            // pass read back the blind indexes the first pass had just written
+            // and failed on them — "Invalid column type Blob at index: 0, name:
+            // name" — which took the whole sign-in with it. A migration that
+            // cannot run twice is a migration that has not been written yet.
+            let mut stmt = self
+                .conn
+                .prepare("SELECT name FROM secrets WHERE typeof(name) = 'text'")?;
             let rows = stmt.query_map([], |r| r.get::<_, Option<String>>(0))?;
             rows.filter_map(|r| r.transpose()).collect::<Result<_, _>>()?
         };
@@ -4322,6 +4332,42 @@ mod tests {
         let left = s.reactions_for(&msg).unwrap();
         assert_eq!(left.len(), 1);
         assert_eq!(left[0], ("🔥".to_string(), them));
+    }
+
+    /// A database written before secret names were blind-indexed goes through
+    /// *both* name conversions in the same open, and the second one used to
+    /// choke on what the first had just written. Sign-in failed with
+    /// "Invalid column type Blob" and the account was unreachable.
+    #[test]
+    fn converting_secret_names_survives_running_twice() {
+        let tmp = TempDb::new();
+        let key = [4u8; 32];
+        // A file in the old shape: plaintext secret names, neither mark set.
+        {
+            let conn = rusqlite::Connection::open(&tmp.0).unwrap();
+            conn.execute_batch(SCHEMA).unwrap();
+            let s = Store {
+                conn,
+                key: Zeroizing::new(key),
+                index_key: Zeroizing::new(derive_index_key(&key)),
+            };
+            let sealed = s.seal(b"the identity").unwrap();
+            s.conn
+                .execute(
+                    "INSERT INTO secrets(name, value) VALUES('identity_seed', ?1)",
+                    params![sealed],
+                )
+                .unwrap();
+        }
+
+        // Opening runs both conversions back to back. Before the fix this
+        // returned Err and the app reported a database error.
+        let s = Store::open(&tmp.0, &key).unwrap();
+        assert_eq!(&*s.get_secret("identity_seed").unwrap().unwrap(), b"the identity");
+
+        // And again, because a migration that only works once is not one.
+        let s = Store::open(&tmp.0, &key).unwrap();
+        assert_eq!(&*s.get_secret("identity_seed").unwrap().unwrap(), b"the identity");
     }
 
     /// Two passphrases, one file, neither able to see the other.

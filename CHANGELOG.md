@@ -8,6 +8,32 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.5.11
+
+Three things that made NullChat unusable on a phone. All three are old; they
+only ever showed up on a fresh account, which on the desktop nobody had made in
+a long time.
+
+- **Signing in failed with "database error: invalid column type Blob".** A
+  database from before secret names were hidden goes through two conversions
+  when it is opened, and the second one read back what the first had just
+  written and gave up. Both are the same step under two markers, and it has
+  been that way since the markers were split — but it only bites a database
+  that has not been converted yet, which on the desktop was true years ago and
+  on a new phone is true today. The conversion now only touches what still
+  needs converting, so running it twice is harmless.
+
+- **The sign-in button stayed grey while you typed.** The passphrase field did
+  not tell the screen to redraw, so the button kept the answer it had worked
+  out over an empty field. It came alive only when something else redrew the
+  screen — ticking "sign in automatically" did that, which made the option look
+  like a requirement for signing in. It never was.
+
+- **"Sign in automatically" is no longer offered where it cannot work.** It
+  relies on Windows keeping the passphrase for your account. Everywhere else
+  there is no equivalent that does not mean writing the passphrase down in the
+  clear, so the switch did nothing at all. Now it is simply not there.
+
 ## 2.5.1
 
 Security. Two of these are faults in 2.5.0 itself, found by reading it back.
