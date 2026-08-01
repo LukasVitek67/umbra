@@ -803,6 +803,36 @@ mod key_wrapping_tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// A wipe passphrase destroys every sealed value it cannot read — which now
+    /// includes its own wrapped key, since that is sealed under the passphrase
+    /// and not under the key it protects. If it were not put back, the
+    /// passphrase would work once and then be refused: a difference a coercer
+    /// can see, which is the one thing this feature cannot afford.
+    #[test]
+    fn a_wipe_passphrase_still_works_the_second_time() {
+        let dir = temp_account("wipe");
+        let real_pass = "skutecna pristupova fraze";
+        let wipe_pass = "nouzova pristupova fraze";
+        let app = UmbraApp::create(path(&dir), "Ada".into(), real_pass.into()).unwrap();
+        app.set_duress_passphrase("wipe".into(), wipe_pass.into()).unwrap();
+        drop(app);
+
+        // First use: the real account is destroyed and this one carries on.
+        let first = UmbraApp::open(path(&dir), wipe_pass.into()).unwrap();
+        let identity = first.identity_hex();
+        drop(first);
+
+        // Second use: the same passphrase, and nothing may have changed about
+        // what it does.
+        let again = UmbraApp::open(path(&dir), wipe_pass.into()).unwrap();
+        assert_eq!(again.identity_hex(), identity);
+        drop(again);
+
+        // And the real one is gone, which is what was asked for.
+        assert!(UmbraApp::open(path(&dir), real_pass.into()).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     /// A second passphrase on a converted account: it must not be able to open
     /// the real profile, and the real one must survive it being added.
     #[test]
@@ -1085,10 +1115,11 @@ impl UmbraApp {
         // is the only derivation that runs; on one that has not, it is what the
         // conversion at the bottom of this function will wrap the new key with.
         let kek = kek_for(&salt, &passphrase)?;
-        let wrapped = wrapped_key_in(&db, &kek);
-        let converted = wrapped.is_some();
+        let wrapped = wrapped_row_in(&db, &kek);
+        let wrap_name = wrapped.as_ref().map(|(name, _)| name.clone());
+        let converted = wrap_name.is_some();
         let key = match wrapped {
-            Some(key) => key,
+            Some((_, key)) => key,
             None => {
                 // No wrapped key answers to this passphrase. Either it is wrong,
                 // or this profile still derives its key the old way.
@@ -1105,6 +1136,17 @@ impl UmbraApp {
         // and nothing for the UI to give away. See docs/DURESS.md.
         if store.profile_kind() == ProfileKind::Wipe {
             let _ = store.destroy_unreadable();
+            // That pass overwrites every sealed value it cannot read, and a
+            // wrapped key is sealed under the passphrase rather than under the
+            // key it protects — so ours looks like somebody else's row and goes
+            // with the rest. Put it back. Without this the passphrase that just
+            // opened this profile is refused the next time it is typed, which
+            // is precisely the kind of tell a duress profile must not produce.
+            if let Some(name) = &wrap_name {
+                if let Ok(fresh) = keystore::wrap_store_key(&kek, &key) {
+                    let _ = store.put_raw_secret(name, &fresh);
+                }
+            }
         }
 
         // A wrong passphrase derives a wrong key, so the stored secret fails to
