@@ -8,6 +8,31 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.4.0
+
+- **Your account is protected by a much more expensive lock, and this time an
+  account that already exists gets it too.**
+
+  The key to the database used to be computed from your passphrase. That sounds
+  fine and has one consequence that could not be argued away: the setting that
+  decides how expensive guessing is was fixed on the day the account was made.
+  2.2.0 raised it from 19 MiB to 256 MiB of memory per guess, and only new
+  accounts could ever see the benefit — changing the setting changes the key,
+  and the old key is what every message is sealed under.
+
+  The key is now random, and your passphrase opens a stored copy of it instead.
+  Those are two separate things, so the cost can rise without touching your
+  messages. **The first sign-in after this update converts the account**, which
+  takes a moment on a large history and happens once.
+
+  If you have set a second passphrase — a decoy, or one that wipes — it is not
+  disturbed. Conversion only touches what the passphrase you just typed can
+  read, and each of yours converts itself the first time you use it. Nothing in
+  the file says how many there are; that has not changed and was the reason this
+  had to be done this way rather than by simply re-encrypting.
+
+  Nothing to do, and nothing changes on screen.
+
 ## 2.3.11
 
 - **Signing out now actually ends the session.** Until this release it only

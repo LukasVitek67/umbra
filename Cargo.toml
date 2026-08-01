@@ -9,6 +9,16 @@ license = "AGPL-3.0-or-later"
 repository = ""
 rust-version = "1.75"
 
+# Argon2 is deliberately slow, and an unoptimised build of it is slow on top of
+# that — enough that the tests which open an account for real (the ones that
+# would catch a change locking people out of their own data) took a minute and a
+# half each. Optimising just this dependency in dev/test builds cuts that to
+# seconds. Our own code stays unoptimised, so debugging is unaffected.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+
 # Build the whole workspace with overflow checks even in release: this is a
 # security-sensitive codebase, a silent wrap is worse than a panic.
 [profile.release]

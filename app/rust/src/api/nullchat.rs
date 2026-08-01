@@ -602,6 +602,52 @@ fn account_file(dir: &Path, name: &str) -> PathBuf {
     current
 }
 
+// --- the passphrase, the data key, and the thing between them ----------------
+//
+// The database key used to be Argon2id(passphrase, salt) — which fixes the cost
+// of guessing at whatever the parameters were the day the account was made,
+// because changing them changes the key and orphans every row. It is now a
+// random key with a wrapped copy stored beside the data, so the parameters can
+// rise on an account that already exists. See `Store::rekey`.
+
+/// The key that wraps the database key for one passphrase.
+fn kek_for(salt: &[u8], passphrase: &str) -> Result<Zeroizing<[u8; 32]>, String> {
+    keystore::derive_kek(
+        passphrase.as_bytes(),
+        salt,
+        keystore::STORE_M_COST,
+        keystore::STORE_T_COST,
+        keystore::STORE_P_COST,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// A wrapped data key, and the name to file it under.
+///
+/// The name is random rather than derived from anything. It has to be: a name
+/// that could be recomputed from the passphrase would be a cheap check on a
+/// guess, and the whole point of the expensive derivation is that there is no
+/// cheap check. It is found by trying to open every secret, not by looking it up.
+fn wrap_row(kek: &[u8; 32], data_key: &[u8; 32]) -> Result<(Vec<u8>, Vec<u8>), String> {
+    let mut name = [0u8; 32];
+    getrandom::getrandom(&mut name).map_err(|_| "RNG failed".to_string())?;
+    let value = keystore::wrap_store_key(kek, data_key).map_err(|e| e.to_string())?;
+    Ok((name.to_vec(), value))
+}
+
+/// The row in `db` holding this passphrase's data key, if there is one.
+fn wrapped_row_in(db: &Path, kek: &[u8; 32]) -> Option<(Vec<u8>, Zeroizing<[u8; 32]>)> {
+    nullchat_core::store::stored_secrets(db)
+        .ok()?
+        .into_iter()
+        .find_map(|(name, value)| keystore::unwrap_store_key(kek, &value).map(|key| (name, key)))
+}
+
+/// The data key this passphrase already has stored in `db`, if any.
+fn wrapped_key_in(db: &Path, kek: &[u8; 32]) -> Option<Zeroizing<[u8; 32]>> {
+    wrapped_row_in(db, kek).map(|(_, key)| key)
+}
+
 #[cfg(test)]
 mod gif_name_tests {
     use super::safe_gif_name;
@@ -624,6 +670,151 @@ mod gif_name_tests {
         // Nothing from the URL can turn into a path.
         assert_eq!(safe_gif_name("", "../../../evil"), "gif-evil.gif");
         assert_eq!(safe_gif_name("", ""), "gif.gif");
+    }
+}
+
+/// Sign-in has two ways in — the wrapped key, and the key the old scheme
+/// derived — and getting the choice between them wrong locks someone out of
+/// their own account. These go the whole way round: create or fake an account
+/// on disk, then open it the way the app does.
+#[cfg(test)]
+mod key_wrapping_tests {
+    use super::*;
+
+    fn temp_account(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("nc-wrap-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn path(dir: &Path) -> String {
+        dir.to_string_lossy().to_string()
+    }
+
+    /// An account made today opens again, and again. If the wrapped key were
+    /// not found the second time, the fallback would derive a key that opens
+    /// nothing and the account would report a wrong passphrase — so "opens
+    /// twice" is the whole test.
+    #[test]
+    fn a_new_account_opens_every_time() {
+        let dir = temp_account("new");
+        let pass = "dvanact znaku a jeste par";
+        let made = UmbraApp::create(path(&dir), "Ada".into(), pass.into()).unwrap();
+        let identity = made.identity_hex();
+        drop(made);
+
+        for _ in 0..2 {
+            let app = UmbraApp::open(path(&dir), pass.into()).unwrap();
+            assert_eq!(app.username(), "Ada");
+            assert_eq!(app.identity_hex(), identity);
+        }
+        assert!(UmbraApp::open(path(&dir), "nejaka uplne jina fraze".into()).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// An account written by an older build derives its key straight from the
+    /// passphrase. Opening it moves it onto a random wrapped key, and it has to
+    /// keep everything it had — and open again afterwards, on the new scheme.
+    #[test]
+    fn a_legacy_account_converts_and_keeps_its_history() {
+        let dir = temp_account("legacy");
+        let pass = "stara pristupova fraze";
+        let salt = [7u8; 16];
+        std::fs::write(dir.join("nullchat.salt"), salt).unwrap();
+        // No nullchat.kdf on purpose: that is exactly what an account from
+        // before the parameters were written down looks like, and it is what
+        // makes `read_kdf` answer with the old ones.
+        let legacy = keystore::derive_store_key_with(
+            pass.as_bytes(),
+            &salt,
+            keystore::LEGACY_M_COST,
+            keystore::LEGACY_T_COST,
+            keystore::LEGACY_P_COST,
+        )
+        .unwrap();
+        let account = Keypair::generate().unwrap();
+        {
+            let store = Store::open(&dir.join("nullchat.db"), &legacy).unwrap();
+            store.put_secret("identity_seed", &*account.secret_seed()).unwrap();
+            store.put_secret("username", b"Ada").unwrap();
+            store
+                .upsert_contact(&Contact {
+                    identity_pubkey: [0xAAu8; 32],
+                    display_name: "Kamarad".into(),
+                    onion_addr: "abc.onion".into(),
+                    added_at: 1,
+                    status: ContactStatus::Accepted,
+                    saved: true,
+                    verified: true,
+                    pq_fingerprint: None,
+                })
+                .unwrap();
+            store
+                .insert_message(&NewMessage {
+                    contact_pubkey: [0xAAu8; 32],
+                    direction: Direction::Incoming,
+                    sent_at: 10,
+                    body: b"ahoj",
+                    file: None,
+                })
+                .unwrap();
+        }
+
+        let app = UmbraApp::open(path(&dir), pass.into()).unwrap();
+        assert_eq!(app.username(), "Ada");
+        assert_eq!(app.identity_hex(), hex(&account.public()));
+        {
+            let g = app.inner.lock().unwrap();
+            let contacts = g.store.list_contacts().unwrap();
+            assert_eq!(contacts.len(), 1);
+            assert_eq!(contacts[0].display_name, "Kamarad");
+            assert!(contacts[0].verified);
+            assert_eq!(g.store.messages_for(&[0xAAu8; 32], 10).unwrap().len(), 1);
+        }
+        drop(app);
+
+        // The derived key is no longer the way in — which is the point of the
+        // whole exercise, since that key is the cheap one to guess.
+        let stale = Store::open(&dir.join("nullchat.db"), &legacy).unwrap();
+        assert!(stale.get_secret("identity_seed").unwrap().is_none());
+        drop(stale);
+
+        // The passphrase still is.
+        let again = UmbraApp::open(path(&dir), pass.into()).unwrap();
+        assert_eq!(again.username(), "Ada");
+        assert_eq!(
+            again.inner.lock().unwrap().store.list_contacts().unwrap().len(),
+            1
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A second passphrase on a converted account: it must not be able to open
+    /// the real profile, and the real one must survive it being added.
+    #[test]
+    fn a_duress_passphrase_still_gets_its_own_world() {
+        let dir = temp_account("duress");
+        let real_pass = "skutecna pristupova fraze";
+        let decoy_pass = "nastrcena pristupova fraze";
+        let app = UmbraApp::create(path(&dir), "Ada".into(), real_pass.into()).unwrap();
+        app.set_duress_passphrase("decoy".into(), decoy_pass.into()).unwrap();
+        let real_identity = app.identity_hex();
+        drop(app);
+
+        let decoy = UmbraApp::open(path(&dir), decoy_pass.into()).unwrap();
+        assert_ne!(decoy.identity_hex(), real_identity);
+        assert_eq!(decoy.username(), "");
+        drop(decoy);
+
+        let real = UmbraApp::open(path(&dir), real_pass.into()).unwrap();
+        assert_eq!(real.identity_hex(), real_identity);
+        assert_eq!(real.username(), "Ada");
+
+        // And the same passphrase cannot be handed out twice.
+        assert!(real.set_duress_passphrase("wipe".into(), decoy_pass.into()).is_err());
+        assert!(real.set_duress_passphrase("wipe".into(), real_pass.into()).is_err());
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
 
@@ -819,15 +1010,15 @@ impl UmbraApp {
         // accounts never locks anyone out of an existing one.
         std::fs::write(dir.join("nullchat.kdf"), kdf_line()).map_err(|e| e.to_string())?;
 
-        let key = keystore::derive_store_key_with(
-            passphrase.as_bytes(),
-            &salt,
-            keystore::STORE_M_COST,
-            keystore::STORE_T_COST,
-            keystore::STORE_P_COST,
-        )
-        .map_err(|e| e.to_string())?;
+        // A random data key, wrapped under the passphrase — not derived from it.
+        // Derivation ties the cost of guessing to whatever the parameters were
+        // on the day the account was made, for as long as the account exists.
+        // See `Store::rekey`.
+        let key = keystore::new_store_key().map_err(|e| e.to_string())?;
+        let kek = kek_for(&salt, &passphrase)?;
+        let (wrap_name, wrap_value) = wrap_row(&kek, &key)?;
         let store = Store::open(&account_file(&dir, "nullchat.db"), &key).map_err(|e| e.to_string())?;
+        store.put_raw_secret(&wrap_name, &wrap_value).map_err(|e| e.to_string())?;
 
         let account = Keypair::generate().map_err(|e| e.to_string())?;
         store
@@ -849,6 +1040,17 @@ impl UmbraApp {
         })
     }
 
+    /// Move one profile off the derived key and onto a random, wrapped one.
+    ///
+    /// Runs once per profile, the first time it signs in after the upgrade.
+    /// Rows belonging to the other passphrases this file answers to are left
+    /// exactly as they are — each converts itself when its own turn comes.
+    fn convert_to_wrapped_key(store: &mut Store, kek: &[u8; 32]) -> Result<(), String> {
+        let new_key = keystore::new_store_key().map_err(|e| e.to_string())?;
+        let (name, value) = wrap_row(kek, &new_key)?;
+        store.rekey(&new_key, &name, &value).map_err(|e| e.to_string())
+    }
+
     /// Open an existing identity at `dir` with `passphrase`.
     #[frb(sync)]
     pub fn open(dir: String, passphrase: String) -> Result<UmbraApp, String> {
@@ -860,10 +1062,25 @@ impl UmbraApp {
             return Err("Na tomto počítači není žádná identita.".to_string());
         }
         let salt = std::fs::read(account_file(&dir, "nullchat.salt")).map_err(|e| e.to_string())?;
-        let (m, t, p) = read_kdf(&dir);
-        let key = keystore::derive_store_key_with(passphrase.as_bytes(), &salt, m, t, p)
-            .map_err(|e| e.to_string())?;
-        let store = Store::open(&account_file(&dir, "nullchat.db"), &key).map_err(|e| e.to_string())?;
+        let db = account_file(&dir, "nullchat.db");
+
+        // The wrapped key first. On an account that has already converted this
+        // is the only derivation that runs; on one that has not, it is what the
+        // conversion at the bottom of this function will wrap the new key with.
+        let kek = kek_for(&salt, &passphrase)?;
+        let wrapped = wrapped_key_in(&db, &kek);
+        let converted = wrapped.is_some();
+        let key = match wrapped {
+            Some(key) => key,
+            None => {
+                // No wrapped key answers to this passphrase. Either it is wrong,
+                // or this profile still derives its key the old way.
+                let (m, t, p) = read_kdf(&dir);
+                keystore::derive_store_key_with(passphrase.as_bytes(), &salt, m, t, p)
+                    .map_err(|e| e.to_string())?
+            }
+        };
+        let mut store = Store::open(&db, &key).map_err(|e| e.to_string())?;
 
         // A duress passphrase destroys everything it cannot read and then
         // carries on as an ordinary sign-in. This happens here, before anything
@@ -879,6 +1096,19 @@ impl UmbraApp {
             .get_secret("identity_seed")
             .map_err(|_| "Špatná přístupová fráze.".to_string())?
             .ok_or_else(|| "Špatná přístupová fráze.".to_string())?;
+
+        // Only now — the line above is what proves the passphrase belongs to
+        // this profile. Converting before it would file a wrapped key for every
+        // wrong guess anyone ever typed.
+        if !converted {
+            match Self::convert_to_wrapped_key(&mut store, &kek) {
+                Ok(()) => log_line("klíč databáze převeden na silnější odvození"),
+                // Not fatal: the profile still opens exactly as it did, with the
+                // key it already had. Better a sign-in on the old scheme than no
+                // sign-in at all.
+                Err(e) => log_line(&format!("převod klíče se nezdařil: {e}")),
+            }
+        }
         let seed32: [u8; 32] = seed
             .as_slice()
             .try_into()
@@ -1764,10 +1994,19 @@ impl UmbraApp {
 
     // --- duress passphrases (see docs/DURESS.md) ---------------------------
 
-    /// Derive the key one more passphrase would produce for this account.
+    /// The key another passphrase opens this account's file with.
+    ///
+    /// The wrapped one when this passphrase has one, otherwise the key the old
+    /// scheme would have derived — the same two ways in that signing in tries,
+    /// and in the same order, because a duress profile that has already
+    /// converted itself is reached exactly like the real one.
     fn duress_key(&self, passphrase: &str) -> Result<Zeroizing<[u8; 32]>, String> {
         let dir = { self.inner.lock().unwrap().dir.clone() };
         let salt = std::fs::read(account_file(&dir, "nullchat.salt")).map_err(|e| e.to_string())?;
+        let kek = kek_for(&salt, passphrase)?;
+        if let Some(key) = wrapped_key_in(&account_file(&dir, "nullchat.db"), &kek) {
+            return Ok(key);
+        }
         let (m, t, p) = read_kdf(&dir);
         keystore::derive_store_key_with(passphrase.as_bytes(), &salt, m, t, p)
             .map_err(|e| e.to_string())
@@ -1792,16 +2031,34 @@ impl UmbraApp {
         if passphrase.trim().len() < 12 {
             return Err("Nouzová fráze musí mít aspoň 12 znaků.".to_string());
         }
-        let key = self.duress_key(&passphrase)?;
         let dir = { self.inner.lock().unwrap().dir.clone() };
-        let store = Store::open(&account_file(&dir, "nullchat.db"), &key).map_err(|e| e.to_string())?;
+        let salt = std::fs::read(account_file(&dir, "nullchat.salt")).map_err(|e| e.to_string())?;
+        let db = account_file(&dir, "nullchat.db");
+        let kek = kek_for(&salt, &passphrase)?;
 
         // Refuse a passphrase this account already answers to. Without this
         // check, reusing the real passphrase would mark the *real* profile as
-        // "wipe" and destroy everything at the next sign-in.
-        if store.get_secret("identity_seed").map_err(|e| e.to_string())?.is_some() {
+        // "wipe" and destroy everything at the next sign-in. Both ways in have
+        // to be checked: a wrapped key already filed for this passphrase, and —
+        // for a profile that has not converted yet — the old derived one.
+        if wrapped_key_in(&db, &kek).is_some() {
             return Err("Tuto frázi už tento účet používá. Zvol jinou.".to_string());
         }
+        {
+            let (m, t, p) = read_kdf(&dir);
+            let legacy = keystore::derive_store_key_with(passphrase.as_bytes(), &salt, m, t, p)
+                .map_err(|e| e.to_string())?;
+            let old = Store::open(&db, &legacy).map_err(|e| e.to_string())?;
+            if old.get_secret("identity_seed").map_err(|e| e.to_string())?.is_some() {
+                return Err("Tuto frázi už tento účet používá. Zvol jinou.".to_string());
+            }
+        }
+
+        // Random and wrapped from the start, like any account made today.
+        let key = keystore::new_store_key().map_err(|e| e.to_string())?;
+        let (wrap_name, wrap_value) = wrap_row(&kek, &key)?;
+        let store = Store::open(&db, &key).map_err(|e| e.to_string())?;
+        store.put_raw_secret(&wrap_name, &wrap_value).map_err(|e| e.to_string())?;
 
         // Its own identity, so the decoy behaves like a real, usable account.
         let account = Keypair::generate().map_err(|e| e.to_string())?;
@@ -1856,6 +2113,13 @@ impl UmbraApp {
         // else in the file looks like anyway.
         store.delete_secret("identity_seed").map_err(|e| e.to_string())?;
         store.delete_secret("profile.kind").map_err(|e| e.to_string())?;
+        // And the wrapped key, or the passphrase still reaches the file — with
+        // nothing behind it, but "turned off" has to mean turned off.
+        let salt = std::fs::read(account_file(&dir, "nullchat.salt")).map_err(|e| e.to_string())?;
+        let kek = kek_for(&salt, &passphrase)?;
+        if let Some((row, _)) = wrapped_row_in(&account_file(&dir, "nullchat.db"), &kek) {
+            store.delete_raw_secret(&row).map_err(|e| e.to_string())?;
+        }
         let name = if kind == ProfileKind::Decoy { "decoy" } else { "wipe" };
         let g = self.inner.lock().unwrap();
         g.store.delete_secret(&format!("duress.{name}")).map_err(|e| e.to_string())?;

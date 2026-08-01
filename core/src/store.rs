@@ -45,7 +45,7 @@ use crate::group::{Group, GroupMember};
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
 use hmac::{Hmac, Mac};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use sha2::Sha256;
 use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
@@ -418,6 +418,14 @@ type ContactRow = (Vec<u8>, Vec<u8>, i64, i64, i64, i64, Option<Vec<u8>>);
 /// timestamp, sealed body.
 type GroupMessageRow = (i64, Vec<u8>, i64, i64, Vec<u8>);
 
+/// One step of a re-key: the index a value sits on now, the index it moves to,
+/// and the value itself.
+type IndexMove = (Vec<u8>, Vec<u8>, Zeroizing<Vec<u8>>);
+
+/// A stored secret exactly as it sits on disk: its name and its value, both
+/// still opaque.
+pub type StoredSecret = (Vec<u8>, Vec<u8>);
+
 /// The encrypted local store.
 pub struct Store {
     conn: Connection,
@@ -467,11 +475,7 @@ impl Store {
 
     /// The index a value is stored under. Deterministic, so lookups match.
     fn bi(&self, value: &[u8]) -> Vec<u8> {
-        // Fully qualified: the AEAD in scope has a `new_from_slice` of its own.
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&*self.index_key)
-            .expect("HMAC accepts a key of any length");
-        mac.update(value);
-        mac.finalize().into_bytes().to_vec()
+        bi_with(&self.index_key, value)
     }
 
     /// The index, *and* a note of what it stands for so it can be read back.
@@ -627,6 +631,173 @@ impl Store {
         let _ = std::fs::copy(&path, &backup);
     }
 
+    /// Re-encrypt everything this key opens under `new_key`, and record the way
+    /// back in as the secret `wrap_name` -> `wrap_value`.
+    ///
+    /// This is what lets the cost of guessing a passphrase rise on a database
+    /// that already exists. The old scheme derived the data key from the
+    /// passphrase, so raising the Argon2id parameters changed the key and left
+    /// every row unreadable; the only accounts that could benefit were ones
+    /// created afterwards. With the data key random and wrapped, the parameters
+    /// are free to move.
+    ///
+    /// **Rows this key cannot open are left byte-identical.** One file answers
+    /// to several passphrases, and a profile has no business rewriting — or
+    /// being able to notice — another one's rows. Each converts itself, the
+    /// first time it signs in.
+    ///
+    /// One transaction, over a file copied beside itself first, and a check at
+    /// the end that nothing we could read before is still sealed under the old
+    /// key. So the outcomes are "converted" or "exactly as it was".
+    ///
+    /// # Errors
+    /// Any storage or crypto failure, in which case nothing changed.
+    pub fn rekey(
+        &mut self,
+        new_key: &[u8; 32],
+        wrap_name: &[u8],
+        wrap_value: &[u8],
+    ) -> Result<(), StoreError> {
+        let new_index_key = derive_index_key(new_key);
+        let backup = self.backup_before_rekey();
+        self.conn.execute_batch("BEGIN IMMEDIATE")?;
+        let done = (|| -> Result<(), StoreError> {
+            // Only values this key opens. Everything below is driven off this
+            // list, so another passphrase's rows are never considered again.
+            let mut mapping: Vec<IndexMove> = Vec::new();
+            {
+                let mut stmt = self.conn.prepare("SELECT bi, sealed FROM blind_index")?;
+                let rows = stmt
+                    .query_map([], |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Vec<u8>>(1)?)))?;
+                for row in rows {
+                    let (old_bi, sealed) = row?;
+                    let Ok(value) = self.unseal(&sealed) else { continue };
+                    let new_bi = bi_with(&new_index_key, &value);
+                    mapping.push((old_bi, new_bi, value));
+                }
+            }
+
+            // Move the routing columns first. They are matched on, never read,
+            // so this is a rename from one index to another.
+            for (old_bi, new_bi, _) in &mapping {
+                for (table, column) in INDEX_COLUMNS {
+                    self.conn.execute(
+                        &format!("UPDATE {table} SET {column} = ?2 WHERE {column} = ?1"),
+                        params![old_bi, new_bi],
+                    )?;
+                }
+            }
+
+            // Then the table that says what an index stands for.
+            for (old_bi, new_bi, value) in &mapping {
+                self.conn
+                    .execute("DELETE FROM blind_index WHERE bi = ?1", params![old_bi])?;
+                self.conn.execute(
+                    "INSERT INTO blind_index(bi, sealed) VALUES(?1, ?2)
+                     ON CONFLICT(bi) DO UPDATE SET sealed = excluded.sealed",
+                    params![new_bi, seal_with(new_key, value)?],
+                )?;
+            }
+
+            for (table, column) in SEALED_COLUMNS {
+                self.reseal_column(table, column, new_key)?;
+            }
+
+            // A column left out of SEALED_COLUMNS would still open under the old
+            // key and never under the new one — data silently lost at the next
+            // sign-in. Nothing readable may survive this point.
+            for (table, column) in SEALED_COLUMNS {
+                if self.column_still_opens(table, column)? {
+                    return Err(StoreError::Corrupt);
+                }
+            }
+
+            // Last, so the re-sealing pass above never sees it: this one is
+            // sealed under the passphrase, not under the data key.
+            self.conn.execute(
+                "INSERT INTO secrets(name, value) VALUES(?1, ?2)
+                 ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+                params![wrap_name, wrap_value],
+            )?;
+            Ok(())
+        })();
+        match done {
+            Ok(()) => {
+                self.conn.execute_batch("COMMIT")?;
+                self.key = Zeroizing::new(*new_key);
+                self.index_key = Zeroizing::new(new_index_key);
+                // The copy is protected by the key we just retired, which is the
+                // weak one this whole exercise is about. It exists only for the
+                // moment the conversion is in flight.
+                if let Some(backup) = backup {
+                    let _ = std::fs::remove_file(backup);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
+    }
+
+    /// Copy the database beside itself for the duration of a re-key.
+    ///
+    /// Best effort: an in-memory store has no path, and a full disk is not a
+    /// reason to refuse a conversion that is transactional anyway.
+    fn backup_before_rekey(&self) -> Option<PathBuf> {
+        let path = self.conn.path().map(PathBuf::from)?;
+        if !path.exists() {
+            return None; // in-memory
+        }
+        let backup = path.with_extension("db.pre-rekey.bak");
+        // A leftover from an attempt that died mid-flight. The database itself
+        // rolled back, so the copy describes the same content and is no safer
+        // to keep than to replace.
+        let _ = std::fs::remove_file(&backup);
+        std::fs::copy(&path, &backup).ok().map(|_| backup)
+    }
+
+    /// Re-seal one column under `new_key`, leaving alone every value the
+    /// current key cannot open.
+    fn reseal_column(
+        &self,
+        table: &str,
+        column: &str,
+        new_key: &[u8; 32],
+    ) -> Result<(), StoreError> {
+        let rows: Vec<(i64, Vec<u8>)> = {
+            let mut stmt = self.conn.prepare(&format!(
+                "SELECT rowid, {column} FROM {table} WHERE {column} IS NOT NULL"
+            ))?;
+            let rows =
+                stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?)))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        for (id, sealed) in rows {
+            let Ok(plain) = self.unseal(&sealed) else { continue };
+            self.conn.execute(
+                &format!("UPDATE {table} SET {column} = ?2 WHERE rowid = ?1"),
+                params![id, seal_with(new_key, &plain)?],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Is anything in this column still readable with the current key?
+    fn column_still_opens(&self, table: &str, column: &str) -> Result<bool, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare(&format!("SELECT {column} FROM {table} WHERE {column} IS NOT NULL"))?;
+        let rows = stmt.query_map([], |r| r.get::<_, Vec<u8>>(0))?;
+        for row in rows {
+            if self.unseal(&row?).is_ok() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Convert plaintext secret names to blind indexes, once, on its own mark.
     ///
     /// Skipped silently when the key does not open the file — a decoy or duress
@@ -685,20 +856,32 @@ impl Store {
     /// `true` also when there is nothing sealed yet — a database with no data
     /// cannot be damaged by converting it.
     fn key_opens_existing_data(&self) -> Result<bool, StoreError> {
+        let mut saw_something = false;
         for (table, column) in [
             ("secrets", "value"),
             ("contacts", "display_name"),
             ("messages", "body"),
             ("groups", "name"),
         ] {
-            let sealed: Option<Vec<u8>> = self
+            // Several rows, not the first one. A file can hold rows this key is
+            // not meant to read — another profile's, or the wrapped data key,
+            // which is sealed under the passphrase rather than under the key it
+            // protects — and judging by whichever row happens to come back
+            // first would call a perfectly good key wrong.
+            let mut stmt = self
                 .conn
-                .query_row(&format!("SELECT {column} FROM {table} LIMIT 1"), [], |r| r.get(0))
-                .optional()?;
-            let Some(sealed) = sealed else { continue };
-            return Ok(self.unseal(&sealed).is_ok());
+                .prepare(&format!("SELECT {column} FROM {table} WHERE {column} IS NOT NULL LIMIT 32"))?;
+            let rows = stmt.query_map([], |r| r.get::<_, Vec<u8>>(0))?;
+            for row in rows {
+                saw_something = true;
+                if self.unseal(&row?).is_ok() {
+                    return Ok(true);
+                }
+            }
         }
-        Ok(true)
+        // Nothing sealed anywhere: an empty database cannot be damaged by
+        // converting it.
+        Ok(!saw_something)
     }
 
     /// Replace every raw value in one column with its blind index.
@@ -815,12 +998,46 @@ impl Store {
 
     // --- secrets (identity seed, roster, session pickles, …) ---
 
+    /// Store `value` under `name` exactly as given, sealing neither.
+    ///
+    /// For the one thing that cannot be sealed under the data key, because it
+    /// *is* the data key. The caller has already wrapped it under the
+    /// passphrase; see [`Store::rekey`].
+    ///
+    /// # Errors
+    /// A storage error if the row cannot be written.
+    pub fn put_raw_secret(&self, name: &[u8], value: &[u8]) -> Result<(), StoreError> {
+        self.conn.execute(
+            "INSERT INTO secrets(name, value) VALUES(?1, ?2)
+             ON CONFLICT(name) DO UPDATE SET value = excluded.value",
+            params![name, value],
+        )?;
+        Ok(())
+    }
+
+    /// Remove a row by its exact stored name.
+    ///
+    /// The counterpart of [`Store::put_raw_secret`]: turning a passphrase off
+    /// has to take its wrapped key with it, or the passphrase still opens the
+    /// file.
+    ///
+    /// # Errors
+    /// A storage error if the row cannot be removed.
+    pub fn delete_raw_secret(&self, name: &[u8]) -> Result<(), StoreError> {
+        self.conn
+            .execute("DELETE FROM secrets WHERE name = ?1", params![name])?;
+        Ok(())
+    }
+
     /// Store a named secret (overwrites any existing value).
     ///
     /// The *name* is blind-indexed like every other lookup key, which is what
     /// lets two passphrases share one file without either being able to see
     /// that the other exists: the same name under a different key lands on a
     /// different row, and neither row says what it is for.
+    ///
+    /// # Errors
+    /// A storage or crypto error if the value cannot be sealed or written.
     pub fn put_secret(&self, name: &str, plaintext: &[u8]) -> Result<(), StoreError> {
         let value = self.seal(plaintext)?;
         let key = self.indexed(name.as_bytes())?;
@@ -2274,6 +2491,101 @@ fn derive_index_key(data_key: &[u8; 32]) -> [u8; 32] {
     mac.finalize().into_bytes().into()
 }
 
+/// Every stored secret in a database, as `(name, value)`, read without opening
+/// it properly.
+///
+/// The wrapped data key lives among the ordinary secrets under a random name,
+/// so finding it means trying to open each of these in turn. That is the point:
+/// a row that announced itself as "the wrapped key for the third passphrase"
+/// would tell whoever holds the file how many passphrases it answers to, which
+/// is the one thing this design will not say.
+///
+/// # Errors
+/// A storage error if the file exists but cannot be read at all. A file with no
+/// `secrets` table yet is not an error — it has no keys to find.
+pub fn stored_secrets(path: &Path) -> Result<Vec<StoredSecret>, StoreError> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let conn = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    // CAST, because two rows keep plain text names — the schema marks, which
+    // describe the file rather than any one passphrase and so must stay
+    // findable without a key. Reading those as bytes would otherwise fail and
+    // take the whole lookup with it.
+    let Ok(mut stmt) = conn.prepare("SELECT CAST(name AS BLOB), value FROM secrets") else {
+        return Ok(Vec::new());
+    };
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, Vec<u8>>(0)?, r.get::<_, Vec<u8>>(1)?)))?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Seal a value under a given key.
+///
+/// Free-standing for the same reason as [`bi_with`]: re-keying writes under the
+/// new key while the store still holds the old one.
+fn seal_with(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, StoreError> {
+    let mut nonce = [0u8; NONCE_LEN];
+    getrandom::getrandom(&mut nonce).map_err(|_| StoreError::Rng)?;
+    let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| StoreError::Crypto)?;
+    let ct = cipher
+        .encrypt(XNonce::from_slice(&nonce), plaintext)
+        .map_err(|_| StoreError::Crypto)?;
+    let mut out = Vec::with_capacity(NONCE_LEN + ct.len());
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ct);
+    Ok(out)
+}
+
+/// The blind index of `value` under a given index key.
+///
+/// Free-standing because re-keying has to compute indexes under the *new* key
+/// while the store still holds the old one.
+fn bi_with(index_key: &[u8; 32], value: &[u8]) -> Vec<u8> {
+    // Fully qualified: the AEAD in scope has a `new_from_slice` of its own.
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(index_key)
+        .expect("HMAC accepts a key of any length");
+    mac.update(value);
+    mac.finalize().into_bytes().to_vec()
+}
+
+/// Every column holding a blind index, and every column holding a sealed value.
+///
+/// Kept next to each other so that adding a column to [`SCHEMA`] and forgetting
+/// it here is a visible omission rather than a silent one. A column missing
+/// from the first list would keep an index nobody can match after a re-key; one
+/// missing from the second would stay sealed under a key that no longer exists.
+const INDEX_COLUMNS: &[(&str, &str)] = &[
+    ("contacts", "identity_pubkey"),
+    ("messages", "contact_pubkey"),
+    ("outbox", "peer_pubkey"),
+    ("outbox", "group_id"),
+    ("groups", "group_id"),
+    ("group_members", "group_id"),
+    ("group_members", "member_pubkey"),
+    ("group_messages", "group_id"),
+    ("group_messages", "sender_pubkey"),
+    ("secrets", "name"),
+];
+
+const SEALED_COLUMNS: &[(&str, &str)] = &[
+    ("secrets", "value"),
+    ("contacts", "display_name"),
+    ("contacts", "onion_addr"),
+    ("contacts", "pq_fingerprint"),
+    ("messages", "body"),
+    ("messages", "file_path"),
+    ("messages", "file_name"),
+    ("outbox", "payload"),
+    ("outbox", "body"),
+    ("groups", "name"),
+    ("group_members", "display_name"),
+    ("group_members", "onion_addr"),
+    ("group_messages", "body"),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3126,6 +3438,147 @@ mod tests {
         // the file cannot even confirm a guess about who is in it.
         assert_eq!(s.get_contact(&[7u8; 32]), Ok(None));
         assert!(!s.is_blocked(&[7u8; 32]).unwrap());
+    }
+
+    /// Everything this key could read is still readable afterwards, under the
+    /// new key and only under it.
+    #[test]
+    fn a_rekey_carries_the_whole_account_across() {
+        let tmp = TempDb::new();
+        let old = [1u8; 32];
+        let new = [9u8; 32];
+
+        let mut s = Store::open(&tmp.0, &old).unwrap();
+        s.put_secret("identity_seed", b"the identity").unwrap();
+        s.upsert_contact(&Contact {
+            identity_pubkey: [0xAAu8; 32],
+            display_name: "Kontakt".into(),
+            onion_addr: "abc.onion".into(),
+            added_at: 1,
+            status: ContactStatus::Accepted,
+            saved: true,
+            verified: true,
+            pq_fingerprint: Some([0xCCu8; 32]),
+        })
+        .unwrap();
+        let id = s
+            .insert_message(&NewMessage {
+                contact_pubkey: [0xAAu8; 32],
+                direction: Direction::Outgoing,
+                sent_at: 10,
+                body: b"ahoj",
+                file: None,
+            })
+            .unwrap();
+        s.queue_outgoing(&[0xAAu8; 32], id, None, b"frame bytes", b"ahoj", 10)
+            .unwrap();
+        // Groups are three more tables and five more index columns — the part
+        // of a re-key most likely to be forgotten.
+        let group = sample_group();
+        s.upsert_group(&group).unwrap();
+        s.insert_group_message(&NewGroupMessage {
+            group_id: group.id,
+            sender_pubkey: [0xAAu8; 32],
+            direction: Direction::Incoming,
+            sent_at: 20,
+            body: b"ve skupine",
+        })
+        .unwrap();
+
+        s.rekey(&new, b"a random looking name", b"a wrapped key").unwrap();
+
+        // The handle keeps working: its key was swapped, not invalidated.
+        assert_eq!(s.messages_for(&[0xAAu8; 32], 10).unwrap().len(), 1);
+
+        let after = Store::open(&tmp.0, &new).unwrap();
+        let contacts = after.list_contacts().unwrap();
+        assert_eq!(contacts.len(), 1);
+        assert_eq!(contacts[0].display_name, "Kontakt");
+        assert_eq!(contacts[0].onion_addr, "abc.onion");
+        assert!(contacts[0].verified);
+        assert_eq!(contacts[0].pq_fingerprint, Some([0xCCu8; 32]));
+        // Looked up by identity, which only works if the routing column moved
+        // onto an index computed from the new key.
+        assert!(after.get_contact(&[0xAAu8; 32]).unwrap().is_some());
+        assert_eq!(after.messages_for(&[0xAAu8; 32], 10).unwrap()[0].body, b"ahoj");
+        assert_eq!(after.outbox_for(&[0xAAu8; 32]).unwrap().len(), 1);
+        assert_eq!(
+            &*after.get_secret("identity_seed").unwrap().unwrap(),
+            b"the identity"
+        );
+        assert_eq!(after.get_group(&group.id).unwrap().unwrap(), group);
+        assert_eq!(after.group_messages_for(&group.id, 10).unwrap().len(), 1);
+
+        // And the key it used to have opens nothing at all.
+        let stale = Store::open(&tmp.0, &old).unwrap();
+        assert!(stale.list_contacts().unwrap().is_empty());
+        assert!(stale.get_secret("identity_seed").unwrap().is_none());
+    }
+
+    /// The reason this is a re-key and not a re-encrypt: one file answers to
+    /// several passphrases, and converting one must not touch the others.
+    #[test]
+    fn a_rekey_leaves_the_other_passphrase_untouched() {
+        let tmp = TempDb::new();
+        let (real_old, real_new) = ([1u8; 32], [3u8; 32]);
+        let (decoy_old, decoy_new) = ([2u8; 32], [4u8; 32]);
+
+        for (key, who, addr) in [(real_old, "Skutecny", "real.onion"), (decoy_old, "Nastraceny", "decoy.onion")] {
+            let s = Store::open(&tmp.0, &key).unwrap();
+            s.put_secret("identity_seed", who.as_bytes()).unwrap();
+            s.upsert_contact(&Contact {
+                identity_pubkey: if who == "Skutecny" { [0xAAu8; 32] } else { [0xBBu8; 32] },
+                display_name: who.into(),
+                onion_addr: addr.into(),
+                added_at: 1,
+                status: ContactStatus::Accepted,
+                saved: true,
+                verified: false,
+                pq_fingerprint: None,
+            })
+            .unwrap();
+        }
+
+        {
+            let mut real = Store::open(&tmp.0, &real_old).unwrap();
+            real.rekey(&real_new, b"wrap row for the real one", b"wrapped").unwrap();
+        }
+
+        // The decoy still opens on the key it always had, sees its own history,
+        // and still cannot see the other profile's.
+        let decoy = Store::open(&tmp.0, &decoy_old).unwrap();
+        let seen = decoy.list_contacts().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].display_name, "Nastraceny");
+        assert!(decoy.get_contact(&[0xAAu8; 32]).unwrap().is_none());
+        drop(decoy);
+
+        // …and converts itself later, without disturbing the one that went first.
+        {
+            let mut decoy = Store::open(&tmp.0, &decoy_old).unwrap();
+            decoy.rekey(&decoy_new, b"wrap row for the decoy", b"wrapped too").unwrap();
+        }
+        let real = Store::open(&tmp.0, &real_new).unwrap();
+        assert_eq!(real.list_contacts().unwrap()[0].display_name, "Skutecny");
+        let decoy = Store::open(&tmp.0, &decoy_new).unwrap();
+        assert_eq!(decoy.list_contacts().unwrap()[0].display_name, "Nastraceny");
+        assert!(decoy.get_contact(&[0xAAu8; 32]).unwrap().is_none());
+        assert!(real.get_contact(&[0xBBu8; 32]).unwrap().is_none());
+    }
+
+    /// The wrapped key is written under the exact name it was given, unsealed —
+    /// it is the one row that cannot be sealed under the key it protects.
+    #[test]
+    fn the_wrapped_key_is_stored_verbatim() {
+        let tmp = TempDb::new();
+        let mut s = Store::open(&tmp.0, &[1u8; 32]).unwrap();
+        s.put_secret("identity_seed", b"x").unwrap();
+        s.rekey(&[9u8; 32], b"the name", b"the wrapped bytes").unwrap();
+
+        let found = stored_secrets(&tmp.0).unwrap();
+        assert!(found
+            .iter()
+            .any(|(name, value)| name == b"the name" && value == b"the wrapped bytes"));
     }
 
     /// Two passphrases, one file, neither able to see the other.

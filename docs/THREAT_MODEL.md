@@ -37,7 +37,11 @@
 - **Forward secrecy & post-compromise security** — from the Double Ratchet:
   stealing one message key doesn't retro-decrypt history or all future messages.
 - **Data at rest** — identity keys and the local database are encrypted with a
-  key derived from the user's passphrase (Argon2id). The columns SQL must match
+  random key, of which the passphrase opens a wrapped copy (Argon2id, 256 MiB /
+  3 / 4). Keeping the key separate from the passphrase is what lets that cost
+  rise on an account that already exists; deriving the key directly, as builds
+  before 2.4.0 did, froze it at whatever the default was the day the account was
+  made. The columns SQL must match
   on cannot be encrypted, so they hold a blind index instead; see the limitation
   on activity metadata below for exactly what that does and does not hide.
 

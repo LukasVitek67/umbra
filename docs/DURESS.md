@@ -17,10 +17,17 @@ the situations it is for are the ones where being wrong costs the most.
 
 ## How it works
 
-There is no list of passphrases anywhere. A passphrase is turned into a key
-(Argon2id over the account's salt), and that key is simply used to open rows.
-Rows sealed under a different key do not decrypt, and NullChat treats a row it
-cannot decrypt as **absent** — not as an error, not as a locked door.
+There is no list of passphrases anywhere. Each passphrase reaches a key of its
+own, and that key is simply used to open rows. Rows sealed under a different key
+do not decrypt, and NullChat treats a row it cannot decrypt as **absent** — not
+as an error, not as a locked door.
+
+Since 2.4.0 the database key is random rather than derived, and the passphrase
+opens a wrapped copy of it (Argon2id over the account's salt). That copy is
+stored as an ordinary row among the other secrets, under a random name, and is
+found by trying to open each of them — so it is exactly as anonymous as
+everything else here. A profile that has not been signed into since the upgrade
+still derives its key the old way, and converts itself the next time it is used.
 
 The consequences are what the design is for:
 

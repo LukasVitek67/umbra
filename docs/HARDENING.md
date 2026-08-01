@@ -59,7 +59,7 @@ that actually matters: joining the result onto the downloads folder always stays
 A peer chose the byte count and it went straight to `avatar-<peer>.img`. Capped
 at 8 MiB.
 
-## Fixed since — 2.3.11
+## Fixed since — 2.3.11 and 2.4.0
 
 ### 5. Signing out did not end the session — critical
 
@@ -99,6 +99,39 @@ One flush per contact at a time now, with `try_lock` rather than a queue — if 
 delivery is already running there is nothing to add, and waiting would only hold
 the keep-alive loop, which walks every contact in turn, behind one slow peer.
 Anything queued during a flush goes out on the next tick.
+
+### 7. The cost of guessing was frozen at account creation — high
+
+The database key was `Argon2id(passphrase, salt)`. Raising the parameters
+changed the key, and the key is what every row is sealed under — so the stronger
+defaults introduced in 2.2.0 reached new accounts only. An account made before
+them stayed at 19 MiB / 2 / 1 for as long as it existed, and there was no way to
+move it: re-deriving under new parameters means re-encrypting, and re-encrypting
+a file that answers to several passphrases would destroy every profile except
+the one doing it.
+
+The author's own account was one of these. This is not a hypothetical.
+
+The key is now **random**, and the passphrase opens a wrapped copy of it. The
+two are then independent: the parameters can rise whenever, and re-wrapping is
+72 bytes rather than a rewrite of someone's history.
+
+Converting an existing account is `Store::rekey`, and its rule is the one that
+makes duress profiles survive: **it re-encrypts only what the current key can
+open.** Rows it cannot read belong to another passphrase and are left
+byte-identical. Each profile converts itself the first time it signs in, on its
+own, without ever learning that the others exist.
+
+It runs in one transaction, over a copy of the file kept beside it for the
+duration, and refuses to commit if anything that was readable before is still
+sealed under the old key — which is what would happen if a column were left out
+of the list. The copy is deleted on success: it is protected by the weak key
+this is all about, and keeping it would undo the point.
+
+Where it does not reach: the wrapped key is found by trying to open every stored
+secret, so nothing marks which row it is or how many there are — but a wrapped
+copy still exists, and the passphrase is still the whole of the secret. This
+raises the cost of guessing; it does not remove guessing as an approach.
 
 ## Open — worth doing, in this order
 

@@ -177,9 +177,145 @@ pub fn open(passphrase: &[u8], blob: &[u8]) -> Result<Zeroizing<Vec<u8>>, Keysto
     Ok(Zeroizing::new(plaintext))
 }
 
+// --- key wrapping -----------------------------------------------------------
+//
+// Deriving the database key from the passphrase directly, as the first
+// implementation did, has one consequence that cannot be argued away: the cost
+// of guessing is fixed for the life of the file. Raising the Argon2id
+// parameters only helps accounts created afterwards, because changing them
+// changes the derived key, and the old key is what every row is sealed under.
+//
+// So the database key becomes *random* and the passphrase protects a wrapped
+// copy of it. Then the parameters can rise whenever we like — re-wrapping is 72
+// bytes, not a rewrite of someone's history — and a stolen file is worth an
+// Argon2id run at the current cost, not at the cost that happened to be the
+// default the year the account was made.
+//
+// Nothing here says how many passphrases a file answers to. The wrapped key is
+// stored as an ordinary row among the other secrets, under a random name, and
+// is found by trying to open each of them.
+
+/// Length of a wrapped data key: nonce, the 32-byte key, and the tag.
+pub const WRAPPED_KEY_LEN: usize = NONCE_LEN + KEY_LEN + 16;
+
+/// The salt the key-encryption key is derived from.
+///
+/// Separate from the database salt so that the KEK and a legacy directly
+/// derived data key can never coincide, even if someone one day configures the
+/// two derivations with the same parameters.
+fn kek_salt(salt: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(b"nullchat key wrap v1");
+    h.update(salt);
+    h.finalize().into()
+}
+
+/// Derive the key that wraps the database key.
+///
+/// # Errors
+/// A `Params` or `Kdf` error if Argon2id refuses the parameters or fails.
+pub fn derive_kek(
+    passphrase: &[u8],
+    salt: &[u8],
+    m_cost: u32,
+    t_cost: u32,
+    p_cost: u32,
+) -> Result<Zeroizing<[u8; KEY_LEN]>, KeystoreError> {
+    let params =
+        Params::new(m_cost, t_cost, p_cost, Some(KEY_LEN)).map_err(|_| KeystoreError::Params)?;
+    derive_key(passphrase, &kek_salt(salt), &params)
+}
+
+/// A fresh random database key.
+///
+/// # Errors
+/// [`KeystoreError::Rng`] if the OS RNG fails.
+pub fn new_store_key() -> Result<Zeroizing<[u8; KEY_LEN]>, KeystoreError> {
+    let mut key = Zeroizing::new([0u8; KEY_LEN]);
+    getrandom::getrandom(&mut *key).map_err(|_| KeystoreError::Rng)?;
+    Ok(key)
+}
+
+/// Wrap `data_key` under `kek`. The result carries no header: it must not be
+/// distinguishable from any other sealed value sitting next to it.
+///
+/// # Errors
+/// [`KeystoreError::Rng`] if the OS RNG fails, [`KeystoreError::Crypto`] if the
+/// AEAD does.
+pub fn wrap_store_key(
+    kek: &[u8; KEY_LEN],
+    data_key: &[u8; KEY_LEN],
+) -> Result<Vec<u8>, KeystoreError> {
+    let mut nonce = [0u8; NONCE_LEN];
+    getrandom::getrandom(&mut nonce).map_err(|_| KeystoreError::Rng)?;
+    let cipher = XChaCha20Poly1305::new_from_slice(kek).map_err(|_| KeystoreError::Crypto)?;
+    let ct = cipher
+        .encrypt(XNonce::from_slice(&nonce), data_key.as_slice())
+        .map_err(|_| KeystoreError::Crypto)?;
+    let mut out = Vec::with_capacity(WRAPPED_KEY_LEN);
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ct);
+    Ok(out)
+}
+
+/// Recover a data key wrapped under `kek`, or `None` if this blob is not one.
+///
+/// Returning `None` rather than an error is deliberate: this is called on every
+/// stored secret in turn, and "not mine" is the ordinary answer, not a fault.
+#[must_use]
+pub fn unwrap_store_key(kek: &[u8; KEY_LEN], blob: &[u8]) -> Option<Zeroizing<[u8; KEY_LEN]>> {
+    if blob.len() != WRAPPED_KEY_LEN {
+        return None;
+    }
+    let cipher = XChaCha20Poly1305::new_from_slice(kek).ok()?;
+    let plain = cipher
+        .decrypt(XNonce::from_slice(&blob[..NONCE_LEN]), &blob[NONCE_LEN..])
+        .ok()?;
+    let key: [u8; KEY_LEN] = plain.as_slice().try_into().ok()?;
+    Some(Zeroizing::new(key))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_wrapped_key_comes_back() {
+        let kek = derive_kek(b"a passphrase worth typing", b"0123456789abcdef", 8, 1, 1).unwrap();
+        let data = new_store_key().unwrap();
+        let blob = wrap_store_key(&kek, &data).unwrap();
+        assert_eq!(blob.len(), WRAPPED_KEY_LEN);
+        assert_eq!(*unwrap_store_key(&kek, &blob).unwrap(), *data);
+    }
+
+    #[test]
+    fn another_passphrase_does_not_open_it() {
+        let mine = derive_kek(b"a passphrase worth typing", b"0123456789abcdef", 8, 1, 1).unwrap();
+        let theirs = derive_kek(b"some other passphrase", b"0123456789abcdef", 8, 1, 1).unwrap();
+        let blob = wrap_store_key(&mine, &new_store_key().unwrap()).unwrap();
+        assert!(unwrap_store_key(&theirs, &blob).is_none());
+    }
+
+    /// Every other stored secret gets handed to `unwrap_store_key` while we look
+    /// for ours, so anything that is not a wrapped key must simply be declined.
+    #[test]
+    fn an_ordinary_secret_is_not_mistaken_for_a_key() {
+        let kek = derive_kek(b"a passphrase worth typing", b"0123456789abcdef", 8, 1, 1).unwrap();
+        assert!(unwrap_store_key(&kek, b"").is_none());
+        assert!(unwrap_store_key(&kek, &[7u8; WRAPPED_KEY_LEN]).is_none());
+        assert!(unwrap_store_key(&kek, &[7u8; WRAPPED_KEY_LEN + 1]).is_none());
+    }
+
+    /// The wrapping key must not be the key it wraps, nor the one the old
+    /// scheme would have derived from the same passphrase and salt.
+    #[test]
+    fn the_wrapping_key_is_its_own_key() {
+        let salt = b"0123456789abcdef";
+        let kek = derive_kek(b"pw", salt, 8, 1, 1).unwrap();
+        let direct = derive_store_key_with(b"pw", salt, 8, 1, 1).unwrap();
+        assert_ne!(*kek, *direct);
+    }
 
     #[test]
     fn seal_open_roundtrip() {
