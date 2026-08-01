@@ -293,17 +293,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                 ],
                 const SizedBox(height: 20),
-                CheckboxListTile(
-                  value: _remember,
-                  onChanged: (v) => setState(() => _remember = v ?? false),
-                  controlAffinity: ListTileControlAffinity.leading,
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: Text(L.t('accounts.remember'),
-                      style: TextStyle(fontSize: 13, color: UmbraColors.textPrimary)),
-                  subtitle: Text(L.t('accounts.rememberHelp'),
-                      style: TextStyle(fontSize: 11, color: UmbraColors.textMuted)),
-                ),
+                // Offered only where the system can actually hold a passphrase.
+                // Elsewhere the switch did nothing, silently.
+                if (appState.canRememberPassphrase)
+                  CheckboxListTile(
+                    value: _remember,
+                    onChanged: (v) => setState(() => _remember = v ?? false),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text(L.t('accounts.remember'),
+                        style: TextStyle(fontSize: 13, color: UmbraColors.textPrimary)),
+                    subtitle: Text(L.t('accounts.rememberHelp'),
+                        style: TextStyle(fontSize: 11, color: UmbraColors.textMuted)),
+                  ),
                 FilledButton(
                   onPressed: (_valid && !_busy) ? _submit : null,
                   child: Padding(

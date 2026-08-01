@@ -286,6 +286,15 @@ abstract class UmbraApp implements RustOpaqueInterface {
         id: id,
       );
 
+  /// Can this system hold a passphrase for automatic sign-in at all?
+  ///
+  /// Only Windows can, through DPAPI. Everywhere else the choice is between
+  /// writing the passphrase somewhere in the clear and not offering the
+  /// feature, and it is not a close call — so the interface should not offer
+  /// a switch that quietly does nothing.
+  static bool passphraseStorageAvailable() =>
+      RustLib.instance.api.crateApiNullchatUmbraAppPassphraseStorageAvailable();
+
   /// How many messages are still waiting for their peer.
   int pendingMessages();
 

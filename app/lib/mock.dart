@@ -474,6 +474,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Whether this system can hold a passphrase for automatic sign-in at all.
+  ///
+  /// Windows can, through DPAPI; nothing else here can do it without writing
+  /// the passphrase somewhere readable, so the option is not offered.
+  bool get canRememberPassphrase => UmbraApp.passphraseStorageAvailable();
+
   /// Whether this account signs in automatically on this computer.
   bool get autologinEnabled => _app?.autologinEnabled() ?? false;
 

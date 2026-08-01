@@ -200,6 +200,12 @@ class _AccountPickerScreenState extends State<AccountPickerScreen> {
                     controller: _pass,
                     obscureText: true,
                     autofocus: true,
+                    // Without this the field never rebuilds the screen, so the
+                    // button below keeps the answer it computed when the field
+                    // was empty: disabled. It came alive only when something
+                    // *else* called setState — ticking "sign in automatically"
+                    // did it, which is why that looked like a requirement.
+                    onChanged: (_) => setState(() {}),
                     onSubmitted: (_) => _unlock(),
                     decoration: InputDecoration(
                       hintText: L.t('onboard.passphrase'),
@@ -207,6 +213,7 @@ class _AccountPickerScreenState extends State<AccountPickerScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
+                  if (appState.canRememberPassphrase)
                   CheckboxListTile(
                     value: _remember,
                     onChanged: (v) => setState(() => _remember = v ?? false),

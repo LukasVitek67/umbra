@@ -1469,6 +1469,17 @@ impl UmbraApp {
         accounts::upsert(&root, entry)
     }
 
+    /// Can this system hold a passphrase for automatic sign-in at all?
+    ///
+    /// Only Windows can, through DPAPI. Everywhere else the choice is between
+    /// writing the passphrase somewhere in the clear and not offering the
+    /// feature, and it is not a close call — so the interface should not offer
+    /// a switch that quietly does nothing.
+    #[frb(sync)]
+    pub fn passphrase_storage_available() -> bool {
+        cfg!(windows)
+    }
+
     /// Whether this account signs in automatically.
     #[frb(sync)]
     pub fn autologin_enabled(&self) -> bool {

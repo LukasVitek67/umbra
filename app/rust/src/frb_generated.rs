@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1021125825;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 2136978859;
 
 // Section: executor
 
@@ -2087,6 +2087,37 @@ fn wire__crate__api__nullchat__UmbraApp_open_account_auto_impl(
         },
     )
 }
+fn wire__crate__api__nullchat__UmbraApp_passphrase_storage_available_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "UmbraApp_passphrase_storage_available",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            transform_result_sse::<_, ()>((move || {
+                let output_ok = Result::<_, ()>::Ok(
+                    crate::api::nullchat::UmbraApp::passphrase_storage_available(),
+                )?;
+                Ok(output_ok)
+            })())
+        },
+    )
+}
 fn wire__crate__api__nullchat__UmbraApp_pending_messages_impl(
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
     rust_vec_len_: i32,
@@ -4048,19 +4079,19 @@ fn pde_ffi_dispatcher_primary_impl(
         27 => {
             wire__crate__api__nullchat__UmbraApp_gif_search_impl(port, ptr, rust_vec_len, data_len)
         }
-        46 => wire__crate__api__nullchat__UmbraApp_read_attachment_impl(
+        47 => wire__crate__api__nullchat__UmbraApp_read_attachment_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        66 => wire__crate__api__nullchat__UmbraApp_start_network_impl(
+        67 => wire__crate__api__nullchat__UmbraApp_start_network_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        71 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
+        72 => wire__crate__api__simple__init_app_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -4146,58 +4177,63 @@ fn pde_ffi_dispatcher_sync_impl(
         43 => {
             wire__crate__api__nullchat__UmbraApp_open_account_auto_impl(ptr, rust_vec_len, data_len)
         }
-        44 => {
+        44 => wire__crate__api__nullchat__UmbraApp_passphrase_storage_available_impl(
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        45 => {
             wire__crate__api__nullchat__UmbraApp_pending_messages_impl(ptr, rust_vec_len, data_len)
         }
-        45 => wire__crate__api__nullchat__UmbraApp_reactions_impl(ptr, rust_vec_len, data_len),
-        47 => wire__crate__api__nullchat__UmbraApp_rename_contact_impl(ptr, rust_vec_len, data_len),
-        48 => wire__crate__api__nullchat__UmbraApp_rename_group_impl(ptr, rust_vec_len, data_len),
-        49 => wire__crate__api__nullchat__UmbraApp_repair_tor_impl(ptr, rust_vec_len, data_len),
-        50 => wire__crate__api__nullchat__UmbraApp_safety_number_impl(ptr, rust_vec_len, data_len),
-        51 => {
+        46 => wire__crate__api__nullchat__UmbraApp_reactions_impl(ptr, rust_vec_len, data_len),
+        48 => wire__crate__api__nullchat__UmbraApp_rename_contact_impl(ptr, rust_vec_len, data_len),
+        49 => wire__crate__api__nullchat__UmbraApp_rename_group_impl(ptr, rust_vec_len, data_len),
+        50 => wire__crate__api__nullchat__UmbraApp_repair_tor_impl(ptr, rust_vec_len, data_len),
+        51 => wire__crate__api__nullchat__UmbraApp_safety_number_impl(ptr, rust_vec_len, data_len),
+        52 => {
             wire__crate__api__nullchat__UmbraApp_search_messages_impl(ptr, rust_vec_len, data_len)
         }
-        52 => wire__crate__api__nullchat__UmbraApp_send_file_impl(ptr, rust_vec_len, data_len),
-        53 => wire__crate__api__nullchat__UmbraApp_send_gif_impl(ptr, rust_vec_len, data_len),
-        54 => wire__crate__api__nullchat__UmbraApp_send_group_message_impl(
+        53 => wire__crate__api__nullchat__UmbraApp_send_file_impl(ptr, rust_vec_len, data_len),
+        54 => wire__crate__api__nullchat__UmbraApp_send_gif_impl(ptr, rust_vec_len, data_len),
+        55 => wire__crate__api__nullchat__UmbraApp_send_group_message_impl(
             ptr,
             rust_vec_len,
             data_len,
         ),
-        55 => {
+        56 => {
             wire__crate__api__nullchat__UmbraApp_send_over_network_impl(ptr, rust_vec_len, data_len)
         }
-        56 => wire__crate__api__nullchat__UmbraApp_send_reaction_impl(ptr, rust_vec_len, data_len),
-        57 => wire__crate__api__nullchat__UmbraApp_send_reply_impl(ptr, rust_vec_len, data_len),
-        58 => wire__crate__api__nullchat__UmbraApp_set_autologin_impl(ptr, rust_vec_len, data_len),
-        59 => {
+        57 => wire__crate__api__nullchat__UmbraApp_send_reaction_impl(ptr, rust_vec_len, data_len),
+        58 => wire__crate__api__nullchat__UmbraApp_send_reply_impl(ptr, rust_vec_len, data_len),
+        59 => wire__crate__api__nullchat__UmbraApp_set_autologin_impl(ptr, rust_vec_len, data_len),
+        60 => {
             wire__crate__api__nullchat__UmbraApp_set_contact_saved_impl(ptr, rust_vec_len, data_len)
         }
-        60 => wire__crate__api__nullchat__UmbraApp_set_contact_status_impl(
+        61 => wire__crate__api__nullchat__UmbraApp_set_contact_status_impl(
             ptr,
             rust_vec_len,
             data_len,
         ),
-        61 => wire__crate__api__nullchat__UmbraApp_set_custom_bridges_impl(
+        62 => wire__crate__api__nullchat__UmbraApp_set_custom_bridges_impl(
             ptr,
             rust_vec_len,
             data_len,
         ),
-        62 => wire__crate__api__nullchat__UmbraApp_set_duress_passphrase_impl(
+        63 => wire__crate__api__nullchat__UmbraApp_set_duress_passphrase_impl(
             ptr,
             rust_vec_len,
             data_len,
         ),
-        63 => wire__crate__api__nullchat__UmbraApp_set_gif_key_impl(ptr, rust_vec_len, data_len),
-        64 => wire__crate__api__nullchat__UmbraApp_set_my_picture_impl(ptr, rust_vec_len, data_len),
-        65 => wire__crate__api__nullchat__UmbraApp_set_verified_impl(ptr, rust_vec_len, data_len),
-        67 => wire__crate__api__nullchat__UmbraApp_user_code_impl(ptr, rust_vec_len, data_len),
-        68 => wire__crate__api__nullchat__UmbraApp_username_impl(ptr, rust_vec_len, data_len),
-        69 => wire__crate__api__nullchat__app_version_impl(ptr, rust_vec_len, data_len),
-        70 => wire__crate__api__simple__greet_impl(ptr, rust_vec_len, data_len),
-        72 => wire__crate__api__nullchat__install_update_impl(ptr, rust_vec_len, data_len),
-        73 => wire__crate__api__nullchat__offered_update_impl(ptr, rust_vec_len, data_len),
-        74 => wire__crate__api__nullchat__set_native_dir_impl(ptr, rust_vec_len, data_len),
+        64 => wire__crate__api__nullchat__UmbraApp_set_gif_key_impl(ptr, rust_vec_len, data_len),
+        65 => wire__crate__api__nullchat__UmbraApp_set_my_picture_impl(ptr, rust_vec_len, data_len),
+        66 => wire__crate__api__nullchat__UmbraApp_set_verified_impl(ptr, rust_vec_len, data_len),
+        68 => wire__crate__api__nullchat__UmbraApp_user_code_impl(ptr, rust_vec_len, data_len),
+        69 => wire__crate__api__nullchat__UmbraApp_username_impl(ptr, rust_vec_len, data_len),
+        70 => wire__crate__api__nullchat__app_version_impl(ptr, rust_vec_len, data_len),
+        71 => wire__crate__api__simple__greet_impl(ptr, rust_vec_len, data_len),
+        73 => wire__crate__api__nullchat__install_update_impl(ptr, rust_vec_len, data_len),
+        74 => wire__crate__api__nullchat__offered_update_impl(ptr, rust_vec_len, data_len),
+        75 => wire__crate__api__nullchat__set_native_dir_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
