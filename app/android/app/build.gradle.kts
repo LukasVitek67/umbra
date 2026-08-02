@@ -36,6 +36,13 @@ android {
             // Debug keys for now — the release APK is signed for distribution by
             // tools/release.ps1 together with the desktop build.
             signingConfig = signingConfigs.getByName("debug")
+            // Tink, underneath androidx.security-crypto, references Error Prone
+            // annotations that are compile-time only; R8 cannot resolve them and
+            // stops. See proguard-rules.pro for why not warning is the fix.
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
@@ -50,6 +57,13 @@ dependencies {
     // build with yet (Gradle 9 dropped Project.exec()). Worth revisiting once
     // flutter_rust_bridge ships a cargokit that runs on Gradle 9.
     implementation("info.guardianproject:tor-android:0.4.8.22")
+
+    // Holds a remembered passphrase in EncryptedSharedPreferences, keyed from
+    // the Android Keystore. Done here rather than with a Flutter plugin because
+    // the plugins for this ship a Windows implementation that needs Visual
+    // Studio's ATL headers, and the Windows build neither has them nor wants
+    // the code — see MainActivity.
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }
 
 kotlin {
