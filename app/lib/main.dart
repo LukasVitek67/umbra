@@ -10,6 +10,7 @@ import 'connecting.dart';
 import 'profile_button.dart';
 import 'l10n.dart';
 import 'mock.dart';
+import 'passphrase_vault.dart';
 import 'native_dir.dart';
 import 'notifications.dart';
 import 'screens_chats.dart';
@@ -304,7 +305,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     dense: true,
                     title: Text(L.t('accounts.remember'),
                         style: TextStyle(fontSize: 13, color: UmbraColors.textPrimary)),
-                    subtitle: Text(L.t('accounts.rememberHelp'),
+                    subtitle: Text(L.t(PassphraseVault.instance.warningKey),
                         style: TextStyle(fontSize: 11, color: UmbraColors.textMuted)),
                   ),
                 FilledButton(

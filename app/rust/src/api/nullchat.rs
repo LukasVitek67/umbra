@@ -1469,15 +1469,45 @@ impl UmbraApp {
         accounts::upsert(&root, entry)
     }
 
-    /// Can this system hold a passphrase for automatic sign-in at all?
+    /// Can *this layer* hold a passphrase for automatic sign-in?
     ///
-    /// Only Windows can, through DPAPI. Everywhere else the choice is between
-    /// writing the passphrase somewhere in the clear and not offering the
-    /// feature, and it is not a close call — so the interface should not offer
-    /// a switch that quietly does nothing.
+    /// Windows only, through DPAPI. That is a statement about the Rust side and
+    /// nothing else: on Android and Linux the passphrase is kept by the
+    /// platform's own secret store, which the interface reaches directly — see
+    /// `passphrase_vault.dart`. Ask that, not this, before offering the option.
     #[frb(sync)]
     pub fn passphrase_storage_available() -> bool {
         cfg!(windows)
+    }
+
+    /// Record that an account signs in automatically, without keeping the
+    /// passphrase here.
+    ///
+    /// For the platforms where the secret lives in the operating system's own
+    /// store rather than in `accounts.json`. The account list still has to know,
+    /// because it is what the picker reads to decide whether to ask.
+    ///
+    /// Turning it off clears any DPAPI blob as well, so an account cannot end up
+    /// remembered by one mechanism after being forgotten by the other.
+    #[frb(sync)]
+    pub fn set_autologin_flag(root: String, id: String, enabled: bool) -> Result<(), String> {
+        let root = PathBuf::from(root);
+        let mut entry = accounts::load(&root)
+            .into_iter()
+            .find(|a| a.id == id)
+            .ok_or_else(|| "account not found".to_string())?;
+        entry.autologin = enabled;
+        if !enabled {
+            entry.secret = String::new();
+        }
+        accounts::upsert(&root, entry)
+    }
+
+    /// Which local account this is, for the interface's own bookkeeping —
+    /// notably which entry in the platform's secret store belongs to it.
+    #[frb(sync)]
+    pub fn account_id(&self) -> String {
+        self.inner.lock().unwrap().account_id.clone()
     }
 
     /// Whether this account signs in automatically.

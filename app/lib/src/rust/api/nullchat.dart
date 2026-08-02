@@ -30,6 +30,10 @@ void setNativeDir({required String path}) =>
 
 // Rust type: RustOpaqueMoi<flutter_rust_bridge::for_generated::RustAutoOpaqueInner<UmbraApp>>
 abstract class UmbraApp implements RustOpaqueInterface {
+  /// Which local account this is, for the interface's own bookkeeping —
+  /// notably which entry in the platform's secret store belongs to it.
+  String accountId();
+
   /// Add a contact from a pasted `umbra1:` invite. Returns the parsed contact.
   ContactView addContact({required String inviteCode, required BigInt now});
 
@@ -286,12 +290,12 @@ abstract class UmbraApp implements RustOpaqueInterface {
         id: id,
       );
 
-  /// Can this system hold a passphrase for automatic sign-in at all?
+  /// Can *this layer* hold a passphrase for automatic sign-in?
   ///
-  /// Only Windows can, through DPAPI. Everywhere else the choice is between
-  /// writing the passphrase somewhere in the clear and not offering the
-  /// feature, and it is not a close call — so the interface should not offer
-  /// a switch that quietly does nothing.
+  /// Windows only, through DPAPI. That is a statement about the Rust side and
+  /// nothing else: on Android and Linux the passphrase is kept by the
+  /// platform's own secret store, which the interface reaches directly — see
+  /// `passphrase_vault.dart`. Ask that, not this, before offering the option.
   static bool passphraseStorageAvailable() =>
       RustLib.instance.api.crateApiNullchatUmbraAppPassphraseStorageAvailable();
 
@@ -402,6 +406,25 @@ abstract class UmbraApp implements RustOpaqueInterface {
 
   /// Turn auto sign-in on (needs the passphrase) or off for this account.
   void setAutologin({required String passphrase, required bool enabled});
+
+  /// Record that an account signs in automatically, without keeping the
+  /// passphrase here.
+  ///
+  /// For the platforms where the secret lives in the operating system's own
+  /// store rather than in `accounts.json`. The account list still has to know,
+  /// because it is what the picker reads to decide whether to ask.
+  ///
+  /// Turning it off clears any DPAPI blob as well, so an account cannot end up
+  /// remembered by one mechanism after being forgotten by the other.
+  static void setAutologinFlag({
+    required String root,
+    required String id,
+    required bool enabled,
+  }) => RustLib.instance.api.crateApiNullchatUmbraAppSetAutologinFlag(
+    root: root,
+    id: id,
+    enabled: enabled,
+  );
 
   /// Keep a contact in the address book (or drop them from it).
   void setContactSaved({required String contactHex, required bool saved});

@@ -348,6 +348,8 @@ class L {
       'accounts.remember': 'Sign in automatically on this computer',
       'accounts.rememberHelp':
           'The passphrase is stored encrypted for your Windows user. Any program running as you can then open this account — including one you did not install on purpose.',
+      'accounts.rememberHelpDevice':
+          'The passphrase is kept in this device\'s keystore, where other apps cannot read it. Anyone who can unlock this phone can still open this account.',
       'accounts.back': 'Back to accounts',
       'accounts.remove': 'Delete',
       'accounts.removeTitle': 'Delete this account?',
@@ -783,6 +785,8 @@ class L {
       'accounts.remember': 'Na tomto počítači se přihlašovat automaticky',
       'accounts.rememberHelp':
           'Fráze se uloží zašifrovaná pro tvůj účet ve Windows. Otevřít tenhle účet pak dokáže jakýkoli program, který pod tvým účtem běží — i takový, který sis nenainstaloval schválně.',
+      'accounts.rememberHelpDevice':
+          'Fráze se uloží do keystoru tohoto zařízení, kam jiné aplikace nevidí. Kdo ale telefon odemkne, do účtu se dostane.',
       'accounts.back': 'Zpět na účty',
       'accounts.remove': 'Smazat',
       'accounts.removeTitle': 'Smazat tento účet?',

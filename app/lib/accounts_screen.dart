@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import 'l10n.dart';
 import 'mock.dart';
+import 'passphrase_vault.dart';
 import 'src/rust/api/nullchat.dart';
 import 'theme.dart';
 
@@ -222,7 +223,7 @@ class _AccountPickerScreenState extends State<AccountPickerScreen> {
                     dense: true,
                     title: Text(L.t('accounts.remember'),
                         style: TextStyle(fontSize: 13, color: UmbraColors.textPrimary)),
-                    subtitle: Text(L.t('accounts.rememberHelp'),
+                    subtitle: Text(L.t(PassphraseVault.instance.warningKey),
                         style: TextStyle(fontSize: 11, color: UmbraColors.textMuted)),
                   ),
                   if (_error != null) ...[

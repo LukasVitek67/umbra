@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart';
 import 'app_dir.dart';
 import 'l10n.dart';
 import 'notifications.dart';
+import 'passphrase_vault.dart';
 import 'single_instance.dart';
 import 'src/rust/api/nullchat.dart';
 
@@ -326,7 +327,22 @@ class AppState extends ChangeNotifier {
   // and a section or an open conversation stored in a State would be thrown
   // away with it — you would land back in Chats after picking a colour.
   /// Which rail section is open: 0 chats, 1 contacts, 2 media, 3 settings.
-  int railSection = 0;
+  ///
+  /// A setter rather than a field because of how the two layouts change it. The
+  /// desktop rail wraps the assignment in `setState`, so its own shell rebuilds
+  /// and the screen changes. The bottom bar on a phone has no such State — it
+  /// only assigned the value, nothing was told, and nothing repainted: tapping
+  /// it did the work and looked broken. Telling listeners here makes both
+  /// layouts right, and keeps a section change indistinguishable from any other
+  /// state change.
+  int get railSection => _railSection;
+  set railSection(int value) {
+    if (_railSection == value) return;
+    _railSection = value;
+    notifyListeners();
+  }
+
+  int _railSection = 0;
   /// The open 1:1 conversation, if any.
   Chat? selectedChat;
   /// The open group conversation, if any.
@@ -414,6 +430,14 @@ class AppState extends ChangeNotifier {
       );
       creatingAccount = false;
       _adopt(app);
+      // Rust stored it only on Windows; everywhere else it goes to the
+      // platform's secret store and the account list just records the flag.
+      if (autologin && !Platform.isWindows) {
+        final id = app.accountId();
+        if (id.isNotEmpty && await PassphraseVault.instance.store(id, passphrase)) {
+          UmbraApp.setAutologinFlag(root: await _dir(), id: id, enabled: true);
+        }
+      }
       return true;
     } catch (e) {
       lastError = _clean(e);
@@ -423,15 +447,35 @@ class AppState extends ChangeNotifier {
   }
 
   /// Sign in to an account with its passphrase.
+  ///
+  /// `remember` is honoured on every platform that has a secret store. On
+  /// Windows the Rust side does it with DPAPI as part of opening the account;
+  /// elsewhere the passphrase goes to the operating system's own store — the
+  /// Android Keystore, the Linux Secret Service — and only a flag is written
+  /// here, because the picker has to know which accounts to skip asking.
   Future<bool> signIn(String id, String passphrase, {bool remember = false}) async {
+    final root = await _dir();
     try {
+      final vault = PassphraseVault.instance;
       final app = UmbraApp.openAccount(
-        root: await _dir(),
+        root: root,
         id: id,
         passphrase: passphrase,
+        // On Windows this is what stores it. Elsewhere it is a no-op inside
+        // Rust, and the vault below does the work.
         remember: remember,
       );
       _adopt(app);
+      if (!Platform.isWindows) {
+        if (remember) {
+          if (await vault.store(id, passphrase)) {
+            UmbraApp.setAutologinFlag(root: root, id: id, enabled: true);
+          }
+        } else {
+          await vault.clear(id);
+          UmbraApp.setAutologinFlag(root: root, id: id, enabled: false);
+        }
+      }
       return true;
     } catch (e) {
       lastError = _clean(e);
@@ -440,10 +484,21 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Sign in to an account whose passphrase this computer remembers.
+  /// Sign in to an account whose passphrase this device remembers.
   Future<bool> signInAuto(String id) async {
+    final root = await _dir();
     try {
-      final app = UmbraApp.openAccountAuto(root: await _dir(), id: id);
+      // The platform's own store first; `openAccountAuto` is the Windows path
+      // and reads the DPAPI blob out of the account list itself.
+      final remembered = await PassphraseVault.instance.read(id);
+      final app = remembered == null
+          ? UmbraApp.openAccountAuto(root: root, id: id)
+          : UmbraApp.openAccount(
+              root: root,
+              id: id,
+              passphrase: remembered,
+              remember: false,
+            );
       _adopt(app);
       return true;
     } catch (e) {
@@ -456,6 +511,9 @@ class AppState extends ChangeNotifier {
   /// Delete an account and all of its local data.
   Future<void> forgetAccount(String id) async {
     try {
+      // Before the account itself, so a passphrase cannot outlive the thing it
+      // opened — the account directory is about to be overwritten and removed.
+      await PassphraseVault.instance.clear(id);
       UmbraApp.forgetAccount(root: await _dir(), id: id);
     } catch (e) {
       lastError = _clean(e);
@@ -474,19 +532,35 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Whether this system can hold a passphrase for automatic sign-in at all.
+  /// Whether this device can hold a passphrase for automatic sign-in.
   ///
-  /// Windows can, through DPAPI; nothing else here can do it without writing
-  /// the passphrase somewhere readable, so the option is not offered.
-  bool get canRememberPassphrase => UmbraApp.passphraseStorageAvailable();
+  /// True wherever there is an operating-system secret store to put it in:
+  /// DPAPI on Windows, the Keystore on Android, the Secret Service on Linux.
+  /// See `passphrase_vault.dart` for what each of those is worth.
+  bool get canRememberPassphrase => PassphraseVault.instance.available;
 
   /// Whether this account signs in automatically on this computer.
   bool get autologinEnabled => _app?.autologinEnabled() ?? false;
 
   /// Turn auto sign-in on (needs the passphrase) or off.
-  bool setAutologin(String passphrase, bool enabled) {
+  Future<bool> setAutologin(String passphrase, bool enabled) async {
+    final id = _app?.accountId() ?? '';
     try {
-      _app?.setAutologin(passphrase: passphrase, enabled: enabled);
+      if (Platform.isWindows) {
+        _app?.setAutologin(passphrase: passphrase, enabled: enabled);
+      } else {
+        if (id.isEmpty) throw 'account context missing';
+        final root = await _dir();
+        if (enabled) {
+          if (!await PassphraseVault.instance.store(id, passphrase)) {
+            throw 'this device would not store the passphrase';
+          }
+          UmbraApp.setAutologinFlag(root: root, id: id, enabled: true);
+        } else {
+          await PassphraseVault.instance.clear(id);
+          UmbraApp.setAutologinFlag(root: root, id: id, enabled: false);
+        }
+      }
       notifyListeners();
       return true;
     } catch (e) {

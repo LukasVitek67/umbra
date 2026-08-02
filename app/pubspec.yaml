@@ -43,6 +43,12 @@ dependencies:
   window_manager: ^0.5.2
   tray_manager: ^0.5.3
   ffi: ^2.2.0
+  # Where a remembered passphrase lives on platforms that are not Windows.
+  # Android gets EncryptedSharedPreferences under a hardware-backed Keystore
+  # key; Linux gets the Secret Service (libsecret), which the Arch package
+  # already depends on. Windows keeps the DPAPI path in `accounts.rs`, which is
+  # bound to the account's own salt and needs no migration.
+  flutter_secure_storage: ^9.2.2
 
 dev_dependencies:
   flutter_test:

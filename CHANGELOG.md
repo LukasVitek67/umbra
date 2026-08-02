@@ -8,6 +8,28 @@ person who wrote the code. Newest first.
 
 NullChat is experimental and has not been independently audited.
 
+## 2.5.12
+
+- **The bar at the bottom on a phone works.** Tapping a section changed the
+  value and told nobody, so nothing repainted and the tap looked ignored. The
+  desktop rail was fine because it rebuilt its own shell; the phone had no such
+  shell. Both go through the same notification now.
+
+- **Automatic sign-in is back on Android and Linux, properly.** It was hidden
+  there in 2.5.11 because the Rust side knows exactly one way to protect a
+  secret — Windows DPAPI — and returned "cannot" everywhere else. That was the
+  wrong fix: both platforms have a real secret store, and on Android it is
+  better than the one Windows offers.
+
+  Android keeps the passphrase in the **Keystore**, where the key is
+  hardware-backed on devices with a secure element and cannot be extracted even
+  by this app. Linux uses the **Secret Service** (the login keyring). Windows is
+  unchanged, so nothing needs migrating.
+
+  The warning next to the checkbox now says what is true on the device you are
+  holding: on Windows and Linux, anything running as you can open the account;
+  on Android, other apps cannot read it, but whoever unlocks the phone can.
+
 ## 2.5.11
 
 Three things that made NullChat unusable on a phone. All three are old; they

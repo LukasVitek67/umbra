@@ -55,6 +55,25 @@ Remove-Item $tarball, "$tarball.sig" -Force -ErrorAction SilentlyContinue
 gh release download "v$Version" -R LukasVitek67/umbra -p $name -D $dir --clobber
 if ($LASTEXITCODE -ne 0) { throw "no $name on release v$Version - has the Linux workflow run for this tag?" }
 
+# What the release says the file is, against what actually landed on disk.
+#
+# This is not paranoia. On a bad line `gh release download` has returned 0
+# having written a partial file, and the next two steps sign whatever is in
+# front of them: 2.5.11 shipped a signature and a manifest computed over 8.3 MB
+# of a 14.2 MB tarball. Both were valid signatures - of the wrong bytes - so
+# nothing downstream could tell, and the Arch package would have refused the
+# real file. A signature is a statement about content; signing content you did
+# not fully receive is the one mistake that turns the whole scheme into
+# decoration.
+$expected = gh release view "v$Version" -R LukasVitek67/umbra --json assets `
+    --jq ".assets[] | select(.name==`"$name`") | .size"
+if ($LASTEXITCODE -ne 0 -or -not $expected) { throw "could not read the published size of $name" }
+$actual = (Get-Item $tarball).Length
+if ([int64]$expected -ne [int64]$actual) {
+    throw "$name came down incomplete: $actual of $expected bytes. Re-run; the download resumes."
+}
+Write-Host "  $actual bytes, matching the published asset"
+
 Write-Host "== signing =="
 & $signer sign $KeyFile $tarball
 if ($LASTEXITCODE -ne 0) { throw 'signing the tarball failed' }
