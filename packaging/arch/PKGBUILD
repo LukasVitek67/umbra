@@ -1,14 +1,14 @@
-﻿# Maintainer: LukĂˇĹˇ VĂ­tek <lukas.vitek.lbc@gmail.com>
+# Maintainer: Lukáš Vítek <lukas.vitek.lbc@gmail.com>
 #
 # Builds NullChat from the signed release tarball rather than from a git
-# checkout, so what pacman installs is the same artifact published on GitHub â€”
+# checkout, so what pacman installs is the same artifact published on GitHub —
 # and the signature is actually checked below, which is the whole point of
 # packaging it this way.
 
 pkgname=nullchat
 pkgver=2.5.12
 pkgrel=1
-pkgdesc="Peer-to-peer encrypted messenger over Tor â€” no server, no account, no user directory"
+pkgdesc="Peer-to-peer encrypted messenger over Tor — no server, no account, no user directory"
 arch=('x86_64')
 url="https://github.com/LukasVitek67/umbra"
 license=('AGPL3')
@@ -41,20 +41,20 @@ sha256sums=('02f2dd15b63f5521d844f7c706c44dd95dc0613775864f41d5340fec9d28fca3'
 prepare() {
   # The release signature is Ed25519 over the tarball, verifiable with the
   # public key baked into every NullChat build. If `nullchat-sign` is not
-  # installed there is nothing to verify with â€” say so loudly rather than
+  # installed there is nothing to verify with — say so loudly rather than
   # quietly installing an unverified binary.
   if command -v nullchat-sign >/dev/null 2>&1; then
-    msg2 "Verifying the release signatureâ€¦"
+    msg2 "Verifying the release signature…"
     nullchat-sign verify \
       89fec22189550db91adda520386ee2810725d95d8e21e71e31d9f5f7ff512e00 \
       "$srcdir/$pkgname-$pkgver.tar.gz" \
-      || { error "signature does NOT match â€” refusing to package"; return 1; }
+      || { error "signature does NOT match — refusing to package"; return 1; }
     # The manifest is what binds this tarball to this version, so an unsigned
     # manifest would make the cross-check below worthless.
     nullchat-sign verify \
       89fec22189550db91adda520386ee2810725d95d8e21e71e31d9f5f7ff512e00 \
       "$srcdir/MANIFEST-$pkgver-linux-x86_64.txt" \
-      || { error "manifest signature does NOT match â€” refusing to package"; return 1; }
+      || { error "manifest signature does NOT match — refusing to package"; return 1; }
   else
     warning "nullchat-sign not found: the release signature was NOT verified."
     warning "pacman still checks the sha256sums above."
