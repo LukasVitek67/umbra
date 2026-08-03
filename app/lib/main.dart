@@ -501,7 +501,15 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Widget _shell() {
-    return LayoutBuilder(
+    // Listening here, not only inside the pieces. The shell decides which
+    // section is on screen, so it has to rebuild when that changes — and the
+    // only thing that used to make it rebuild was the desktop rail's own
+    // `setState`. The bar on a phone has no State of ours to call: it set the
+    // section, the bar redrew itself (it listens), and the screen above it did
+    // not. The buttons lit up and nothing happened.
+    return ListenableBuilder(
+      listenable: appState,
+      builder: (context, _) => LayoutBuilder(
         builder: (context, constraints) {
           // Below this width a two-pane layout would squeeze both panes, so we
           // fall back to one pane at a time (list, then conversation).
@@ -512,7 +520,9 @@ class _HomeShellState extends State<HomeShell> {
             // Settings sits at the bottom with the account, where you look for
             // it rather than pass it on the way to a conversation.
             selectedIndex: _index < 3 ? _index : null,
-            onDestinationSelected: (i) => setState(() => appState.railSection = i),
+            // No setState: assigning the section notifies, and the shell above
+            // listens. Both layouts now change the screen the same way.
+            onDestinationSelected: (i) => appState.railSection = i,
             labelType: NavigationRailLabelType.all,
             leading: const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
@@ -604,6 +614,7 @@ class _HomeShellState extends State<HomeShell> {
             ],
           );
         },
+      ),
     );
   }
 }
