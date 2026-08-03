@@ -1,14 +1,14 @@
-# Maintainer: Lukáš Vítek <lukas.vitek.lbc@gmail.com>
+﻿# Maintainer: LukĂˇĹˇ VĂ­tek <lukas.vitek.lbc@gmail.com>
 #
 # Builds NullChat from the signed release tarball rather than from a git
-# checkout, so what pacman installs is the same artifact published on GitHub —
+# checkout, so what pacman installs is the same artifact published on GitHub â€”
 # and the signature is actually checked below, which is the whole point of
 # packaging it this way.
 
 pkgname=nullchat
-pkgver=2.5.1
+pkgver=2.5.12
 pkgrel=1
-pkgdesc="Peer-to-peer encrypted messenger over Tor — no server, no account, no user directory"
+pkgdesc="Peer-to-peer encrypted messenger over Tor â€” no server, no account, no user directory"
 arch=('x86_64')
 url="https://github.com/LukasVitek67/umbra"
 license=('AGPL3')
@@ -33,28 +33,28 @@ source=(
   "MANIFEST-$pkgver-linux-x86_64.txt.sig::$url/releases/download/v$pkgver/MANIFEST-$pkgver-linux-x86_64.txt.sig"
 )
 # Real hashes: 'SKIP' would throw away the integrity check pacman gives for free.
-sha256sums=('dc13df93c5197d9fb7419cccd09d90efcbd434d75719a153ec37c20290805ea0'
-            '479dbc88832ebf9ae174a647b22a33714c679aebb1994a61f543607d45d673f0'
-            'ed89cba713c3899327d968f033756c109431e6f40cf22625001427ca03829576'
-            'f26a7a1d01261095cbf8a7e5d6e577929898f4b373c3683c8b7d0ff5b3efbe77')
+sha256sums=('02f2dd15b63f5521d844f7c706c44dd95dc0613775864f41d5340fec9d28fca3'
+            '047d20e750daa5c19c6d0bc058b11876b753a1f86efd34079c4cf0c8c1429cc7'
+            'e0c31517dc982d5f6d80eb0784980db70da2976e1a79cfe0fdc4e737cbe004d2'
+            '5adfb183289c23a4bb04488220f286c1d815c8a57a2ac3feffe803c6b6c1f2a9')
 
 prepare() {
   # The release signature is Ed25519 over the tarball, verifiable with the
   # public key baked into every NullChat build. If `nullchat-sign` is not
-  # installed there is nothing to verify with — say so loudly rather than
+  # installed there is nothing to verify with â€” say so loudly rather than
   # quietly installing an unverified binary.
   if command -v nullchat-sign >/dev/null 2>&1; then
-    msg2 "Verifying the release signature…"
+    msg2 "Verifying the release signatureâ€¦"
     nullchat-sign verify \
       89fec22189550db91adda520386ee2810725d95d8e21e71e31d9f5f7ff512e00 \
       "$srcdir/$pkgname-$pkgver.tar.gz" \
-      || { error "signature does NOT match — refusing to package"; return 1; }
+      || { error "signature does NOT match â€” refusing to package"; return 1; }
     # The manifest is what binds this tarball to this version, so an unsigned
     # manifest would make the cross-check below worthless.
     nullchat-sign verify \
       89fec22189550db91adda520386ee2810725d95d8e21e71e31d9f5f7ff512e00 \
       "$srcdir/MANIFEST-$pkgver-linux-x86_64.txt" \
-      || { error "manifest signature does NOT match — refusing to package"; return 1; }
+      || { error "manifest signature does NOT match â€” refusing to package"; return 1; }
   else
     warning "nullchat-sign not found: the release signature was NOT verified."
     warning "pacman still checks the sha256sums above."

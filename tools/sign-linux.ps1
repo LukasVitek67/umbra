@@ -65,9 +65,16 @@ if ($LASTEXITCODE -ne 0) { throw "no $name on release v$Version - has the Linux 
 # real file. A signature is a statement about content; signing content you did
 # not fully receive is the one mistake that turns the whole scheme into
 # decoration.
-$expected = gh release view "v$Version" -R LukasVitek67/umbra --json assets `
-    --jq ".assets[] | select(.name==`"$name`") | .size"
-if ($LASTEXITCODE -ne 0 -or -not $expected) { throw "could not read the published size of $name" }
+# Filtered here rather than with --jq: PowerShell mangles an expression that
+# carries both spaces and quotes on its way to a native executable, and the
+# check then fails on a release that is perfectly fine - which is worse than no
+# check, because the next person deletes it.
+$assetsJson = gh release view "v$Version" -R LukasVitek67/umbra --json assets
+if ($LASTEXITCODE -ne 0) { throw "could not read the release assets for v$Version" }
+$expected = ($assetsJson | ConvertFrom-Json).assets |
+    Where-Object { $_.name -eq $name } |
+    Select-Object -ExpandProperty size -First 1
+if (-not $expected) { throw "could not read the published size of $name" }
 $actual = (Get-Item $tarball).Length
 if ([int64]$expected -ne [int64]$actual) {
     throw "$name came down incomplete: $actual of $expected bytes. Re-run; the download resumes."
