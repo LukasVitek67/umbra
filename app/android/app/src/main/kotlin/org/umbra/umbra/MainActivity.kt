@@ -69,6 +69,30 @@ class MainActivity : FlutterActivity() {
                         secrets.edit().remove(call.argument<String>("key")!!).commit()
                     }.fold({ result.success(true) }, { result.success(false) })
 
+                    // --- staying reachable in the background ---
+
+                    "backgroundStart" -> runCatching {
+                        StayOnlineService.start(applicationContext)
+                    }.fold({ result.success(true) }, { result.success(false) })
+
+                    "backgroundStop" -> runCatching {
+                        StayOnlineService.stop(applicationContext)
+                    }.fold({ result.success(true) }, { result.success(false) })
+
+                    // Read by BootReceiver, which has no way to ask Flutter.
+                    "backgroundSetStartOnBoot" -> runCatching {
+                        val on = call.argument<Boolean>("enabled") ?: false
+                        getSharedPreferences(BootReceiver.PREFS, MODE_PRIVATE)
+                            .edit()
+                            .putBoolean(BootReceiver.KEY_START_ON_BOOT, on)
+                            .commit()
+                    }.fold({ result.success(it) }, { result.success(false) })
+
+                    "backgroundStartOnBoot" -> runCatching {
+                        getSharedPreferences(BootReceiver.PREFS, MODE_PRIVATE)
+                            .getBoolean(BootReceiver.KEY_START_ON_BOOT, false)
+                    }.fold({ result.success(it) }, { result.success(false) })
+
                     else -> result.notImplemented()
                 }
             }

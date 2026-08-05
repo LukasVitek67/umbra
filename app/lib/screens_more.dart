@@ -10,6 +10,7 @@ import 'licenses.dart';
 import 'notifications.dart';
 import 'mock.dart';
 import 'screens_chats.dart' show ScreenHeader;
+import 'stay_online.dart';
 import 'theme.dart';
 
 IconData _platformIcon(String platform) {
@@ -369,6 +370,11 @@ class SettingsScreen extends StatelessWidget {
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                 child: _AutostartPanel(),
+              ),
+            if (StayOnline.instance.supported)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                child: _StayOnlinePanel(),
               ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
@@ -1054,6 +1060,101 @@ class _AutostartPanelState extends State<_AutostartPanel> {
           Switch(
             value: _on ?? false,
             onChanged: _on == null ? null : _toggle,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Staying reachable on a phone, and coming back after a restart.
+///
+/// Two switches rather than one because they are two decisions. The first is
+/// "keep working when I am not looking at the app" — without it a message you
+/// were sent waits until you open NullChat, which is the commonest reason one
+/// seems lost. The second is "and after the phone restarts", which some people
+/// want and some consider an app overstepping.
+class _StayOnlinePanel extends StatefulWidget {
+  const _StayOnlinePanel();
+
+  @override
+  State<_StayOnlinePanel> createState() => _StayOnlinePanelState();
+}
+
+class _StayOnlinePanelState extends State<_StayOnlinePanel> {
+  bool? _on;
+  bool? _boot;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final on = await StayOnline.instance.enabled();
+    final boot = await StayOnline.instance.startsOnBoot();
+    if (mounted) setState(() { _on = on; _boot = boot; });
+  }
+
+  Future<void> _toggle(bool want) async {
+    setState(() => _on = want);
+    await StayOnline.instance.setEnabled(want);
+    await _load();
+  }
+
+  Future<void> _toggleBoot(bool want) async {
+    setState(() => _boot = want);
+    await StayOnline.instance.setStartOnBoot(want);
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Panel(
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(Icons.wifi_tethering, color: UmbraColors.textMuted),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(L.t('settings.stayOnline'),
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 3),
+                    Text(L.t('settings.stayOnlineHelp'),
+                        style: TextStyle(color: UmbraColors.textMuted, fontSize: 13)),
+                  ],
+                ),
+              ),
+              Switch(value: _on ?? false, onChanged: _on == null ? null : _toggle),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const SizedBox(width: 38),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(L.t('settings.startOnBoot'),
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 3),
+                    Text(L.t('settings.startOnBootHelp'),
+                        style: TextStyle(color: UmbraColors.textMuted, fontSize: 13)),
+                  ],
+                ),
+              ),
+              Switch(
+                value: _boot ?? false,
+                // Only meaningful while the first switch is on.
+                onChanged: (_boot == null || _on != true) ? null : _toggleBoot,
+              ),
+            ],
           ),
         ],
       ),

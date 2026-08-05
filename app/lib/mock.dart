@@ -5,6 +5,7 @@
 // encrypted at rest. Live peer-to-peer send/receive over the transport is the
 // remaining step; until then, `sendMessage` stores the message locally.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -15,6 +16,7 @@ import 'l10n.dart';
 import 'notifications.dart';
 import 'passphrase_vault.dart';
 import 'single_instance.dart';
+import 'stay_online.dart';
 import 'src/rust/api/nullchat.dart';
 
 const List<int> kPaddingBuckets = [256, 1024, 4096, 16384, 65536];
@@ -626,6 +628,9 @@ class AppState extends ChangeNotifier {
 
   /// Forget everything the signed-in account put on screen.
   void _clearSessionState() {
+    // The session is gone, so nothing is reachable — the notification must not
+    // outlive what it describes.
+    unawaited(StayOnline.instance.stop());
     _app = null;
     hasIdentity = false;
     username = '';
@@ -655,6 +660,9 @@ class AppState extends ChangeNotifier {
     _reloadContacts();
     _reloadGroups();
     _startNetwork(app);
+    // Only now: before the network is up there is nothing to keep alive, and a
+    // notification claiming otherwise would be false.
+    unawaited(StayOnline.instance.applyStoredPreference());
     devices
       ..clear()
       ..add(Device(

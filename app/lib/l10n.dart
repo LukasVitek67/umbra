@@ -292,6 +292,12 @@ class L {
       'groups.you': 'You',
       'groups.onlineOnly':
           'A group message reaches the members who are online right now — there is no server to hold it.',
+      'settings.stayOnline': 'Stay reachable in the background',
+      'settings.stayOnlineHelp':
+          'Keeps NullChat running when you leave the app, so messages arrive and anything waiting goes out. Android shows a permanent notice while it does. Without this, nothing moves until you open the app.',
+      'settings.startOnBoot': 'Start after a restart',
+      'settings.startOnBootHelp':
+          'Comes back on its own when the phone restarts. It does not unlock the account — that still needs your passphrase, or automatic sign-in.',
       'settings.autostart': 'Start with Windows',
       'settings.autostartHelp':
           'NullChat launches when you sign in, so you are reachable without opening it by hand.',
@@ -729,6 +735,12 @@ class L {
       'groups.you': 'Ty',
       'groups.onlineOnly':
           'Skupinová zpráva dojde těm, kdo jsou právě online — není žádný server, který by ji podržel.',
+      'settings.stayOnline': 'Zůstat dosažitelný na pozadí',
+      'settings.stayOnlineHelp':
+          'Nechá NullChat běžet, i když z aplikace odejdeš — zprávy dorazí a co čeká ve frontě, odejde. Android po tu dobu ukazuje trvalé oznámení. Bez toho se nic nepohne, dokud aplikaci neotevřeš.',
+      'settings.startOnBoot': 'Spustit po restartu',
+      'settings.startOnBootHelp':
+          'Naběhne sám, když telefon restartuješ. Účet tím neodemkne — na to je pořád potřeba fráze, nebo automatické přihlášení.',
       'settings.autostart': 'Spouštět s Windows',
       'settings.autostartHelp':
           'NullChat se spustí po přihlášení, takže jsi dostupný i bez ručního zapnutí.',

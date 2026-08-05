@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Text for the background service. It lives here rather than in the app's own
+  translations because Android draws the notification, not Flutter — the system
+  needs these before any Dart has run.
+
+  Deliberately says nothing about messages: a notification is stored by the
+  system, survives the app, and can be read from a locked screen.
+-->
+<resources>
+    <string name="online_channel_name">Připojení</string>
+    <string name="online_channel_description">Drží NullChat dosažitelný, když aplikace není na obrazovce.</string>
+    <string name="online_title">NullChat běží</string>
+    <string name="online_text">Zůstáváš dosažitelný přes Tor.</string>
+</resources>

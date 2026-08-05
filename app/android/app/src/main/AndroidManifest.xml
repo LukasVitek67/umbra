@@ -3,7 +3,17 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- So the messenger can stay reachable while the screen is off. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <!-- From API 34 a foreground service must also declare its type. Ours is
+         "specialUse": the app holds a Tor onion service open so contacts can
+         reach it, which is not any of the named categories. It is deliberately
+         not "dataSync" — from Android 15 that type is capped at a few hours a
+         day, and a messenger that stops being reachable after lunch is not a
+         messenger. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Only to start again after a restart, and only when the user asked for
+         it. See StayOnlineService and the switch in Settings. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
     <application
         android:label="NullChat"
@@ -34,6 +44,32 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Keeps the process alive when the app is not on screen. Without it
+             Android reclaims NullChat the moment you leave it: Tor stops, the
+             onion service goes away, and nothing queued goes out until you open
+             the app again. That is the single biggest reason a message "never
+             arrived". -->
+        <service
+            android:name=".StayOnlineService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps a Tor onion service open so contacts can deliver messages peer-to-peer; there is no server to hold them." />
+        </service>
+
+        <!-- Starts the service again after a restart. Does nothing unless the
+             user turned that on — see BootReceiver. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+        </receiver>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
